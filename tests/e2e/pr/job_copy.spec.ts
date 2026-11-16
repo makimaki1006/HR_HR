@@ -104,8 +104,9 @@ test.describe('案件管理のタイムライン', () => {
     // ここから「くわしい分析」の横画面（旧タブ全体）の中を確かめる
     await openOtherAnalysis(page, 'タイムライン');
     const primary = page.getByRole('tablist', { name: '求人管理の機能', exact: true });
-    await expect(primary.getByRole('tab')).toHaveText(['タイムライン', '本文・画像', '変更差分', '求人比較', '応募者構成', '応募理由', 'メモ']);
-    await expect(primary.getByRole('tab', { name: 'タイムライン', exact: true })).toHaveAttribute('aria-selected', 'true');
+    await expect(primary.getByRole('tab')).toHaveText(['本文と画像', '変更の前後', 'ほかの求人と比べる', '応募者', '応募理由', 'メモ']);
+    // タイムラインはページのライフラインと重なるので、タブには並べず URL で開く
+    await expect(primary.getByRole('tab', { name: 'タイムライン', exact: true })).toHaveCount(0);
     const timeline = page.getByRole('region', { name: 'タイムライン', exact: true });
     for (const lane of ['掲載期間', '給与', '本文', '画像', '課金', '応募', '市場']) await expect(timeline.getByRole('group', { name: lane, exact: true })).toBeVisible();
     const salary = timeline.getByRole('group', { name: '給与', exact: true });
@@ -563,7 +564,7 @@ test('ライフラインの変更印は週でまとまり、キーボードで�
   if (process.env.LIFELINE_SCREENSHOT) {
     await page.clock.setSystemTime(new Date('2026-10-05T03:00:00Z'));
     await page.goto('/app/job-copy?demo=1&job=demo-job-001');
-    await expect(chart.locator('.lf-change')).toHaveText(['5本文・給与・画像変更', '9本文・給与・画像変更']);
+    await expect(chart.locator('.lf-change')).toHaveText(['3本文・給与・画像変更', '5本文・給与・画像変更']);
     await chart.screenshot({ path: process.env.LIFELINE_SCREENSHOT.replace(/\.png$/, '-demo.png') });
   }
 });

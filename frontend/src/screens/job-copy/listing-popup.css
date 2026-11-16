@@ -45,3 +45,6 @@
 
 .jc-app .jc-listing-changes input { width:auto; margin:0; padding:0; flex-shrink:0; }
 .jc-listing-popup mark.jc-mark-removed { background:#f2a3a3; color:#5c0f0f; border-radius:2px; box-shadow:0 -1px 0 #a33b3b inset; }
+.jc-listing-popup-bar { display:flex; flex-wrap:wrap; align-items:center; gap:8px 16px; margin:0 0 8px; }
+.jc-listing-popup-bar .jc-listing-popup-note { margin:0; }
+.jc-listing-popup-heading button.jc-listing-close { font-size:14px; line-height:1.4; }

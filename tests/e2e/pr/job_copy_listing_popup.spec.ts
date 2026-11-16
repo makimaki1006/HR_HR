@@ -85,7 +85,7 @@ for (const viewport of [{ width: 1440, height: 742 }, { width: 1920, height: 108
   await page.keyboard.press('Tab');
   const focusInside = await dialog.evaluate(element => element.contains(document.activeElement)); expect(focusInside).toBe(true);
   await page.keyboard.press('Escape'); await expect(dialog).toHaveCount(0); await expect(opener).toBeFocused();
-  await openOtherAnalysis(page, '本文・画像');
+  await openOtherAnalysis(page, '本文と画像');
   await page.getByRole('button', { name: /10\/1( 09:00)? の本文/ }).click();
   await closeOtherAnalysis(page);
   await opener.click(); await expect(dialog).toContainText('以前の本文の最後の文章です。'); await expect(dialog).not.toContainText('最後の作業では翌日の出荷予定を確認');

@@ -11,6 +11,30 @@ interface Props { record: JobCopyRecord; prefecture: string | null; onChanged: (
 
 const NONE = '__none__';
 const normalize = (value: string) => value.normalize('NFKC').replace(/\s+/gu, '').toLowerCase();
+/** 「市場と比べない」の選択肢の表示（保存値は title: null, compare: false）。 */
+export const NONE_CHOICE_LABEL = '指定しない（市場の数字を出さない）';
+
+/** 職種名と求人名で、続けて同じ文字がいくつ重なるか（いちばん長い重なり）。 */
+function overlap(title: string, name: string): number {
+  let best = 0;
+  for (let start = 0; start < title.length; start++) {
+    for (let end = title.length; end - start > best; end--) {
+      if (name.includes(title.slice(start, end))) { best = end - start; break; }
+    }
+  }
+  return best;
+}
+
+/**
+ * 職種の候補を、求人名に含まれる言葉に近い順に並べる（画面の並べ替えだけ。自動では選ばない）。
+ * 職種名がまるごと求人名にあるものを先に、次に 2 文字以上重なるものを重なりの長い順に。ほかは元の順のまま。
+ */
+export function rankTitlesByName(titles: readonly string[], listingName: string | null | undefined): string[] {
+  const name = normalize(listingName ?? '');
+  if (!name) return [...titles];
+  const score = (title: string) => { const t = normalize(title); if (!t) return 0; if (name.includes(t)) return 1000 + t.length; const n = overlap(t, name); return n >= 2 ? n : 0; };
+  return titles.map((title, index) => ({ title, index, score: score(title) })).sort((a, b) => b.score - a.score || a.index - b.index).map(item => item.title);
+}
 
 export function errorText(error: unknown): string {
   if (error instanceof AuthRequiredError) return 'Googleでログインしてから保存してください。';
@@ -27,11 +51,11 @@ export function errorText(error: unknown): string {
 export function MarketOccupationSlot({ record, prefecture, onChanged }: Props) {
   const state = indeedTitleState(record);
   const [open, setOpen] = useState(false);
-  const label = state === 'set' ? designatedTitle(record) ?? '' : state === 'none' ? '市場と比べない' : '未指定';
+  const label = state === 'set' ? designatedTitle(record) ?? '' : state === 'none' ? '指定しない' : '未指定';
   return <div className="mo-slot" data-state={state}>
     <span className="mo-label">職種</span>
     {state !== 'unset' && <strong className="mo-value">{label}</strong>}
-    <span className={`mo-chip mo-chip-${state}`}>{state === 'set' ? '指定済み' : state === 'none' ? '市場と比べない' : '未指定'}</span>
+    <span className={`mo-chip mo-chip-${state}`}>{state === 'set' ? '指定済み' : state === 'none' ? '市場の数字を出さない' : '未指定'}</span>
     {prefecture && <span className="mo-pref">都道府県：{prefecture}</span>}
     <button type="button" className="jc-button mo-open" onClick={() => { setOpen(true); }}>{state === 'unset' ? '職種を指定する' : '職種を変える'}</button>
     <span className="mo-save-note">選んだ職種は、HubSpot のこの求人の項目「比べる Indeed 職種」に保存されます。</span>
@@ -66,8 +90,8 @@ function OccupationDrawer({ record, onClose, onSaved }: { record: JobCopyRecord;
   }, [onClose, saving]);
   const shown = useMemo(() => {
     const needle = normalize(query);
-    return (titles ?? []).filter(title => !needle || normalize(title).includes(needle));
-  }, [titles, query]);
+    return rankTitlesByName((titles ?? []).filter(title => !needle || normalize(title).includes(needle)), record.title);
+  }, [titles, query, record.title]);
   const fields = record.currentListingFields ?? {};
   const hints: [string, string][] = [['求人票の職種', fields['職種'] ?? ''], ['Indeed表示職種名', fields['Indeed表示職種名'] ?? '']];
   const shownHints = hints.filter(([, value]) => value.trim());
@@ -84,7 +108,7 @@ function OccupationDrawer({ record, onClose, onSaved }: { record: JobCopyRecord;
 
   return createPortal(<div className="mo-backdrop" onMouseDown={event => { if (event.target === event.currentTarget && !saving) onClose(); }}>
     <aside className="mo-drawer" role="dialog" aria-modal="true" aria-labelledby={headingId}>
-      <header><h2 id={headingId}>市場と比べる職種を指定する</h2><button type="button" className="jc-button" aria-label="閉じる" onClick={onClose} disabled={saving}>×</button></header>
+      <header><h2 id={headingId}>市場と比べる職種を指定する</h2><button type="button" className="jc-button" onClick={onClose} disabled={saving}>閉じる</button></header>
       <div className="mo-body">
         <section className="mo-hints" aria-label="選ぶときの手がかり">
           <h3>選ぶときの手がかり（自動では決めません）</h3>
@@ -95,7 +119,7 @@ function OccupationDrawer({ record, onClose, onSaved }: { record: JobCopyRecord;
         {!titles && !loadError && <p role="status">職種の一覧を読み込み中…</p>}
         {titles && <fieldset className="mo-list">
           <legend className="jc-visually-hidden">Indeed の職種</legend>
-          <label className="mo-option mo-option-none"><input type="radio" name="mo-title" checked={choice === NONE} onChange={() => { setChoice(NONE); }} />市場と比べない</label>
+          <label className="mo-option mo-option-none"><input type="radio" name="mo-title" checked={choice === NONE} onChange={() => { setChoice(NONE); }} />{NONE_CHOICE_LABEL}</label>
           {shown.map(title => <label className="mo-option" key={title}><input type="radio" name="mo-title" checked={choice === title} onChange={() => { setChoice(title); }} />{title}</label>)}
           {!shown.length && <p>一致する職種はありません。</p>}
         </fieldset>}

@@ -7,6 +7,7 @@ import { contractWriteApi } from './dealContractApi';
 import { ownerParams } from './OwnerTodo';
 import { useJobCopySearch } from './navigation';
 import { formatDateJst } from './format';
+import { OutLink } from './Pressable';
 import { MANUAL_LINKS_FIELD, addManualLink, dealChoices, removeManualLink } from './unlinkedMtgModel';
 import type { UnlinkedResponse, UnlinkedRow } from './unlinkedMtgModel';
 import { demoUnlinkedMtg } from './demoUnlinkedMtg';
@@ -78,7 +79,7 @@ export function UnlinkedMtg() {
     else say(row.uuid, out.kind === 'error' ? out.message : '取り消せませんでした。もう一度お試しください。');
   }, [write]);
 
-  return <div className="jc-page"><main className="um-main" id="job-details"><header><div><h1>未連携のMTG</h1><p className="um-sub">夜の更新で案件に結び付けられなかった録画です。案件を選ぶと、次の夜の更新で反映されます。</p></div><button className="jc-button" onClick={() => { setFresh(true); setReload(n => n + 1); }}>再読み込み</button></header>
+  return <div className="jc-page"><main className="um-main" id="job-details"><header><div><h1>案件が決まっていないMTG録画</h1><p className="um-sub">夜の更新で案件に結び付けられなかった録画です。案件を選ぶと、次の夜の更新で反映されます。</p></div><button className="jc-button" onClick={() => { setFresh(true); setReload(n => n + 1); }}>再読み込み</button></header>
     {error && <p role="alert">一覧を読み込めませんでした。再読み込みしてください。</p>}
     {!error && (!data || data.status === 'preparing') && <p role="status">一覧を準備しています…</p>}
     {data?.status === 'failed' && <p role="alert">一覧を取得できませんでした。再読み込みしてください。</p>}
@@ -86,7 +87,7 @@ export function UnlinkedMtg() {
     {data?.status === 'ready' && data.selected_known === false && <p role="status">選択済みかどうかを確認できませんでした。選んだ録画にも印が付かないことがあります。</p>}
     {data?.status === 'ready' && write.writesEnabled === false && <p role="status">{WRITES_OFF_NOTE}。いまは見るだけです。</p>}
     {data?.status === 'ready' && write.writesEnabled === true && !editable && <p role="status">この項目を編集する権限がありません。いまは見るだけです。</p>}
-    {data?.status === 'ready' && <ul className="um-list" aria-label="未連携のMTG">
+    {data?.status === 'ready' && <ul className="um-list" aria-label="案件が決まっていないMTG録画">
       {rows.map(r => {
         const chosen: Chosen = r.uuid in local ? local[r.uuid] ?? null : r.selected ? { deal_id: r.selected.deal_id, deal_name: r.selected.deal_name, pending: false } : null;
         const choices = dealChoices(r, data.own_deals);
@@ -96,7 +97,7 @@ export function UnlinkedMtg() {
         const busy = (key !== '' && ['saving', 'queued'].includes(write.statuses[key]?.phase ?? '')) || ['保存しています…', '取り消しています…'].includes(messages[r.uuid] ?? '');
         return <li key={r.uuid} className="um-row">
           <div><span className="um-date">{formatDateJst(r.date, '日付なし')}</span><span className="um-host">{r.host ? `ホスト：${r.host}` : 'ホスト不明'}</span></div>
-          <div><p className="um-subject">{r.subject || '件名なし'}</p><span className="um-sub">{r.recording && <a href={r.recording} target="_blank" rel="noreferrer">録画を開く</a>}{r.other_candidates > 0 && <> ／ シートの候補はほかに{r.other_candidates}件</>}</span></div>
+          <div><p className="um-subject">{r.subject || '件名なし'}</p><span className="um-sub">{r.recording && <OutLink href={r.recording} label="録画を開く" name="録画を開く（新しいタブ）" />}{r.other_candidates > 0 && <> ／ シートの候補はほかに{r.other_candidates}件</>}</span></div>
           <div className="um-pick">
             {chosen ? <p className="um-done" role="status">選択済み・夜の更新で反映<small>{chosen.deal_name || chosen.deal_id}{chosen.pending ? '（HubSpotへの反映待ち）' : ''}</small></p>
               : choices.length === 0 ? <p className="um-sub">選べる案件がありません。</p>
@@ -113,7 +114,7 @@ export function UnlinkedMtg() {
           </div>
         </li>;
       })}
-      {rows.length === 0 && <li className="um-sub">未連携の録画はありません。</li>}
+      {rows.length === 0 && <li className="um-sub">案件が決まっていない録画はありません。</li>}
     </ul>}
   </main></div>;
 }

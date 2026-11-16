@@ -31,11 +31,12 @@ describe('job copy layout', () => {
     expect(screen.getByRole('heading', { name: '出来事（新しい順）' })).toBeTruthy();
     expect(screen.queryByRole('tablist', { name: '求人管理の機能' })).toBeNull();
     expect(screen.queryByRole('dialog', { name: 'くわしい分析' })).toBeNull();
-    // くわしい分析からタイムラインを開くと、従来のタブがそのまま使える
+    // タイムラインはページのライフラインと重なるのでタブから外した。URL で開くと、見出しと戻る操作だけを出す。
     const drawer = openOtherAnalysis('タイムライン');
     const primary = within(drawer).getByRole('tablist', { name: '求人管理の機能' });
-    expect(within(primary).getAllByRole('tab').map(tab => tab.textContent)).toEqual(['タイムライン', '本文・画像', '変更差分', '求人比較', '応募者構成', '応募理由', 'メモ']);
-    expect(within(primary).getByRole('tab', { name: 'タイムライン' }).getAttribute('aria-selected')).toBe('true');
+    expect(within(primary).getAllByRole('tab').map(tab => tab.textContent)).toEqual(['本文と画像', '変更の前後', 'ほかの求人と比べる', '応募者', '応募理由', 'メモ']);
+    expect(within(primary).queryByRole('tab', { name: 'タイムライン' })).toBeNull();
+    expect(within(drawer).getAllByRole('heading', { name: 'タイムライン' }).length).toBeGreaterThan(0);
     expect(within(drawer).getByRole('region', { name: 'タイムライン' })).toBeTruthy();
     // 1 つしかないサブタブの段は出さない。旧来の操作バーも無い。
     expect(screen.queryByRole('tablist', { name: 'タイムラインの表示' })).toBeNull();
@@ -80,7 +81,7 @@ describe('job copy layout', () => {
     expect(screen.getByRole('button', { name: 'HubSpot の求人に戻す' }).hasAttribute('aria-pressed')).toBe(false);
   });
 
-  it('opens the external-text check from データ取込 and returns to the timeline', async () => {
+  it('opens the external-text check from データ取込 and returns to くわしい分析', async () => {
     vi.stubGlobal('fetch', vi.fn());
     render(<JobCopyScreen />);
     toggleDataImport();
@@ -90,9 +91,9 @@ describe('job copy layout', () => {
     const receive = document.querySelector('[id$="-panel-receive"]');
     expect(receive?.hasAttribute('hidden')).toBe(false);
     expect(within(receive as HTMLElement).getByLabelText('受け取った文面')).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'タイムラインに戻る' }));
+    fireEvent.click(screen.getByRole('button', { name: 'くわしい分析に戻る' }));
     expect(receive?.hasAttribute('hidden')).toBe(true);
-    expect(within(screen.getByRole('tablist', { name: '求人管理の機能' })).getByRole('tab', { name: 'タイムライン' }).getAttribute('aria-selected')).toBe('true');
+    expect(within(screen.getByRole('tablist', { name: '求人管理の機能' })).getByRole('tab', { name: '本文と画像' }).getAttribute('aria-selected')).toBe('true');
   });
 
   it('puts billing CSV rows on the timeline lane and the period table, matched on media + account login ID + job ID', async () => {

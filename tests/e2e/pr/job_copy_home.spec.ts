@@ -287,7 +287,7 @@ test('職種の一括指定は URL から引き続き開ける', async ({ page }
   } }));
   await login(page);
   await page.goto('/app/job-copy?view=occupations');
-  await expect(page.getByText('市場と比べる職種を指定する', { exact: true })).toBeVisible();
+  await expect(page.locator('.ob-crumb').getByText('職種の指定', { exact: true })).toBeVisible();
   await expect(page.getByRole('tab', { name: '未指定（0）' })).toBeVisible();
   await expect(page.getByText('職種が未指定の求人はありません。', { exact: true })).toBeVisible();
 });

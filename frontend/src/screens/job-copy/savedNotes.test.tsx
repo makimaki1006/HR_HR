@@ -102,8 +102,8 @@ describe('要因メモの保存', () => {
     get.mockResolvedValue(notes({ factor: wire('企業名検索が増えている') }));
     put.mockResolvedValue({ ok: true, data: { field: 'factor', ...wire('企業名検索が増えている。10/20確認') } });
     render(<MarketFactors job={live} />);
-    await waitFor(() => { expect(screen.getByLabelText<HTMLTextAreaElement>('会社のブランド力の根拠').value).toBe('企業名検索が増えている'); });
-    fireEvent.change(screen.getByLabelText('会社のブランド力の根拠'), { target: { value: '企業名検索が増えている。10/20確認' } });
+    await waitFor(() => { expect(screen.getByLabelText<HTMLTextAreaElement>('メモ').value).toBe('企業名検索が増えている'); });
+    fireEvent.change(screen.getByLabelText('メモ'), { target: { value: '企業名検索が増えている。10/20確認' } });
     fireEvent.click(screen.getByRole('button', { name: '保存' }));
     await waitFor(() => { expect(put).toHaveBeenCalledWith('/api/job-copy/listings/30/notes/factor', { value: '企業名検索が増えている。10/20確認' }); });
     expect(document.body.textContent).not.toContain('再読み込みで消えます');

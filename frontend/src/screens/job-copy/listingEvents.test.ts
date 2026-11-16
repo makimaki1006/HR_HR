@@ -102,7 +102,7 @@ describe('ほかに応募を動かしそうなことの確認', () => {
   it('課金の出来事自身には課金の確認を出さず、前後4週の本文の変更を「ほかの変更」に出す', () => {
     const checks = eventChecks(at(4), events, billing, { state: 'none' }, '2026-10-09');
     expect(checks.map(check => check.key)).toEqual(['market', 'other']);
-    expect(checks[0]?.text).toBe('市場と比べないと指定されています。');
+    expect(checks[0]?.text).toBe('職種を「指定しない」にしているため、市場とは比べません。');
     expect(checks[1]).toMatchObject({ markLabel: '要注意', text: '「給与を変更」が5日前（8/05）にあります。' });
   });
   it('市場のデータが出来事の月に届いていないときは、いつまであるかを言って比べない', () => {

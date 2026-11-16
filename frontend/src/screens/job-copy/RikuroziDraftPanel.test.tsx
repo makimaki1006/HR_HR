@@ -46,7 +46,7 @@ describe('リクロジメディア向けの案', () => {
     expect(calls.find(c => c.url.endsWith('/rikurozi-draft'))?.url).toBe('/api/job-copy/listings/654321/rikurozi-draft');
     const url = vi.fn().mockReturnValue('blob:review'); vi.stubGlobal('URL', { createObjectURL: url, revokeObjectURL: vi.fn() });
     vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => { /* Download is inspected as a Blob in this test. */ });
-    fireEvent.click(screen.getByRole('button', { name: 'この案でCSVを出す' }));
+    fireEvent.click(screen.getByRole('button', { name: 'HubSpotに求人を作ってCSVを出す' })); fireEvent.click(screen.getByRole('button', { name: 'このまま作る' }));
     await waitFor(() => { expect(url).toHaveBeenCalledTimes(1); });
     expect(await (url.mock.calls[0]?.[0] as Blob).text()).toBe(draft.csv);
     const create = calls.filter(c => c.method === 'POST' && c.url.endsWith('/rikurozi-listing'));
@@ -69,13 +69,13 @@ describe('リクロジメディア向けの案', () => {
     render(<RikuroziDraftPanel listingId="1" />);
     fireEvent.click(screen.getByRole('button', { name: 'リクロジメディア向けの案を作る' }));
     expect((await screen.findByRole('alert')).textContent).toContain('原本から写した条件が一致しないため、出力を止めました（要確認）');
-    expect(screen.queryByRole('button', { name: 'この案でCSVを出す' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'HubSpotに求人を作ってCSVを出す' })).toBeNull();
   });
   it('失敗時に原本の確認と再実行を案内する', async () => {
     routed({ job: () => json({ code: 'customer_relation_unknown' }, 422) });
     render(<RikuroziDraftPanel listingId="1" />); fireEvent.click(screen.getByRole('button', { name: 'リクロジメディア向けの案を作る' }));
     expect((await screen.findByRole('alert')).textContent).toContain('顧客との関連');
-    expect(screen.queryByRole('button', { name: 'この案でCSVを出す' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'HubSpotに求人を作ってCSVを出す' })).toBeNull();
   });
   it('別の求人を選んだ後に古い結果を表示しない', async () => {
     let complete: ((value: Response) => void) | undefined;
@@ -125,12 +125,31 @@ describe('リクロジメディア向けの案', () => {
     fireEvent.click(screen.getByRole('button', { name: 'リクロジメディア向けの案を作る' }));
     await screen.findByText('要確認の案');
   }
+  it('要確認が残っていれば、作る前に件数を示して一度だけたずね、やめれば何も作らない', async () => {
+    const { calls } = routed({});
+    const url = vi.fn().mockReturnValue('blob:review'); vi.stubGlobal('URL', { createObjectURL: url, revokeObjectURL: vi.fn() });
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => { /* inspected as a Blob */ });
+    await openDraft();
+    expect(screen.getByText(/押すと HubSpot に新しい求人（公開前）を1件作り/).textContent).toContain('何度押しても作るのは1件です。');
+    fireEvent.click(screen.getByRole('button', { name: 'HubSpotに求人を作ってCSVを出す' }));
+    expect(screen.getByRole('alertdialog', { name: '作る前の確認' }).textContent).toContain('要確認の項目が 2 件残っています。このまま作りますか');
+    fireEvent.click(screen.getByRole('button', { name: 'やめる' }));
+    expect(screen.queryByRole('alertdialog')).toBeNull();
+    expect(calls.filter(c => c.method === 'POST' && c.url.endsWith('/rikurozi-listing'))).toHaveLength(0);
+    fireEvent.click(screen.getByRole('button', { name: 'HubSpotに求人を作ってCSVを出す' }));
+    fireEvent.click(screen.getByRole('button', { name: 'このまま作る' }));
+    await waitFor(() => { expect(url).toHaveBeenCalledTimes(1); });
+    // 一度「このまま作る」を選んだあとは、たずねずに作る（作るのは同じ1件）。
+    fireEvent.click(screen.getByRole('button', { name: 'HubSpotに求人を作ってCSVを出す' }));
+    expect(screen.queryByRole('alertdialog')).toBeNull();
+    await waitFor(() => { expect(calls.filter(c => c.method === 'POST' && c.url.endsWith('/rikurozi-listing'))).toHaveLength(2); });
+  });
   it('すでにある求人を使ったときは新しく作っていないと伝え、CSVは出す', async () => {
     routed({ create: () => json({ status: 'existing', listing_id: '900', linked_deals: 2, unlinked_deals: 1 }) });
     const url = vi.fn().mockReturnValue('blob:review'); vi.stubGlobal('URL', { createObjectURL: url, revokeObjectURL: vi.fn() });
     vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => { /* inspected as a Blob */ });
     await openDraft();
-    fireEvent.click(screen.getByRole('button', { name: 'この案でCSVを出す' }));
+    fireEvent.click(screen.getByRole('button', { name: 'HubSpotに求人を作ってCSVを出す' })); fireEvent.click(screen.getByRole('button', { name: 'このまま作る' }));
     const note = await screen.findByText(/新しくは作っていません/);
     expect(note.textContent).toContain('2件の案件に関連付けました。関連付けできなかった案件が1件あります。');
     expect(url).toHaveBeenCalledTimes(1);
@@ -139,7 +158,7 @@ describe('リクロジメディア向けの案', () => {
     routed({ create: () => json({ code: 'deal_relation_missing' }, 422) });
     const url = vi.fn(); vi.stubGlobal('URL', { createObjectURL: url, revokeObjectURL: vi.fn() });
     await openDraft();
-    fireEvent.click(screen.getByRole('button', { name: 'この案でCSVを出す' }));
+    fireEvent.click(screen.getByRole('button', { name: 'HubSpotに求人を作ってCSVを出す' })); fireEvent.click(screen.getByRole('button', { name: 'このまま作る' }));
     expect((await screen.findByText(/関連する案件がないため、求人を作っていません/)).textContent).toBeTruthy();
     expect(url).not.toHaveBeenCalled();
   });

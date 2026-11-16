@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApiHttpError } from '../../api/client';
 import type { JobCopyRecord } from './data';
-import { MarketOccupationSlot } from './MarketOccupationSlot';
+import { MarketOccupationSlot, rankTitlesByName } from './MarketOccupationSlot';
 
 const get = vi.hoisted(() => vi.fn());
 const put = vi.hoisted(() => vi.fn());
@@ -68,7 +68,7 @@ describe('MarketOccupationSlot', () => {
   it('saves 市場と比べない as compare:false with no title', async () => {
     put.mockResolvedValue({ ok: true, data: { indeed_title: null, indeed_title_state: 'none' } });
     const { dialog, onChanged } = await open(record);
-    fireEvent.click(within(dialog).getByLabelText('市場と比べない'));
+    fireEvent.click(within(dialog).getByLabelText('指定しない（市場の数字を出さない）'));
     fireEvent.click(within(dialog).getByRole('button', { name: 'この職種を指定する' }));
     await waitFor(() => { expect(onChanged).toHaveBeenCalledWith({ indeedTitle: null, indeedTitleState: 'none' }); });
     expect(put).toHaveBeenCalledWith('/api/job-copy/listings/30/indeed-title', { title: null, compare: false });
@@ -82,5 +82,14 @@ describe('MarketOccupationSlot', () => {
     expect((await within(dialog).findByRole('alert')).textContent).toBe('保存先の項目がまだ用意されていません');
     expect(onChanged).not.toHaveBeenCalled();
     expect(screen.getByRole('dialog')).toBeTruthy();
+  });
+});
+
+describe('職種の候補の並び', () => {
+  it('求人名に含まれる言葉に近い職種を上に出し、ほかは元の順のまま（自動では選ばない）', () => {
+    const titles = ['事務', '介護職', '軽作業', 'ドライバー', '倉庫作業'];
+    expect(rankTitlesByName(titles, '【週3〜】倉庫内の軽作業スタッフ')).toEqual(['軽作業', '倉庫作業', '事務', '介護職', 'ドライバー']);
+    expect(rankTitlesByName(titles, '')).toEqual(titles);
+    expect(rankTitlesByName(titles, null)).toEqual(titles);
   });
 });

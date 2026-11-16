@@ -25,7 +25,7 @@ for (const width of [1440, 1920]) test(`AirWork保存画像5枚と取得不可�
   });
   await page.goto('/app/job-copy?listing=1');
   await findListings(page);
-  await openOtherAnalysis(page, '本文・画像');
+  await openOtherAnalysis(page, '本文と画像');
   const gallery = page.getByRole('region', { name: '現在取得できる掲載画像', exact: true });
   await expect(gallery.locator('img')).toHaveCount(5);
   await expect(gallery.locator('img').nth(4)).toHaveAttribute('src', /slot=5$/);
@@ -50,7 +50,7 @@ for (const width of [1440, 1920]) test(`AirWork保存画像5枚と取得不可�
   await page.keyboard.press('Escape');
   await page.goto('/app/job-copy?listing=3');
   await findListings(page);
-  await openOtherAnalysis(page, '本文・画像');
+  await openOtherAnalysis(page, '本文と画像');
   await expect(page.getByText('画像を取得できませんでした', { exact: true })).toBeVisible();
   expect(externalMedia).toEqual([]);
 });

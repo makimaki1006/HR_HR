@@ -140,7 +140,7 @@ describe('job timeline lanes', () => {
 
   it('fetches nothing when 市場と比べない was chosen on purpose', async () => {
     render(<JobTimeline job={{ ...demo('demo-job-002'), indeedTitle: null, indeedTitleState: 'none' }} />);
-    expect(await screen.findByText('市場と比べないと指定されています')).toBeTruthy();
+    expect(await screen.findByText('職種を「指定しない」にしているため、市場の数字は出しません')).toBeTruthy();
     expect(lastChart('jt-market')).toBeUndefined();
     expect(api).not.toHaveBeenCalled();
   });
@@ -198,8 +198,9 @@ describe('job copy screen integration (demo mode)', () => {
     expect(screen.queryByRole('tablist', { name: '求人管理の機能' })).toBeNull();
     const drawer = openOtherAnalysis('タイムライン');
     const primary = within(drawer).getByRole('tablist', { name: '求人管理の機能' });
-    expect(within(primary).getAllByRole('tab')[0]?.textContent).toBe('タイムライン');
-    expect(within(primary).getByRole('tab', { name: 'タイムライン' }).getAttribute('aria-selected')).toBe('true');
+    // タイムラインはタブに並べず、URL で開く（ページのライフラインと重なるため）。
+    expect(within(primary).queryByRole('tab', { name: 'タイムライン' })).toBeNull();
+    expect(within(drawer).getAllByRole('heading', { name: 'タイムライン' }).length).toBeGreaterThan(0);
     expect(screen.getByRole('group', { name: '応募' })).toBeTruthy();
     await screen.findByText('市場と比べる職種：ドライバー（人が指定）');
     expect(api).not.toHaveBeenCalled();
