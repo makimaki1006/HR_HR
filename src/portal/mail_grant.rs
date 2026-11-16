@@ -318,7 +318,7 @@ async fn callback_inner(
     // 許可した Google のアカウントが送信元本人 (手続きを始めた人) でなければ保存しない
     if !identity.email.eq_ignore_ascii_case(m.sender())
         || !tx.operator.eq_ignore_ascii_case(m.sender())
-        || crate::account_is_disabled(state, &identity.email).await
+        || crate::account_is_disabled_fresh(state, &identity.email).await
     {
         tracing::warn!("[portal] 送信元と違う人の Gmail の許可だったので保存しなかった");
         return refused(

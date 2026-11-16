@@ -717,7 +717,12 @@ impl MiniMaxJudge {
             if !r.status().is_success() {
                 return Err(JudgeError::Transient(format!("http {st}")));
             }
-            let Ok(v) = r.json::<Value>().await else {
+            // 受け取った量を数える (毎分の `mem` の行の `rx_kb=minimax`)
+            let Ok(v) = crate::mem_watch::read_body(crate::mem_watch::Peer::MiniMax, r)
+                .await
+                .map_err(drop)
+                .and_then(|b| serde_json::from_slice::<Value>(&b).map_err(drop))
+            else {
                 last = "body".into();
                 continue;
             };

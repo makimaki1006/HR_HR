@@ -1165,80 +1165,257 @@ pub const SHEETS: &[&str] = &[
 /// そのタブだけ「データが取れていません」と出るほうがよい（起動できないほうが困る）。
 /// なので戻り値は `()` で、失敗はログに出すだけにしてある。
 ///
-/// 🔴 **`tokio::spawn` で呼ぶこと（`main.rs` 参照）。** `SheetStore::get` は
-/// 取得のあいだ書き込みロックを持つので、待って（await して）から listen すると
+/// 🔴 **`tokio::spawn` で呼ぶこと（`main.rs` 参照）。** 待って（await して）から listen すると
 /// 起動が 24秒遅れ、Render のヘルスチェックが落ちる。
-/// 🔴 **戻ってこない。** 最初の先読みのあと、TTL が切れる前に取り直し続ける。
+/// 🔴 **戻ってこない。** 最初の先読みのあと、見ている人がいる間は TTL が切れる前に取り直し続ける。
+///
+/// 2026-11-16 ユーザー決定: **誰も見ていない時間は取り直さない。** 「見ている」は、このシートを使う画面の要求
+/// （コンサルKPI の `/api/consulting/*` と、案件管理の同じシートを読む API。[`note_view`] を呼ぶ所）が
+/// 直近の 1 周期（[`prefetch_interval`]、45 分）以内にあったこと。止まっている間に要求が来て、シートが 1 周期より
+/// 古ければ、その要求で取り直す（[`note_view`]。同時の要求は 1 本にまとめる）。
+/// 起動直後の最初の先読みは残す: 案件管理のホーム・案件一覧（`deal_board::MeetingData::cached`）は
+/// 取り直しを待たない作りで、デプロイ直後（業務時間中が多い）に開いた人が MTG・接触の日付を見られるように。
 pub async fn prefetch() {
-    let state = match crate::handlers::call_quality::routes::cq_state() {
-        Ok(s) => s,
-        Err(_) => {
-            // GOOGLE_SA_KEY_B64 / SPREADSHEET_ID が無い。init_from_env が
-            // 既に warn を出しているので、ここでは二重に騒がない
-            tracing::warn!("コンサルダッシュボード: Sheets が未設定のため先読みしない");
-            return;
+    if crate::handlers::call_quality::routes::cq_state().is_err() {
+        // GOOGLE_SA_KEY_B64 / SPREADSHEET_ID が無い。init_from_env が
+        // 既に warn を出しているので、ここでは二重に騒がない
+        tracing::warn!("コンサルダッシュボード: Sheets が未設定のため先読みしない");
+        return;
+    }
+    {
+        // 起動直後の重い処理は 1 本ずつ (startup_queue)。順番を待ってから取り直しの枠を取る
+        // (順番待ちの間に来た画面の要求は、自分で取り直してよい)
+        let _turn = crate::startup_queue::turn("cs_dashboard.prefetch").await;
+        run_pass(Pass::Startup, None).await;
+    }
+    let every = prefetch_interval();
+    loop {
+        let wait = next_wake(last_pass(), std::time::Instant::now(), every);
+        tokio::time::sleep(wait).await;
+        let now = std::time::Instant::now();
+        if !viewed_within(last_view(), now, every) {
+            // 誰も見ていない。取り直さず、次に見に来た人の要求に任せる (1 周期ごとに見直す)
+            tokio::time::sleep(every).await;
+            continue;
         }
+        run_pass(Pass::Periodic, Some(every)).await;
+    }
+}
+
+/// 最後にこのシートを使う画面の要求が来た時刻
+static LAST_VIEW: std::sync::Mutex<Option<std::time::Instant>> = std::sync::Mutex::new(None);
+/// 最後に全部のシートを取り直し終えた時刻
+static LAST_PASS: std::sync::Mutex<Option<std::time::Instant>> = std::sync::Mutex::new(None);
+/// 取り直しを 1 本にまとめる
+static PASS_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+fn last_view() -> Option<std::time::Instant> {
+    *LAST_VIEW.lock().unwrap_or_else(|e| e.into_inner())
+}
+fn last_pass() -> Option<std::time::Instant> {
+    *LAST_PASS.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// 直近 `every` 以内に見ている人がいたか
+fn viewed_within(
+    view: Option<std::time::Instant>,
+    now: std::time::Instant,
+    every: std::time::Duration,
+) -> bool {
+    view.is_some_and(|v| now.saturating_duration_since(v) < every)
+}
+
+/// 次に起きるまでの時間 (最後の取り直しから `every` 後。まだ取れていなければ `every`)
+fn next_wake(
+    pass: Option<std::time::Instant>,
+    now: std::time::Instant,
+    every: std::time::Duration,
+) -> std::time::Duration {
+    match pass {
+        Some(p) => (p + every)
+            .saturating_duration_since(now)
+            .max(std::time::Duration::from_secs(1)),
+        None => every,
+    }
+}
+
+/// 要求で取り直すかどうか
+#[derive(Debug, PartialEq, Eq)]
+enum OnView {
+    /// 1 周期以内に取り直している
+    Fresh,
+    /// 1 周期より古いが TTL 内 (常駐キャッシュから答えられる)。裏で取り直し、要求は待たせない
+    Background,
+    /// TTL を過ぎた・まだ一度も取れていない。取り直してから答える
+    Wait,
+}
+
+fn on_view(
+    pass: Option<std::time::Instant>,
+    now: std::time::Instant,
+    every: std::time::Duration,
+    ttl: std::time::Duration,
+) -> OnView {
+    match pass.map(|p| now.saturating_duration_since(p)) {
+        Some(age) if age < every => OnView::Fresh,
+        Some(age) if age < ttl => OnView::Background,
+        _ => OnView::Wait,
+    }
+}
+
+/// このシートを使う画面の要求が来たときに呼ぶ (先読みは見ている人がいる間だけ続けるため)。
+/// シートが 1 周期より古ければ取り直す。TTL を過ぎていれば取り直し終わるまで待つ (次に開いた人が最初だけ待つ)。
+/// 先読み・定期更新 (`warm_deal_rows` を含む) からは呼ばない (見ている人に数えない)。
+pub(crate) async fn note_view() {
+    let now = std::time::Instant::now();
+    *LAST_VIEW.lock().unwrap_or_else(|e| e.into_inner()) = Some(now);
+    let every = prefetch_interval();
+    match on_view(
+        last_pass(),
+        now,
+        every,
+        crate::handlers::call_quality::sheets::CACHE_TTL,
+    ) {
+        OnView::Fresh => {}
+        OnView::Background => {
+            if crate::handlers::call_quality::routes::cq_state().is_ok() {
+                tokio::spawn(run_pass(Pass::OnView, Some(every)));
+            }
+        }
+        OnView::Wait => {
+            if crate::handlers::call_quality::routes::cq_state().is_ok() {
+                run_pass(Pass::OnView, Some(every)).await;
+            }
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+enum Pass {
+    Startup,
+    Periodic,
+    OnView,
+}
+
+/// 全部のシートを取り直して、案件の行を先に数える。同時に 1 本だけ。
+/// `skip_if_newer` があれば、枠を取れた時点で最後の取り直しがそれより新しいときは何もしない
+/// (待っている間にほかの要求・定期更新が取り直した)。
+async fn run_pass(kind: Pass, skip_if_newer: Option<std::time::Duration>) {
+    let Ok(state) = crate::handlers::call_quality::routes::cq_state() else {
+        return;
     };
-    // メモリ計測: 起動時のシートの先読み (シートを取り終えたら手放し、案件の行を数える分とは分ける)
-    let task = crate::mem_watch::task("cs_dashboard.prefetch");
+    let _pass = PASS_LOCK.lock().await;
+    let recent = last_pass().is_some_and(|p| match skip_if_newer {
+        Some(every) => p.elapsed() < every,
+        // 起動時: 順番を待つ間に画面の要求が取り直していれば、もう一度は読まない
+        None => true,
+    });
+    if recent {
+        return;
+    }
+    // メモリ計測: 起動時のシートの先読み / 定期更新 1 回 (眠っている間は数えない)
+    let task = crate::mem_watch::task(match kind {
+        Pass::Startup => "cs_dashboard.prefetch",
+        Pass::Periodic | Pass::OnView => "cs_dashboard.refresh",
+    });
+    let label = match kind {
+        Pass::Startup => "コンサル先読み",
+        Pass::Periodic => "コンサル定期更新",
+        Pass::OnView => "コンサル再開時の更新",
+    };
     let started = std::time::Instant::now();
-    let mut ok = 0usize;
     let mut ng = 0usize;
+    // `refresh` はロックを持たずに取ってから差し替えるので、そのあいだ架電クオリティ・営業KPI の画面は待たない
     for name in SHEETS {
-        match state.store.get(&state.client, name).await {
-            Ok((data, from_cache)) => {
-                ok += 1;
-                tracing::info!(
-                    "コンサル先読み: {name} {}行{}",
-                    data.rows.len(),
-                    if from_cache {
-                        "（キャッシュ）"
-                    } else {
-                        ""
-                    }
-                );
+        match state.store.refresh(&state.client, name).await {
+            Ok(data) => {
+                if matches!(kind, Pass::Startup) {
+                    tracing::info!("{label}: {name} {}行", data.rows.len());
+                }
             }
             Err(e) => {
                 ng += 1;
-                // 1枚読めなくても残りは続ける。どの枚が落ちたかを残す
-                tracing::warn!("コンサル先読み: {name} が読めない: {e:#}");
+                // 1枚読めなくても残りは続ける。取れなかった枚は古いまま残る。TTL が切れたら `get` が取りに行く
+                tracing::warn!("{label}: {name} が読めない: {e:#}");
             }
         }
     }
     tracing::info!(
-        "コンサル先読み: 完了 {ok}枚 / 失敗 {ng}枚 / {:.1}秒",
+        "{label}: {}枚 / 失敗 {ng}枚 / {:.1}秒",
+        SHEETS.len(),
         started.elapsed().as_secs_f64()
     );
     drop(task);
+    *LAST_PASS.lock().unwrap_or_else(|e| e.into_inner()) = Some(std::time::Instant::now());
     // 取り直した後の 1 回目を開いた人に数えさせない（理由と実測は `routes::warm_deal_rows`）
     routes::warm_deal_rows().await;
+}
 
-    // 🔴 **TTL が切れる前に取り直し続ける。** 起動時の1回だけだと、1時間後に
-    //    最初に開いた人が9枚の直列取得を待つ（初回は実測 18.7秒・2026-09-23 本番）。
-    //    しかも `SheetStore::get` は取得中ずっと書き込みロックを持つので、
-    //    そのあいだ架電クオリティ・営業KPI の画面まで止まる。
-    //    `refresh` はロックを持たずに取ってから差し替えるので、誰も待たない。
-    let every = prefetch_interval();
-    loop {
-        tokio::time::sleep(every).await;
-        // メモリ計測: シートの定期更新 1 回 (眠っている間は数えない)
-        let task = crate::mem_watch::task("cs_dashboard.refresh");
-        let started = std::time::Instant::now();
-        let mut ng = 0usize;
-        for name in SHEETS {
-            if let Err(e) = state.store.refresh(&state.client, name).await {
-                ng += 1;
-                // 取れなかった枚は古いまま残る。TTL が切れたら `get` が取りに行く
-                tracing::warn!("コンサル定期更新: {name} が読めない: {e:#}");
-            }
-        }
-        tracing::info!(
-            "コンサル定期更新: {}枚 / 失敗 {ng}枚 / {:.1}秒",
-            SHEETS.len(),
-            started.elapsed().as_secs_f64()
+#[cfg(test)]
+mod idle_prefetch_tests {
+    use super::*;
+    use std::time::{Duration, Instant};
+
+    const MIN: Duration = Duration::from_secs(60);
+
+    #[test]
+    fn 直近の一周期に要求があれば見ている() {
+        let now = Instant::now() + 120 * MIN;
+        let every = 45 * MIN;
+        assert!(viewed_within(Some(now - 44 * MIN), now, every));
+        assert!(
+            !viewed_within(Some(now - 45 * MIN), now, every),
+            "ちょうど 1 周期前は見ていない"
         );
-        drop(task);
-        routes::warm_deal_rows().await;
+        assert!(
+            !viewed_within(None, now, every),
+            "起動してから誰も来ていない"
+        );
+    }
+
+    #[test]
+    fn 要求で取り直すかは最後の取り直しからの時間で決める() {
+        let now = Instant::now() + 300 * MIN;
+        let (every, ttl) = (45 * MIN, 60 * MIN);
+        assert_eq!(
+            on_view(Some(now - 10 * MIN), now, every, ttl),
+            OnView::Fresh
+        );
+        // 1 周期より古いが TTL 内: 常駐キャッシュで答え、裏で取り直す
+        assert_eq!(
+            on_view(Some(now - 45 * MIN), now, every, ttl),
+            OnView::Background
+        );
+        assert_eq!(
+            on_view(Some(now - 59 * MIN), now, every, ttl),
+            OnView::Background
+        );
+        // TTL を過ぎた (夜の間だれも見ていなかった) / まだ一度も取れていない: 取り直してから答える
+        assert_eq!(on_view(Some(now - 60 * MIN), now, every, ttl), OnView::Wait);
+        assert_eq!(
+            on_view(Some(now - 600 * MIN), now, every, ttl),
+            OnView::Wait
+        );
+        assert_eq!(on_view(None, now, every, ttl), OnView::Wait);
+    }
+
+    #[test]
+    fn 次に起きるのは最後の取り直しの一周期後() {
+        let now = Instant::now() + 300 * MIN;
+        let every = 45 * MIN;
+        assert_eq!(next_wake(Some(now - 15 * MIN), now, every), 30 * MIN);
+        // 期限を過ぎていてもすぐ回り続けない (最短 1 秒)
+        assert_eq!(
+            next_wake(Some(now - 90 * MIN), now, every),
+            Duration::from_secs(1)
+        );
+        assert_eq!(next_wake(None, now, every), every);
+    }
+
+    #[test]
+    fn 周期はttlより短い() {
+        assert_eq!(prefetch_interval(), 45 * MIN);
+        assert!(prefetch_interval() < crate::handlers::call_quality::sheets::CACHE_TTL);
     }
 }
 

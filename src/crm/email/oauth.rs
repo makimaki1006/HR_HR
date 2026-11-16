@@ -220,7 +220,7 @@ async fn callback_inner(
     };
     if identity.email != tx.operator
         || !ctx.access.is_allowed(&identity.email)
-        || crate::account_is_disabled(state, &identity.email).await
+        || crate::account_is_disabled_fresh(state, &identity.email).await
     {
         return error_json(StatusCode::FORBIDDEN, "gmail_identity_mismatch");
     }

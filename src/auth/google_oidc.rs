@@ -697,7 +697,7 @@ async fn run_callback(
         Err(e) => return Err(upstream_fail(e)),
     };
 
-    if crate::account_is_disabled(state, &identity.email).await {
+    if crate::account_is_disabled_fresh(state, &identity.email).await {
         return Err(Fail {
             status: StatusCode::FORBIDDEN,
             message: "このアカウントは無効化されています。管理者にお問い合わせください。",

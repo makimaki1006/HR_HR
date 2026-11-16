@@ -27,9 +27,12 @@
 //!   毎分の `mem` の行の `trims=` が前の行からの回数、`trimmed_mb=` が返した RSS の合計、`trim_ms=` がかかった時間の合計。
 //!   環境変数 `MEM_TRIM_AFTER_TASKS=0` で止まる (比べるとき・不具合のとき)。Linux の glibc のときだけ。
 //! - 毎分の `mem` の行の `rx_kb=` は、前の行から外部の相手ごとに受け取った本文の量 (KB。0 の相手は出さない。
-//!   `hubspot` / `sheets` / `zoom` / `turso` / `other`)。reqwest が gzip を伸ばした**後**の量で、通信路の実際の量ではない。
-//!   数えているのは主な読み取りの箇所 (HubSpot・Sheets・Zoom・Turso の各クライアントの成功した応答の本文) だけで、
-//!   `other` は求人票生成の URL 取得と Drive の読み込みだけ (Gmail・MiniMax などは数えていない)。
+//!   `hubspot` / `sheets` / `zoom` / `turso` / `gmail` / `minimax` / `other`)。reqwest が gzip を伸ばした**後**の量で、通信路の実際の量ではない。
+//!   数えているのは主な読み取りの箇所 (HubSpot・Sheets・Zoom・Turso の各クライアントの成功した応答の本文) だけ。
+//!   `sheets` はコンサルKPI などのシート (`db::sheets_client`) と顧客向け応募者画面のシート (`portal_test::google`)。
+//!   `gmail` は CRM のメールの送信結果・返信の取り込み、`minimax` は判定 (`talk_review::judge`)。
+//!   `other` は求人票生成の URL 取得・Drive の読み込み・応募のカレンダー。
+//!   数えていないもの: 各サービスのトークンの取得、GitHub (鮮度見張り)、Slack、媒体分析の外部 API (2026-11-16)。
 //!   `tx_kb=` はブラウザへ送った応答の本文の合計 (KB。gzip で縮めた**後**。送り終わる前に切れた分も送った分まで数える)。
 //!   どちらも 0 のときは項目ごと出さない (2026-11-16)。
 use axum::{extract::Request, middleware::Next, response::Response};
@@ -397,26 +400,42 @@ pub enum Peer {
     Sheets,
     Zoom,
     Turso,
+    Gmail,
+    MiniMax,
     Other,
 }
 
-const PEERS: [(Peer, &str); 5] = [
+const PEER_COUNT: usize = 7;
+const PEERS: [(Peer, &str); PEER_COUNT] = [
     (Peer::HubSpot, "hubspot"),
     (Peer::Sheets, "sheets"),
     (Peer::Zoom, "zoom"),
     (Peer::Turso, "turso"),
+    (Peer::Gmail, "gmail"),
+    (Peer::MiniMax, "minimax"),
     (Peer::Other, "other"),
 ];
 
 /// 前の毎分の行から受け取った本文のバイト (`PEERS` の順)
-static RECEIVED: [AtomicU64; 5] = [const { AtomicU64::new(0) }; 5];
+static RECEIVED: [AtomicU64; PEER_COUNT] = [const { AtomicU64::new(0) }; PEER_COUNT];
 /// 前の毎分の行からブラウザへ送った本文のバイト
 static SENT: AtomicU64 = AtomicU64::new(0);
 
 /// 外部の相手から本文を受け取った (伸ばした後のバイト数)。数えるだけ。
 pub fn received(peer: Peer, bytes: usize) {
-    let i = PEERS.iter().position(|(p, _)| *p == peer).unwrap_or(4);
+    let i = PEERS
+        .iter()
+        .position(|(p, _)| *p == peer)
+        .unwrap_or(PEER_COUNT - 1);
     RECEIVED[i].fetch_add(bytes as u64, Ordering::Relaxed);
+}
+
+/// 応答の本文を読み、受け取った量を数える (`received` と同じ。読めなかった分は数えない)。
+/// 外部の API の応答を `.json()` / `.text()` で読んでいた所を、これと `serde_json::from_slice` に置き換える。
+pub async fn read_body(peer: Peer, resp: reqwest::Response) -> reqwest::Result<axum::body::Bytes> {
+    let bytes = resp.bytes().await?;
+    received(peer, bytes.len());
+    Ok(bytes)
 }
 
 /// 前の行からの受信 (`hubspot=12 zoom=3` のように KB、0 の相手は出さない) と送信の KB を取り出して 0 に戻す
@@ -426,7 +445,7 @@ fn take_traffic() -> (String, u64) {
 }
 
 /// `PEERS` の順のバイト数を `hubspot=12 zoom=3` (KB、切り上げ) に。0 の相手は出さない
-fn fmt_rx(bytes: &[u64; 5]) -> String {
+fn fmt_rx(bytes: &[u64; PEER_COUNT]) -> String {
     PEERS
         .iter()
         .zip(bytes)
@@ -853,8 +872,9 @@ mod tests {
 
     #[test]
     fn 送受信の量は_0_の相手を出さず_kb_で載せる() {
-        assert_eq!(fmt_rx(&[3000, 0, 1, 0, 0]), "hubspot=3 zoom=1");
-        assert_eq!(fmt_rx(&[0; 5]), "");
+        assert_eq!(fmt_rx(&[3000, 0, 1, 0, 0, 0, 0]), "hubspot=3 zoom=1");
+        assert_eq!(fmt_rx(&[0, 0, 0, 0, 2048, 1, 0]), "gmail=2 minimax=1");
+        assert_eq!(fmt_rx(&[0; PEER_COUNT]), "");
         let before = RECEIVED[3].load(Ordering::Relaxed);
         received(Peer::Turso, 2048);
         assert!(RECEIVED[3].load(Ordering::Relaxed) >= before + 2048);

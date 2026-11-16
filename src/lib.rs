@@ -20,6 +20,7 @@ pub mod minimum_wage;
 pub mod models;
 pub mod portal;
 pub mod scout;
+pub mod startup_queue;
 pub mod text_util;
 
 use axum::{
@@ -1449,7 +1450,7 @@ async fn login_submit(
     };
 
     // 無効化されたアカウント (accounts.disabled_at に値あり) はパスワードが合っていても拒否
-    if account_is_disabled(&state, &form.email).await {
+    if account_is_disabled_fresh(&state, &form.email).await {
         tracing::warn!("LOGIN_REJECTED_DISABLED: email={}", form.email);
         record_failed_login(
             &state,
@@ -1557,7 +1558,25 @@ pub(crate) async fn record_failed_login(
 /// 監査 DB 未接続、または照会に失敗したときは false (ログインを止めない)。
 /// 監査 DB の障害で全員がログインできなくなるのを避けるための選択で、
 /// その間は無効化も効かない。
+///
+/// 照会できた結果はプロセス内で 5 分覚え、その間は監査 DB を読まない (2026-11-16 ユーザー決定。
+/// 無効にした人が最大 5 分使える)。失敗は覚えない。ログインの瞬間は [`account_is_disabled_fresh`]。
 pub(crate) async fn account_is_disabled(state: &AppState, email: &str) -> bool {
+    let Some(audit) = &state.audit else {
+        return false;
+    };
+    if let Some(disabled) = audit.disabled_cache().get(email, std::time::Instant::now()) {
+        return disabled;
+    }
+    account_is_disabled_fresh(state, email).await
+}
+
+/// [`account_is_disabled`] と同じだが、覚えた値を使わず必ず監査 DB に照会する。
+///
+/// ログインの瞬間 (パスワード・Google) と、Gmail などの長く使える許可を保存する瞬間に使う。
+/// ログインは 24 時間のセッションを作るので、その瞬間は最新の値で決める (ログイン 1 回につき SELECT 1 回で、数は少ない)。
+/// 照会できた結果は覚え直す (このあとの要求はその値を使う)。
+pub(crate) async fn account_is_disabled_fresh(state: &AppState, email: &str) -> bool {
     let Some(audit) = &state.audit else {
         return false;
     };
@@ -1568,7 +1587,12 @@ pub(crate) async fn account_is_disabled(state: &AppState, email: &str) -> bool {
     })
     .await
     {
-        Ok(Ok(disabled)) => disabled,
+        Ok(Ok(disabled)) => {
+            audit
+                .disabled_cache()
+                .put(email, std::time::Instant::now(), disabled);
+            disabled
+        }
         Ok(Err(e)) => {
             tracing::warn!("is_email_disabled failed (ログインは止めない): {e}");
             false

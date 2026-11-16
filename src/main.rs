@@ -10,6 +10,8 @@ use rust_dashboard::{build_app, decompress_db_if_needed, decompress_geojson_if_n
 
 #[tokio::main]
 async fn main() {
+    // 起動直後の重い処理の順番待ち (rust_dashboard::startup_queue) が数える起動の時刻
+    rust_dashboard::startup_queue::mark_process_start();
     dotenvy::dotenv().ok();
 
     tracing_subscriber::fmt()

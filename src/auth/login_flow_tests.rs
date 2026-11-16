@@ -834,6 +834,8 @@ async fn 別鍵と改ざんとログアウトと無効化と鍵なしは認証�
             [],
         )
         .unwrap();
+    // 再起動ではプロセス内の覚えた照会結果 (無効化、5 分) も消える
+    state.audit.as_ref().unwrap().disabled_cache().clear();
     let reboot = durable_app(state, Some(key));
     let rejected = get_req(&reboot, "/principal", Some(&cookie)).await;
     assert!(set_cookies(&rejected)
@@ -1405,4 +1407,58 @@ async fn 本人か方式か履歴参照が違うメモリでは照会を省か�
             1
         );
     }
+}
+
+/// 2026-11-16: 無効化の照会を 5 分覚える。ログインの瞬間は覚えた値を使わない。失敗は覚えない。
+#[tokio::test(flavor = "multi_thread")]
+async fn 無効化の照会は五分覚えてログインの瞬間だけ読み直す() {
+    let (audit, conn, queries) = crate::audit::fake_turso::start_sqlite_audit_with_queries().await;
+    conn.lock()
+        .unwrap()
+        .execute(
+            "INSERT INTO accounts (id, email, role, first_seen_at) VALUES ('a1', 'taro@f-a-c.co.jp', 'user', '2026-11-01')",
+            [],
+        )
+        .unwrap();
+    let state = test_state(None, Some(audit.clone()));
+    let selects = || {
+        queries
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|q| q.contains("disabled_at") && q.trim_start().starts_with("SELECT"))
+            .count()
+    };
+    // 1 回目だけ監査 DB を読み、2 回目 (大文字・空白違いのメールも同じ人) は覚えた値
+    assert!(!crate::account_is_disabled(&state, "taro@f-a-c.co.jp").await);
+    assert!(!crate::account_is_disabled(&state, " Taro@F-A-C.co.jp").await);
+    assert_eq!(selects(), 1);
+    // 監査 DB で無効にしても、覚えている間はそのまま (最大 5 分使える。ユーザー了承済み)
+    conn.lock()
+        .unwrap()
+        .execute("UPDATE accounts SET disabled_at = '2026-11-16'", [])
+        .unwrap();
+    assert!(!crate::account_is_disabled(&state, "taro@f-a-c.co.jp").await);
+    assert_eq!(selects(), 1);
+    // ログインの瞬間は必ず読み直し、その結果を覚え直す
+    assert!(crate::account_is_disabled_fresh(&state, "taro@f-a-c.co.jp").await);
+    assert_eq!(selects(), 2);
+    assert!(crate::account_is_disabled(&state, "taro@f-a-c.co.jp").await);
+    assert_eq!(selects(), 2);
+    // 管理者が accounts を書き換えたとき (役割の変更) と同じく捨てると、次の要求で読み直す
+    conn.lock()
+        .unwrap()
+        .execute("UPDATE accounts SET disabled_at = NULL", [])
+        .unwrap();
+    audit.disabled_cache().forget("TARO@f-a-c.co.jp");
+    assert!(!crate::account_is_disabled(&state, "taro@f-a-c.co.jp").await);
+    assert_eq!(selects(), 3);
+    // 照会に失敗したら止めない (false) し、失敗は覚えない (次の要求でまた読む)
+    conn.lock()
+        .unwrap()
+        .execute("ALTER TABLE accounts RENAME TO accounts_gone", [])
+        .unwrap();
+    assert!(!crate::account_is_disabled(&state, "hanako@f-a-c.co.jp").await);
+    assert!(!crate::account_is_disabled(&state, "hanako@f-a-c.co.jp").await);
+    assert_eq!(selects(), 5, "失敗した照会は覚えない");
 }

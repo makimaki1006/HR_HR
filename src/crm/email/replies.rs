@@ -162,10 +162,12 @@ async fn gmail_response(response: reqwest::Response) -> Result<Value, EmailError
             })
         }
         404 => Ok(Value::Null), // A deleted thread/message must not block other replies.
-        200..=299 => response
-            .json()
-            .await
-            .map_err(|_| EmailError::GmailUnavailable),
+        200..=299 => {
+            let body = crate::mem_watch::read_body(crate::mem_watch::Peer::Gmail, response)
+                .await
+                .map_err(|_| EmailError::GmailUnavailable)?;
+            serde_json::from_slice(&body).map_err(|_| EmailError::GmailUnavailable)
+        }
         _ => Err(EmailError::GmailUnavailable),
     }
 }

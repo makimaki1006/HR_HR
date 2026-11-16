@@ -10,6 +10,7 @@
 //! 既存 login_sessions の成功状態・本人・方式・未終了も確認する。
 
 pub mod dao;
+pub mod disabled_cache;
 /// W8: SQLite で裏打ちした偽 Turso (DAO の SQL をそのまま流す contract テスト用)
 #[cfg(test)]
 pub mod fake_turso;
@@ -38,17 +39,28 @@ struct AuditInner {
     pub turso: TursoDb,
     /// IP をハッシュする際のソルト（環境変数 AUDIT_IP_SALT から）
     pub ip_salt: String,
+    /// 無効化の照会結果 (5 分。`disabled_cache` 参照)。この DB の分だけを覚える
+    disabled: disabled_cache::DisabledCache,
 }
 
 impl AuditDb {
     pub fn new(turso: TursoDb, ip_salt: String) -> Self {
         Self {
-            inner: Arc::new(AuditInner { turso, ip_salt }),
+            inner: Arc::new(AuditInner {
+                turso,
+                ip_salt,
+                disabled: Default::default(),
+            }),
         }
     }
 
     pub fn turso(&self) -> &TursoDb {
         &self.inner.turso
+    }
+
+    /// 無効化の照会結果を覚えておく場所 (`crate::account_is_disabled` が使う)
+    pub fn disabled_cache(&self) -> &disabled_cache::DisabledCache {
+        &self.inner.disabled
     }
 
     /// IP を固定ソルト付き SHA-256 で 12 文字に短縮してハッシュ化。

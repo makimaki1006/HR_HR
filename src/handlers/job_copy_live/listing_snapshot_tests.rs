@@ -161,7 +161,10 @@ async fn interrupted_write_keeps_previous_generation_and_costs_one_request_per_p
 async fn worker_serves_restored_index_then_replaces_and_saves_it() {
     use axum::routing::any;
     let (audit, _) = crate::audit::fake_turso::start_sqlite_audit().await;
-    let initial = Arc::new(fixture(1));
+    // 6 時間より古い控え: 起動時に作り直す (新しい控えは下の別のテスト)
+    let mut old = fixture(1);
+    old.built_at = (chrono::Utc::now() - chrono::Duration::hours(7)).to_rfc3339();
+    let initial = Arc::new(old);
     persist(initial.clone(), Some(audit.clone()), &mut None).await;
     let entered = Arc::new(tokio::sync::Notify::new());
     let release = Arc::new(tokio::sync::Semaphore::new(0));
@@ -338,4 +341,99 @@ fn reclogi_snapshot_round_trip_and_v3_rejection_without_network() {
     let mut old = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
     old.write_all(&serde_json::to_vec(&saved).unwrap()).unwrap();
     assert!(decode(&old.finish().unwrap(), chrono::Utc::now(), None).is_err());
+}
+
+#[test]
+fn restored_copy_within_six_hours_waits_until_six_hours_after_it() {
+    let now = chrono::DateTime::parse_from_rfc3339("2026-11-16T12:00:00Z")
+        .unwrap()
+        .with_timezone(&chrono::Utc);
+    let at = |h: i64, m: i64| {
+        (now - chrono::Duration::hours(h) - chrono::Duration::minutes(m)).to_rfc3339()
+    };
+    // 2 時間前の控え → 次の作り直しは 4 時間後 (控えの時刻 + 6 時間)
+    assert_eq!(
+        restored_wait(&at(2, 0), now),
+        Some(Duration::from_secs(4 * 3600))
+    );
+    assert_eq!(
+        restored_wait(&at(5, 59), now),
+        Some(Duration::from_secs(60))
+    );
+    // ちょうど 6 時間・それより古い控えは起動時に作り直す
+    assert_eq!(restored_wait(&at(6, 0), now), None);
+    assert_eq!(restored_wait(&at(7, 0), now), None);
+    // 未来の時刻・読めない時刻も作り直す (未来の控えは restore も採らない)
+    assert_eq!(
+        restored_wait(&(now + chrono::Duration::minutes(5)).to_rfc3339(), now),
+        None
+    );
+    assert_eq!(restored_wait("not a time", now), None);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn worker_skips_the_startup_build_when_the_saved_copy_is_recent() {
+    use axum::routing::any;
+    let (audit, _) = crate::audit::fake_turso::start_sqlite_audit().await;
+    // 1 時間前に作った控え
+    let mut recent = fixture(1);
+    recent.built_at = (chrono::Utc::now() - chrono::Duration::hours(1)).to_rfc3339();
+    let initial = Arc::new(recent);
+    persist(initial.clone(), Some(audit.clone()), &mut None).await;
+    let paths = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+    let seen = paths.clone();
+    let app = Router::new().fallback(any(move |uri: axum::http::Uri| {
+        let seen = seen.clone();
+        async move {
+            seen.lock().unwrap().push(uri.path().to_owned());
+            Json(json!({"results":[]}))
+        }
+    }));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let service = Arc::new(JobReadService::for_test(format!(
+        "http://{}",
+        listener.local_addr().unwrap()
+    )));
+    let server = tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+    let file = tempfile::NamedTempFile::new().unwrap();
+    rusqlite::Connection::open(file.path()).unwrap().execute_batch("CREATE TABLE insight_title_pref(norm_title TEXT); INSERT INTO insight_title_pref VALUES('配送')").unwrap();
+    let db = crate::db::local_sqlite::LocalDb::new(file.path().to_str().unwrap()).unwrap();
+    start_worker(&service, db, Some(audit.clone()));
+    // 復元されて「最新化中」が外れるまで待つ
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let state = service.listing_index.state.read().await;
+            if state.snapshot.is_some() && !state.refreshing {
+                break;
+            }
+            drop(state);
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .unwrap();
+    // 作り直しが走らない (求人の Search を呼ばない) ことを少し待って確かめる
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    {
+        let state = service.listing_index.state.read().await;
+        assert!(!state.refreshing);
+        // 画面の「○時点」は控えの時刻のまま
+        assert_eq!(state.snapshot.as_ref().unwrap().built_at, initial.built_at);
+        assert_same(state.snapshot.as_ref().unwrap(), &initial);
+    }
+    let searched = paths
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|p| p.contains("/search"))
+        .count();
+    assert_eq!(
+        searched,
+        0,
+        "控えが新しいので求人を読み直さない: {:?}",
+        paths.lock().unwrap()
+    );
+    server.abort();
 }

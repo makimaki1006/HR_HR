@@ -180,7 +180,10 @@ impl CalendarApi for GoogleCalendar {
             if !r.status().is_success() {
                 return Err(status_error(r).await);
             }
-            let v: Value = r.json().await.map_err(|_| CalError::Network)?;
+            let body = crate::mem_watch::read_body(crate::mem_watch::Peer::Other, r)
+                .await
+                .map_err(|_| CalError::Network)?;
+            let v: Value = serde_json::from_slice(&body).map_err(|_| CalError::Network)?;
             out.extend(v["items"].as_array().into_iter().flatten().cloned());
             page = v["nextPageToken"].as_str().map(str::to_string);
             if page.is_none() {

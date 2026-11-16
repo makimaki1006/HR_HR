@@ -346,7 +346,7 @@ async fn callback_inner(
         );
     };
     let scopes = tokens.scope.unwrap_or_default();
-    let disabled = crate::account_is_disabled(state, &identity.email).await;
+    let disabled = crate::account_is_disabled_fresh(state, &identity.email).await;
     if let Err(message) = consent_allowed(
         svc.account(),
         &tx.operator,

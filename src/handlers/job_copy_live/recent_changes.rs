@@ -304,6 +304,8 @@ async fn history_batch(
 }
 
 async fn fetch(service: &JobReadService, today: NaiveDate) -> Result<Report, ReadError> {
+    // 起動直後の重い処理は 1 本ずつ (普段の周期では待たない)
+    let _turn = crate::startup_queue::turn("job_copy.recent_fetch").await;
     // メモリ計測: 直近 7 日の変更の作り直し 1 回
     let _task = crate::mem_watch::task("job_copy.recent_fetch");
     let (start, end) = bounds(today);
