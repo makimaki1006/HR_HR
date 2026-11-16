@@ -19,10 +19,13 @@ it('全選択肢と優先順位①②③を具体値で表示する', () => {
   expect(priorities.getAllByRole('row').map(row => row.textContent)).toEqual(['選択肢①②③', '休日2件0件0件', '給与1件2件0件', '通勤0件0件1件', '旧選択肢（いまの選択肢にない値）0件0件0件']);
   expect(screen.getByText('①を聞けた応募 3件・②2件・③1件／2026/09/14 以降の応募 5件')).toBeTruthy();
 });
-it('回答0件と未集計を区別する', () => {
-  const { rerender } = render(<DealApplicationReasons value={{ ...fixture, answered: [0, 0, 0, 0], top: [] }} />);
-  expect(screen.getByText('応募動機の記録はまだありません', { exact: false }).textContent).toContain('応募動機の記録はまだありません');
-  expect(screen.getByText('応募動機を聞けた 0件／2026/09/14 以降の応募 5件')).toBeTruthy();
+it('回答0件と未集計を区別する（0件は行に何も出さず、詳しい数字では1行にまとめる）', () => {
+  const empty = { ...fixture, answered: [0, 0, 0, 0], top: [] };
+  const { container, rerender } = render(<DealApplicationReasons value={empty} />);
+  expect(container.textContent).toBe('');
+  rerender(<DealApplicationReasons value={empty} details />);
+  expect(container.textContent).toBe('応募動機の記録はまだありません（2026/09/14 以降の応募 5件）');
+  expect(screen.queryByRole('table')).toBeNull();
   rerender(<DealApplicationReasons value={null} />);
   expect(screen.getByText('応募動機：集計中').textContent).toBe('応募動機：集計中');
   expect(screen.queryByText(/0件/u)).toBeNull();

@@ -36,12 +36,14 @@ describe('paginate', () => {
 
 describe('SortHeader と PageNav', () => {
   it('選んだ列だけ向きを出し、押すと並べ替えを呼ぶ', () => {
-    expect(sortArrow(true, true)).toBe(' ▼'); expect(sortArrow(true, false)).toBe(' ▲'); expect(sortArrow(false, true)).toBe(' ▲▼');
+    expect(sortArrow(true, true)).toBe(' ▼'); expect(sortArrow(true, false)).toBe(' ▲'); expect(sortArrow(false, true)).toBe(' ⇅');
     const onSort = vi.fn();
     render(<table><thead><tr><SortHeader label="満了まで" active descending={false} onSort={onSort} /><SortHeader label="担当" active={false} descending onSort={onSort} /></tr></thead></table>);
     const [a, b] = screen.getAllByRole('columnheader');
     expect(a?.getAttribute('aria-sort')).toBe('ascending'); expect(a?.textContent).toBe('満了まで ▲');
-    expect(b?.getAttribute('aria-sort')).toBe('none'); expect(b?.textContent).toBe('担当 ▲▼');
+    expect(b?.getAttribute('aria-sort')).toBe('none'); expect(b?.textContent).toBe('担当 ⇅');
+    expect(a?.querySelector('.jc-sort.is-active')).toBeTruthy(); expect(b?.querySelector('.jc-sort.is-active')).toBeNull();
+    expect(screen.getByRole('button', { name: '担当' })).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: /^担当/ })); expect(onSort).toHaveBeenCalledTimes(1);
   });
   it('端のページでは前／次が押せず、押すと対応する関数を呼ぶ', () => {

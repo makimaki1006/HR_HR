@@ -96,7 +96,9 @@ for (const view of ['risk', 'good']) test(`案件管理の${view === 'risk' ? '�
   await login(page);
   await page.goto(`/app/job-copy?view=${view}&owner=11&owner_field=consultant&risk_deal=101`);
   const dialog = page.getByRole('dialog');
-  await expect(dialog.getByRole('heading', { name: 'メール・電話・MTGの記録' })).toBeVisible();
+  await expect(dialog.getByRole('heading', { name: /^メール・電話・MTGの記録/ })).toBeVisible();
+  // 記録は最新3件だけ出し、残りは押して開く。
+  await dialog.getByRole('button', { name: /^残りを見る/ }).click();
   await expect(dialog).toContainText('接触：2026/03/11 ／ MTG：2026/03/11');
   const email = dialog.locator('article').filter({ has: page.getByRole('heading', { name: / メール / }) });
   await expect(email).toHaveCount(5);

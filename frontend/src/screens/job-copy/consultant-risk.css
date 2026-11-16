@@ -60,3 +60,13 @@
 .cm-more-item small { color: #52697a; font-size: 11px; }
 .pm-memo h3 small, .pm-memo label small { display: block; margin-top: 2px; font-size: 12px; font-weight: 400; color: #52697a; }
 .cr-flags .cr-new-mark { display: inline-block; margin-left: 6px; padding: 0 5px; border: 1px solid #b42318; border-radius: 4px; color: #b42318; background: #fff; font-size: 11px; font-weight: 700; line-height: 1.5; }
+
+/* 小窓: 次へ進むボタンを記録の上に置く。記録は最新3件と「残りを見る」。読み込みの失敗は色の帯とやり直しのボタン。 */
+.cr-detail .cr-next { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin-top: 16px; }
+.cr-next-wait { font-size: 12px; color: #52697a; }
+.cr-error { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin-top: 16px; padding: 10px 14px; border: 1px solid #e0827a; border-radius: 6px; background: #fef2f2; color: #b42318; font-weight: 600; }
+.cr-detail h3 small { margin-left: 6px; font-size: 12px; font-weight: 400; color: #52697a; }
+.cr-detail .cr-more-records { margin-top: 12px; }
+/* 一覧の右端の「詳細 ▸」。行全体を押しても同じ小窓が開く。 */
+.cr-main th.cr-open-col { width: 76px; }
+.cr-main td.cr-open-cell { text-align: right; vertical-align: middle; }

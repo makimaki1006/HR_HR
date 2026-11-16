@@ -46,23 +46,23 @@ const names = () => within(screen.getByRole('table')).getAllByRole('row').slice(
 
 it('既定の列は8つで、採用・採用単価・金額・採用目標は行の「詳しい数字」を開くと見られる', async () => {
   stub(); await open();
-  const headers = [...screen.getByRole('table').querySelectorAll('thead th')].map(th => th.textContent.replace(/ ▲▼| ▼| ▲/gu, ''));
-  expect(headers).toEqual(['案件・顧客', 'タグ', '応募（直近4週）', '満了まで', '最後の接触', '最後のMTG', '満足度', '担当', '詳しい数字']);
+  const headers = [...screen.getByRole('table').querySelectorAll('thead th')].map(th => th.textContent.replace(/ ⇅| ▼| ▲/gu, ''));
+  expect(headers).toEqual(['案件・顧客', 'タグ', '応募（直近4週）', '満了まで', '最後の接触', '最後のMTG', '満足度', '担当', '詳しい数字・詳細']);
   expect(screen.queryByRole('button', { name: /^(採用|採用単価|金額|採用目標に対して) / })).toBeNull();
   fireEvent.click(screen.getByRole('button', { name: `${row(0).name ?? ''}の詳しい数字を開く` }));
   const detail = within(screen.getByRole('table', { name: `${row(0).name ?? ''}の詳しい数字` }));
-  expect(detail.getAllByRole('columnheader').map(th => th.textContent.replace(/ ▲▼/u, ''))).toEqual(['顧客名', 'ステージ', '何ヶ月目', '定期の満足度', '案件に記録された応募', '面接', '採用', '採用単価', '金額', '採用目標に対して']);
+  expect(detail.getAllByRole('columnheader').map(th => th.textContent.replace(/ ⇅/u, ''))).toEqual(['顧客名', 'ステージ', '何ヶ月目', '定期の満足度', '案件に記録された応募', '面接', '採用', '採用単価', '金額', '採用目標に対して']);
   const cells = detail.getAllByRole('cell').map(td => td.textContent);
   expect(cells).toContain(yen(100_000));
   expect(cells).toContain(yen(50_000));
   expect(cells.at(-1)).toBe('20%2 / 10人');
 });
 
-it('「いい」は印の先頭に並び、いい案件の集計にある案件だけを出す', async () => {
+it('「順調」は印の先頭に並び、いい案件の集計にある案件だけを出す', async () => {
   const urls = stub(['101', '103']); await open();
-  const chip = await screen.findByRole('button', { name: 'いい 2' });
+  const chip = await screen.findByRole('button', { name: '順調 2' });
   const group = screen.getByRole('group', { name: 'タグで絞る' });
-  expect([...group.querySelectorAll('button')].slice(0, 2).map(b => b.textContent.replace(/\s+/gu, ' '))).toEqual(['すべて 4', 'いい 2']);
+  expect([...group.querySelectorAll('button')].slice(0, 2).map(b => b.textContent.replace(/\s+/gu, ' '))).toEqual(['すべて 4', '順調 2']);
   fireEvent.click(chip);
   // 標準の並びはタグが多い順、続いて金額が多い順
   expect(names()).toEqual([row(3).name, row(1).name]);
@@ -71,7 +71,7 @@ it('「いい」は印の先頭に並び、いい案件の集計にある案件�
 
 it('いい案件の集計を読めないときは、印を押せず件数を出さない', async () => {
   stub('fail'); await open();
-  const chip = await screen.findByRole('button', { name: /^いい/u });
+  const chip = await screen.findByRole('button', { name: /^順調/u });
   await waitFor(() => { expect((chip as HTMLButtonElement).disabled).toBe(true); });
   expect(chip.textContent).toContain('—');
 });
