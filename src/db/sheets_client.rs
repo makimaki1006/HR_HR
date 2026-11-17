@@ -7,11 +7,11 @@
 //!
 //! 既存 HR_HR の reqwest は再利用。features = ["json"] を仮定 (rustls-tls は明示)。
 
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{bail, Context, Result};
 use base64::{engine::general_purpose::STANDARD as B64, Engine};
 use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::RwLock;
@@ -64,17 +64,6 @@ struct TokenResponse {
     expires_in: u64,
     #[allow(dead_code)]
     token_type: String,
-}
-
-// ---- Sheets API レスポンス ---------------------------------------------
-
-#[derive(Debug, Deserialize)]
-struct ValuesResponse {
-    #[serde(default)]
-    values: Vec<Vec<serde_json::Value>>,
-    #[serde(default)]
-    #[allow(dead_code)]
-    range: String,
 }
 
 // ---- キャッシュ済み access_token ---------------------------------------
@@ -222,6 +211,34 @@ impl SheetsClient {
         &self,
         sheet_name: &str,
     ) -> Result<(Vec<String>, Vec<Vec<String>>)> {
+        self.fetch_values(sheet_name, |body| parse_values(body, OwnedCells))
+            .await
+    }
+
+    /// `get_sheet_as_table` と同じ表を、同じ値のセルを 1 つの `Arc<str>` にまとめて返す。
+    ///
+    /// 2026-11-17 新設。常駐キャッシュ（架電クオリティ・コンサルKPI の `SheetStore`）向け。
+    /// 従来は 本文の String → JSON の値 (`serde_json::Value`、1 個 72 バイト) →
+    /// `Vec<Vec<String>>` → `Arc<str>` の表 と 1 枚につき 3〜4 回作り直し、前の段が
+    /// 後の段と同時に生きていた。実データ 12 枚で一時確保の合計 223MB。
+    /// 本文のバイト列から最終の表へ直接読むと 98MB（保持量は同じ、確保の回数 −76%）。
+    pub async fn get_sheet_as_shared_table(
+        &self,
+        sheet_name: &str,
+    ) -> Result<(Vec<String>, Vec<Vec<Arc<str>>>)> {
+        self.fetch_values(sheet_name, |body| {
+            parse_values(body, SharedCells(HashSet::new()))
+        })
+        .await
+    }
+
+    /// `values.get` を呼び（429/5xx・送信失敗・本文の読み込み失敗は再試行）、
+    /// 成功した本文を `parse` に渡す。
+    async fn fetch_values<T>(
+        &self,
+        sheet_name: &str,
+        parse: impl FnOnce(&[u8]) -> serde_json::Result<T>,
+    ) -> Result<T> {
         let token = self.get_access_token().await?;
 
         // シート名に '/' や日本語が含まれるので URL encode
@@ -246,8 +263,7 @@ impl SheetsClient {
         //   4xx(429以外)は再試行しても無駄なので即座に諦める。
         const MAX_RETRIES: u32 = 4;
         let mut last_err = String::new();
-        let mut body = String::new();
-        let mut ok = false;
+        let mut body = None;
 
         for attempt in 0..=MAX_RETRIES {
             let resp = self.http.get(&url).bearer_auth(&token).send().await;
@@ -279,10 +295,12 @@ impl SheetsClient {
             };
 
             let status = resp.status();
-            let text = match resp.text().await {
-                Ok(t) => {
-                    crate::mem_watch::received(crate::mem_watch::Peer::Sheets, t.len());
-                    t
+            // 2026-11-17: 本文は `text()` で String にせず、受け取ったバイト列のまま読む
+            //   （`parse_values` が JSON の値を経由せずに表へ直接読む）。
+            let bytes = match resp.bytes().await {
+                Ok(b) => {
+                    crate::mem_watch::received(crate::mem_watch::Peer::Sheets, b.len());
+                    b
                 }
                 Err(e) => {
                     // 本文の読み込み中に切れる場合も同じ扱い（実際に
@@ -304,13 +322,12 @@ impl SheetsClient {
             };
 
             if status.is_success() {
-                body = text;
-                ok = true;
+                body = Some(bytes);
                 break;
             }
 
             let retryable = is_retryable(status.as_u16());
-            last_err = format!("status={status} body={text}");
+            last_err = format!("status={status} body={}", String::from_utf8_lossy(&bytes));
             if !retryable || attempt == MAX_RETRIES {
                 break;
             }
@@ -326,59 +343,10 @@ impl SheetsClient {
             tokio::time::sleep(wait).await;
         }
 
-        if !ok {
+        let Some(body) = body else {
             bail!("Sheets API 失敗 ({sheet_name}): {last_err}");
-        }
-
-        let parsed: ValuesResponse = serde_json::from_str(&body)
-            .with_context(|| format!("ValuesResponse パース失敗 ({sheet_name})"))?;
-
-        if parsed.values.len() < 2 {
-            return Ok((Vec::new(), Vec::new()));
-        }
-
-        let mut iter = parsed.values.into_iter();
-        let header_raw = iter.next().ok_or_else(|| anyhow!("header row 不在"))?;
-        // ヘッダは文字列のみを許容
-        let header: Vec<String> = header_raw
-            .into_iter()
-            .map(|v| match v {
-                serde_json::Value::String(s) => s,
-                serde_json::Value::Null => String::new(),
-                other => other.to_string(),
-            })
-            .collect();
-        // 2026-08-17: 列を無言で落とさない。
-        //
-        //   従来は空ヘッダ列を `continue` で捨てていたため、「最新サマリ」
-        //   シート(1行目が注記・3行目が実ヘッダという特殊な作り)で
-        //   **2〜39列目が無言で消えて画面がほぼ空**になっていた。
-        //
-        //   はじめ「空文字ヘッダに `列N` を充てる」だけ直したが、**効かなかった**。
-        //   実測すると header が 1列しか無い。Sheets API は行末の空セルを
-        //   詰めて返すため、1行目が注記1セルだけのシートでは
-        //   **ヘッダ行そのものが1セル**になり、空文字ですらない。
-        //   したがって全行の最大幅までヘッダを伸ばす必要がある。
-        let rows_raw: Vec<Vec<serde_json::Value>> = iter.collect();
-        let widest = rows_raw.iter().map(|r| r.len()).max().unwrap_or(0);
-        let header = normalize_header(header, widest);
-
-        let iter = rows_raw.into_iter();
-        let mut rows: Vec<Vec<String>> = Vec::with_capacity(iter.size_hint().0);
-        for raw in iter {
-            let mut cells = Vec::with_capacity(header.len());
-            for i in 0..header.len() {
-                cells.push(match raw.get(i) {
-                    Some(serde_json::Value::String(s)) => s.clone(),
-                    Some(serde_json::Value::Null) | None => String::new(),
-                    Some(serde_json::Value::Bool(b)) => b.to_string(),
-                    Some(serde_json::Value::Number(n)) => n.to_string(),
-                    Some(other) => other.to_string(),
-                });
-            }
-            rows.push(cells);
-        }
-        Ok((header, rows))
+        };
+        parse(&body).with_context(|| format!("ValuesResponse パース失敗 ({sheet_name})"))
     }
 
     /// 従来互換。列順を要さない呼び出し向けに `HashMap` へ畳む。
@@ -426,6 +394,244 @@ fn normalize_header(header: Vec<String>, widest: usize) -> Vec<String> {
         .collect()
 }
 
+// ---- Sheets API レスポンス (`values.get`) を表へ直接読む ------------------
+//
+// 2026-11-17: 従来は `ValuesResponse { values: Vec<Vec<serde_json::Value>> }` に
+// いったん読み、そこから文字列の表を作っていた。JSON の値の段を作らず、
+// 本文のバイト列から最終の表（`String` または同じ値をまとめた `Arc<str>`）へ直接読む。
+// セルを文字列にする決まりは従来と同じ:
+//   文字列 → そのまま / null・欠け → 空 / 真偽値 → "true"・"false" /
+//   数値 → `serde_json::Number` の文字列化 / 配列・オブジェクト → JSON の文字列化。
+// 本文の形の決まりも従来の `ValuesResponse` と同じ（`values` は省略可で既定は空、
+// `range` は省略可の文字列、ほかのキーは無視、同じキーの重複・末尾のゴミは誤り）。
+
+/// 1 セルの値を作る。
+trait CellMaker {
+    type Cell: AsRef<str> + Clone;
+    fn make(&mut self, s: &str) -> Self::Cell;
+}
+
+/// セルを `String` で持つ（`get_sheet_as_table`）。
+struct OwnedCells;
+
+impl CellMaker for OwnedCells {
+    type Cell = String;
+    fn make(&mut self, s: &str) -> String {
+        s.to_owned()
+    }
+}
+
+/// 同じ値のセルを 1 つの `Arc<str>` にまとめる（`get_sheet_as_shared_table`）。
+struct SharedCells(HashSet<Arc<str>>);
+
+impl CellMaker for SharedCells {
+    type Cell = Arc<str>;
+    fn make(&mut self, s: &str) -> Arc<str> {
+        if let Some(a) = self.0.get(s) {
+            return Arc::clone(a);
+        }
+        let a: Arc<str> = Arc::from(s);
+        self.0.insert(Arc::clone(&a));
+        a
+    }
+}
+
+/// (ヘッダ, 行)
+type Table<C> = (Vec<String>, Vec<Vec<C>>);
+
+/// `values.get` の本文を (ヘッダ, 行) に読む。行は 2 行未満なら空。
+/// ヘッダは `normalize_header` で全行の最大幅まで伸ばし、短い行は空セルで埋める。
+fn parse_values<M: CellMaker>(body: &[u8], mut maker: M) -> serde_json::Result<Table<M::Cell>> {
+    use serde::de::DeserializeSeed;
+
+    let mut de = serde_json::Deserializer::from_slice(body);
+    let (header_raw, mut rows) = values_de::Top(&mut maker).deserialize(&mut de)?;
+    de.end()?;
+
+    let Some(header_raw) = header_raw else {
+        return Ok((Vec::new(), Vec::new()));
+    };
+    if rows.is_empty() {
+        return Ok((Vec::new(), Vec::new()));
+    }
+    let header: Vec<String> = header_raw.iter().map(|c| c.as_ref().to_owned()).collect();
+    let widest = rows.iter().map(|r| r.len()).max().unwrap_or(0);
+    let header = normalize_header(header, widest);
+    let empty = maker.make("");
+    for r in &mut rows {
+        if r.len() < header.len() {
+            r.resize(header.len(), empty.clone());
+        }
+    }
+    Ok((header, rows))
+}
+
+mod values_de {
+    use super::CellMaker;
+    use serde::de::value::{MapAccessDeserializer, SeqAccessDeserializer};
+    use serde::de::{
+        self, DeserializeSeed, Deserializer, IgnoredAny, MapAccess, SeqAccess, Visitor,
+    };
+    use serde::Deserialize;
+    use std::borrow::Cow;
+    use std::fmt;
+
+    /// (1 行目, 2 行目以降)
+    pub(super) type Values<C> = (Option<Vec<C>>, Vec<Vec<C>>);
+
+    /// 本文のオブジェクト
+    pub(super) struct Top<'m, M>(pub(super) &'m mut M);
+
+    impl<'de, M: CellMaker> DeserializeSeed<'de> for Top<'_, M> {
+        type Value = Values<M::Cell>;
+        fn deserialize<D: Deserializer<'de>>(self, d: D) -> Result<Self::Value, D::Error> {
+            d.deserialize_map(self)
+        }
+    }
+
+    impl<'de, M: CellMaker> Visitor<'de> for Top<'_, M> {
+        type Value = Values<M::Cell>;
+        fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            f.write_str("struct ValuesResponse")
+        }
+        fn visit_map<A: MapAccess<'de>>(self, mut m: A) -> Result<Self::Value, A::Error> {
+            let mut values: Option<Values<M::Cell>> = None;
+            let mut range_seen = false;
+            while let Some(k) = m.next_key::<Cow<'de, str>>()? {
+                match k.as_ref() {
+                    "values" => {
+                        if values.is_some() {
+                            return Err(de::Error::duplicate_field("values"));
+                        }
+                        values = Some(m.next_value_seed(Rows(&mut *self.0))?);
+                    }
+                    "range" => {
+                        if range_seen {
+                            return Err(de::Error::duplicate_field("range"));
+                        }
+                        m.next_value::<String>()?;
+                        range_seen = true;
+                    }
+                    _ => {
+                        m.next_value::<IgnoredAny>()?;
+                    }
+                }
+            }
+            Ok(values.unwrap_or((None, Vec::new())))
+        }
+    }
+
+    /// `values` の配列。1 行目（ヘッダ）は分けて持つ。
+    struct Rows<'m, M>(&'m mut M);
+
+    impl<'de, M: CellMaker> DeserializeSeed<'de> for Rows<'_, M> {
+        type Value = Values<M::Cell>;
+        fn deserialize<D: Deserializer<'de>>(self, d: D) -> Result<Self::Value, D::Error> {
+            d.deserialize_seq(self)
+        }
+    }
+
+    impl<'de, M: CellMaker> Visitor<'de> for Rows<'_, M> {
+        type Value = Values<M::Cell>;
+        fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            f.write_str("a sequence")
+        }
+        fn visit_seq<A: SeqAccess<'de>>(self, mut s: A) -> Result<Self::Value, A::Error> {
+            let Some(header) = s.next_element_seed(Row {
+                maker: &mut *self.0,
+                cap: 0,
+            })?
+            else {
+                return Ok((None, Vec::new()));
+            };
+            // 2 行目以降はヘッダの幅で確保しておく（短い行を後で埋めても確保し直さない）
+            let cap = header.len();
+            let mut rows = Vec::new();
+            while let Some(r) = s.next_element_seed(Row {
+                maker: &mut *self.0,
+                cap,
+            })? {
+                rows.push(r);
+            }
+            Ok((Some(header), rows))
+        }
+    }
+
+    /// 1 行
+    struct Row<'m, M> {
+        maker: &'m mut M,
+        cap: usize,
+    }
+
+    impl<'de, M: CellMaker> DeserializeSeed<'de> for Row<'_, M> {
+        type Value = Vec<M::Cell>;
+        fn deserialize<D: Deserializer<'de>>(self, d: D) -> Result<Self::Value, D::Error> {
+            d.deserialize_seq(self)
+        }
+    }
+
+    impl<'de, M: CellMaker> Visitor<'de> for Row<'_, M> {
+        type Value = Vec<M::Cell>;
+        fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            f.write_str("a sequence")
+        }
+        fn visit_seq<A: SeqAccess<'de>>(self, mut s: A) -> Result<Self::Value, A::Error> {
+            let mut row = Vec::with_capacity(self.cap);
+            while let Some(c) = s.next_element_seed(Cell(&mut *self.maker))? {
+                row.push(c);
+            }
+            Ok(row)
+        }
+    }
+
+    /// 1 セル
+    struct Cell<'m, M>(&'m mut M);
+
+    impl<'de, M: CellMaker> DeserializeSeed<'de> for Cell<'_, M> {
+        type Value = M::Cell;
+        fn deserialize<D: Deserializer<'de>>(self, d: D) -> Result<Self::Value, D::Error> {
+            d.deserialize_any(self)
+        }
+    }
+
+    impl<'de, M: CellMaker> Visitor<'de> for Cell<'_, M> {
+        type Value = M::Cell;
+        fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            f.write_str("any valid JSON value")
+        }
+        fn visit_str<E>(self, v: &str) -> Result<M::Cell, E> {
+            Ok(self.0.make(v))
+        }
+        fn visit_unit<E>(self) -> Result<M::Cell, E> {
+            Ok(self.0.make(""))
+        }
+        fn visit_bool<E>(self, v: bool) -> Result<M::Cell, E> {
+            Ok(self.0.make(if v { "true" } else { "false" }))
+        }
+        fn visit_i64<E>(self, v: i64) -> Result<M::Cell, E> {
+            Ok(self.0.make(&v.to_string()))
+        }
+        fn visit_u64<E>(self, v: u64) -> Result<M::Cell, E> {
+            Ok(self.0.make(&v.to_string()))
+        }
+        fn visit_f64<E>(self, v: f64) -> Result<M::Cell, E> {
+            // 従来の `Value` と同じ: 表せない値は null 扱い (= 空)
+            let s = serde_json::Number::from_f64(v)
+                .map(|n| n.to_string())
+                .unwrap_or_default();
+            Ok(self.0.make(&s))
+        }
+        fn visit_seq<A: SeqAccess<'de>>(self, s: A) -> Result<M::Cell, A::Error> {
+            let v = serde_json::Value::deserialize(SeqAccessDeserializer::new(s))?;
+            Ok(self.0.make(&v.to_string()))
+        }
+        fn visit_map<A: MapAccess<'de>>(self, m: A) -> Result<M::Cell, A::Error> {
+            let v = serde_json::Value::deserialize(MapAccessDeserializer::new(m))?;
+            Ok(self.0.make(&v.to_string()))
+        }
+    }
+}
+
 fn epoch_now() -> Result<u64> {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -436,6 +642,37 @@ fn epoch_now() -> Result<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // 2026-11-17: 架電クオリティの `sheet_from_table` のテストを移した
+    //   （同じ値をまとめる処理が本文の読み取りに移ったため）。
+    #[test]
+    fn table_preserves_values_order_and_shares_equal_cells() {
+        let body = r#"{"range":"x","majorDimension":"ROWS","values":[
+            ["z","a","b"],
+            ["東京都","","東京都","ignored"],
+            ["大阪府","東京都"],
+            []
+        ]}"#;
+        let (header, rows) = parse_values(body.as_bytes(), SharedCells(HashSet::new())).unwrap();
+        assert_eq!(header, ["z", "a", "b", "列4"]);
+        let values: Vec<Vec<&str>> = rows
+            .iter()
+            .map(|row| row.iter().map(AsRef::as_ref).collect())
+            .collect();
+        assert_eq!(
+            values,
+            vec![
+                vec!["東京都", "", "東京都", "ignored"],
+                vec!["大阪府", "東京都", "", ""],
+                vec!["", "", "", ""]
+            ]
+        );
+        assert!(Arc::ptr_eq(&rows[0][0], &rows[0][2]));
+        assert!(Arc::ptr_eq(&rows[0][0], &rows[1][1]));
+        assert!(Arc::ptr_eq(&rows[0][1], &rows[1][2]));
+        assert!(Arc::ptr_eq(&rows[0][1], &rows[2][0]));
+        assert!(!Arc::ptr_eq(&rows[0][0], &rows[1][0]));
+    }
 
     #[test]
     fn ヘッダが短くても列を落とさない() {

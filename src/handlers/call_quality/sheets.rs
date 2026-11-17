@@ -13,7 +13,7 @@
 //! 実測値の根拠:
 //!   docs\wbs_outputs\ダッシュボード高速化_Rust移行\PoC実測結果_2026-08-14.md
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -320,37 +320,16 @@ async fn fetch_sheet(client: &SheetsClient, sheet: &str) -> Result<SheetData> {
     //   (owner_id, year_month, pipeline, call_count …) と並びが違っていた。
     //   数値は正しい列に紐づいていたので誤りとしては現れず、見落とされていた。
     //   `get_sheet_as_table` は原本の列順をそのまま返すのでソートは不要。
-    let (header, raw) = client.get_sheet_as_table(sheet).await?;
-    Ok(sheet_from_table(header, raw))
-}
-
-fn sheet_from_table(header: Vec<String>, raw: Vec<Vec<String>>) -> SheetData {
-    // 値の種類が少ない列（都道府県・業種・ステージ名など）を intern して
-    // 同じ文字列を使い回す
-    let mut interner: HashSet<Arc<str>> = HashSet::new();
-    let mut intern = |s: &str| -> Arc<str> {
-        if let Some(a) = interner.get(s) {
-            return Arc::clone(a);
-        }
-        let a: Arc<str> = Arc::from(s);
-        interner.insert(Arc::clone(&a));
-        a
-    };
-
-    let mut rows = Vec::with_capacity(raw.len());
-    for r in &raw {
-        let mut row = Vec::with_capacity(header.len());
-        for i in 0..header.len() {
-            row.push(intern(r.get(i).map(|s| s.as_str()).unwrap_or("")));
-        }
-        rows.push(row);
-    }
-
-    SheetData {
+    //
+    // 2026-11-17: 本文から同じ値をまとめた `Arc<str>` の表へ直接読む
+    //   （値の種類が少ない列＝都道府県・業種・ステージ名などを使い回す。
+    //   以前はここで `Vec<Vec<String>>` から作り直していた）。
+    let (header, rows) = client.get_sheet_as_shared_table(sheet).await?;
+    Ok(SheetData {
         header,
         rows,
         fetched_at: Instant::now(),
-    }
+    })
 }
 
 // ---------------------------------------------------------------- 汎用クエリ
@@ -497,42 +476,6 @@ pub fn query(data: &SheetData, q: &SheetQuery) -> SheetResponse {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn table_preserves_values_order_and_shares_equal_cells() {
-        let data = sheet_from_table(
-            vec!["z".into(), "a".into(), "b".into()],
-            vec![
-                vec![
-                    "東京都".into(),
-                    "".into(),
-                    "東京都".into(),
-                    "ignored".into(),
-                ],
-                vec!["大阪府".into(), "東京都".into()],
-                vec![],
-            ],
-        );
-        assert_eq!(data.header, ["z", "a", "b"]);
-        let values: Vec<Vec<&str>> = data
-            .rows
-            .iter()
-            .map(|row| row.iter().map(AsRef::as_ref).collect())
-            .collect();
-        assert_eq!(
-            values,
-            vec![
-                vec!["東京都", "", "東京都"],
-                vec!["大阪府", "東京都", ""],
-                vec!["", "", ""]
-            ]
-        );
-        assert!(Arc::ptr_eq(&data.rows[0][0], &data.rows[0][2]));
-        assert!(Arc::ptr_eq(&data.rows[0][0], &data.rows[1][1]));
-        assert!(Arc::ptr_eq(&data.rows[0][1], &data.rows[1][2]));
-        assert!(Arc::ptr_eq(&data.rows[0][1], &data.rows[2][0]));
-        assert!(!Arc::ptr_eq(&data.rows[0][0], &data.rows[1][0]));
-    }
 
     fn sample() -> SheetData {
         let header = vec![
