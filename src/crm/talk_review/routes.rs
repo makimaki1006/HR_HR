@@ -472,6 +472,50 @@ pub struct PeriodQuery {
     to: Option<String>,
     team: Option<String>,
     owner: Option<String>,
+    /// 細かいチーム (名簿のチーム) をカンマ区切りで。空なら絞らない
+    subteams: Option<String>,
+}
+
+/// 名簿のチーム。名簿に居ない・チームが空の人は「チーム未設定」(営業KPI と同じ)
+fn subteam_of(roster: &HashMap<String, String>, owner: &str) -> String {
+    roster
+        .get(owner)
+        .filter(|t| !t.is_empty())
+        .cloned()
+        .unwrap_or_else(|| crate::handlers::sales_kpi::TEAM_NONE.to_string())
+}
+
+fn wanted_subteams(q: &PeriodQuery) -> Vec<String> {
+    q.subteams
+        .as_deref()
+        .unwrap_or("")
+        .split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_owned)
+        .collect()
+}
+
+/// `ids` の人が属する細かいチーム。営業のチームを名前順に、「チーム未設定」は最後
+fn subteams_of<'a>(
+    roster: &HashMap<String, String>,
+    ids: impl Iterator<Item = &'a str>,
+) -> Vec<String> {
+    let mut out: Vec<String> = ids
+        .map(|id| subteam_of(roster, id))
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect();
+    out.sort_by_key(|t| !crate::handlers::sales_kpi::is_sales_team(t));
+    out
+}
+
+/// 細かいチームで絞るか。名簿が無い・指定が無ければ絞らない
+fn in_subteams(roster: Option<&HashMap<String, String>>, wanted: &[String], owner: &str) -> bool {
+    match roster {
+        Some(r) if !wanted.is_empty() => wanted.contains(&subteam_of(r, owner)),
+        _ => true,
+    }
 }
 
 fn check_ids() -> Vec<String> {
@@ -565,12 +609,16 @@ pub(in crate::crm) async fn get_summary(
                 team_totals: Vec<TalkPersonRow>,
                 counting: &[NaiveDate],
                 dials: Option<&Dials>,
-                breakdown_pending: bool| TalkSummaryResponse {
+                breakdown_pending: bool,
+                subteams: Vec<String>,
+                subteams_error: bool| TalkSummaryResponse {
         from: from.to_string(),
         to: to.to_string(),
         as_of: now_text(now),
         enabled,
         teams: cfg.teams.clone(),
+        subteams,
+        subteams_error,
         checks: defs(),
         rules: ALERT_RULES,
         people,
@@ -593,6 +641,8 @@ pub(in crate::crm) async fn get_summary(
             &[],
             None,
             false,
+            vec![],
+            false,
         ))
         .into_response();
     }
@@ -603,6 +653,8 @@ pub(in crate::crm) async fn get_summary(
         Ok(l) => l,
         Err(r) => return r,
     };
+    let roster = dials::load_roster_teams().await;
+    let wanted = wanted_subteams(&q);
     let all_members = team_members(&list.owners, &cfg.teams);
     let team = TeamOwners {
         bpo: all_members
@@ -665,7 +717,7 @@ pub(in crate::crm) async fn get_summary(
         live.as_deref(),
     );
     let breakdown_pending = breakdown == super::dial_breakdown::Outcome::Pending;
-    let members: Vec<Member> = all_members
+    let in_team: Vec<_> = all_members
         .into_iter()
         .filter(|m| {
             q.team
@@ -673,6 +725,14 @@ pub(in crate::crm) async fn get_summary(
                 .filter(|t| !t.is_empty())
                 .is_none_or(|t| t == m.team)
         })
+        .collect();
+    let subteams = roster
+        .as_ref()
+        .map(|r| subteams_of(r, in_team.iter().map(|m| m.id.as_str())))
+        .unwrap_or_default();
+    let members: Vec<Member> = in_team
+        .into_iter()
+        .filter(|m| in_subteams(roster.as_ref(), &wanted, &m.id))
         .map(|m| Member {
             owner_id: m.id,
             name: m.name,
@@ -741,6 +801,8 @@ pub(in crate::crm) async fn get_summary(
         &counting,
         dials.as_ref(),
         breakdown_pending,
+        subteams,
+        roster.is_none(),
     ))
     .into_response()
 }
@@ -875,16 +937,25 @@ pub(in crate::crm) async fn get_appointments(
     // 対象の人: 1 人、または表の全体 (チームで絞った人。summary の全体の行と同じ顔ぶれ)
     let who: BTreeSet<String> = match &owner {
         Some(o) => [o.clone()].into_iter().collect(),
-        None => all_members
-            .iter()
-            .filter(|m| {
-                q.team
-                    .as_deref()
-                    .filter(|t| !t.is_empty())
-                    .is_none_or(|t| t == m.team)
-            })
-            .map(|m| m.id.clone())
-            .collect(),
+        None => {
+            let wanted = wanted_subteams(&q);
+            let roster = if wanted.is_empty() {
+                None
+            } else {
+                dials::load_roster_teams().await
+            };
+            all_members
+                .iter()
+                .filter(|m| {
+                    q.team
+                        .as_deref()
+                        .filter(|t| !t.is_empty())
+                        .is_none_or(|t| t == m.team)
+                })
+                .filter(|m| in_subteams(roster.as_ref(), &wanted, &m.id))
+                .map(|m| m.id.clone())
+                .collect()
+        }
     };
     let mine: Vec<super::counts::ApoDeal> = deals
         .into_iter()

@@ -9,7 +9,7 @@ import { FIXTURE_RULES, fixtureSummary } from './talkModel';
 afterEach(cleanup);
 
 const route = (patch: Partial<TalkRoute> = {}): TalkRoute => ({
-  view: 'talk', from: '2026-10-19', to: '2026-10-19', team: '', owner: '', call: '',
+  view: 'talk', from: '2026-10-19', to: '2026-10-19', team: '', subteams: '', owner: '', call: '',
   people: '', only: '', cmp_from: '', cmp_to: '', vs_team: '', tab: '', ...patch,
 });
 const cells = (tr: HTMLElement) => Array.from(tr.querySelectorAll('td'));
@@ -24,7 +24,7 @@ describe('URL', () => {
   it('people・only・cmp_from・cmp_to・vs_team を読み書きできる', () => {
     const q = '?view=talk&from=2026-10-12&to=2026-10-18&people=9001,9002&only=1&cmp_from=2026-10-05&cmp_to=2026-10-11&vs_team=1';
     const r = parseAdminRoute(q);
-    expect(r).toEqual({ view: 'talk', from: '2026-10-12', to: '2026-10-18', team: '', owner: '', call: '', people: '9001,9002', only: '1', cmp_from: '2026-10-05', cmp_to: '2026-10-11', vs_team: '1', tab: '' });
+    expect(r).toEqual({ view: 'talk', from: '2026-10-12', to: '2026-10-18', team: '', subteams: '', owner: '', call: '', people: '9001,9002', only: '1', cmp_from: '2026-10-05', cmp_to: '2026-10-11', vs_team: '1', tab: '' });
     expect(adminHref(r)).toBe('?view=talk&from=2026-10-12&to=2026-10-18&people=9001%2C9002&only=1&cmp_from=2026-10-05&cmp_to=2026-10-11&vs_team=1');
   });
   it('people の値の扱い', () => {

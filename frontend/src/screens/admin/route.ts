@@ -20,7 +20,7 @@ export type AdminRoute =
   | { view: 'callers' }
   | { view: 'crm-failed' }
   | { view: 'calendar' }
-  | { view: 'talk'; from: string; to: string; team: string; owner: string; call: string; people: string; only: string; cmp_from: string; cmp_to: string; vs_team: string; tab: string };
+  | { view: 'talk'; from: string; to: string; team: string; subteams: string; owner: string; call: string; people: string; only: string; cmp_from: string; cmp_to: string; vs_team: string; tab: string };
 
 /** Same default as the Rust handler (`q.days.unwrap_or(30)`). */
 export const DEFAULT_USAGE_DAYS = 30;
@@ -50,6 +50,8 @@ export function parseAdminRoute(search: string): AdminRoute {
         from: q.get('from') ?? '',
         to: q.get('to') ?? '',
         team: q.get('team') ?? '',
+        // 細かいチーム (営業KPI の名簿のチーム、カンマ区切り)
+        subteams: q.get('subteams') ?? '',
         owner: q.get('owner') ?? '',
         call: q.get('call') ?? '',
         people: q.get('people') ?? '',
@@ -74,7 +76,7 @@ export function adminHref(route: AdminRoute): string {
   if (route.view === 'user') q.set('id', route.id);
   if (route.view === 'usage') q.set('days', String(route.days));
   if (route.view === 'talk') {
-    for (const k of ['from', 'to', 'team', 'owner', 'call', 'people', 'only', 'cmp_from', 'cmp_to', 'vs_team', 'tab'] as const) {
+    for (const k of ['from', 'to', 'team', 'subteams', 'owner', 'call', 'people', 'only', 'cmp_from', 'cmp_to', 'vs_team', 'tab'] as const) {
       if (route[k] !== '') q.set(k, route[k]);
     }
     // 架空サンプルの表示は、画面を移っても保つ

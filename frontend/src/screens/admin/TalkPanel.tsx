@@ -325,6 +325,8 @@ export interface TalkTableView {
 export interface ApoQuery {
   /** チームの絞り込み (表の全体の内訳に使う) */
   team: string;
+  /** 細かいチームの絞り込み (カンマ区切り、空なら絞らない) */
+  subteams: string;
   /** 架空サンプル */
   fixture: boolean;
 }
@@ -380,7 +382,7 @@ export function ApoBreakdownView({ data, onClose }: { data: TalkApoResponse; onC
 function ApoBreakdown({ ownerId, from, to, query, onClose }: { ownerId: string | null; from: string; to: string; query: ApoQuery; onClose: () => void }) {
   const q = `from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`;
   const who = ownerId === null
-    ? (query.team === '' ? '' : `&team=${encodeURIComponent(query.team)}`)
+    ? teamQuery(query.team, query.subteams)
     : `&owner=${encodeURIComponent(ownerId)}`;
   return (
     <Loader<TalkApoResponse> path={`/api/crm/talk-review/appointments?${q}${who}`} fixture={query.fixture ? () => fixtureApo(ownerId, from, to, query.team) : null}>
@@ -777,8 +779,38 @@ function DateRange({ from, to, onApply, label = '日付指定', applyLabel = '�
   );
 }
 
-function Controls({ route, navigate, teams, from, to, today }: {
-  route: TalkRoute; navigate: (r: AdminRoute) => void; teams: string[]; from: string; to: string; today: string;
+/** チームと細かいチームの問い合わせ */
+function teamQuery(team: string, subteams: string): string {
+  return (team === '' ? '' : `&team=${encodeURIComponent(team)}`) + (subteams === '' ? '' : `&subteams=${encodeURIComponent(subteams)}`);
+}
+
+/** 細かいチーム (営業KPI の名簿のチーム) を複数選ぶ。何も選ばなければ全員 */
+function SubteamPicker({ options, value, onChange }: { options: string[]; value: string; onChange: (v: string) => void }) {
+  const picked = value === '' ? [] : value.split(',');
+  // 名簿から消えたチームも、選んだままなら外せるように出す
+  const all = [...options, ...picked.filter(t => !options.includes(t))];
+  const label = picked.length === 0 ? 'すべて' : picked.join('、');
+  const set = (t: string, on: boolean) => {
+    const next = all.filter(x => (x === t ? on : picked.includes(x)));
+    onChange(next.join(','));
+  };
+  return (
+    <details className="talk-subteam" data-testid="talk-subteam">
+      <summary aria-label="細かいチームで絞り込む">チームの詳細 <span className="talk-subteam-val">{label}</span></summary>
+      <div className="talk-subteam-menu">
+        {all.map(t => (
+          <label key={t}>
+            <input type="checkbox" checked={picked.includes(t)} onChange={e => { set(t, e.target.checked); }} /> {t}
+          </label>
+        ))}
+        {picked.length > 0 && <button type="button" onClick={() => { onChange(''); }}>選択を外す</button>}
+      </div>
+    </details>
+  );
+}
+
+function Controls({ route, navigate, teams, subteams, from, to, today }: {
+  route: TalkRoute; navigate: (r: AdminRoute) => void; teams: string[]; subteams: string[]; from: string; to: string; today: string;
 }) {
   const active = activePeriod(from, to, today);
   const prev = previousPeriod(from, to);
@@ -804,11 +836,14 @@ function Controls({ route, navigate, teams, from, to, today }: {
         <DateRange key={from + to} from={from} to={to} onApply={(f, t) => { go({ from: f, to: t }); }} />
         <label className="w8-subtle" style={{ margin: 0 }}>
           チーム{' '}
-          <select value={route.team} aria-label="チームで絞り込む" onChange={e => { go({ team: e.target.value }); }}>
+          <select value={route.team} aria-label="チームで絞り込む" onChange={e => { go({ team: e.target.value, subteams: '' }); }}>
             <option value="">すべて</option>
             {teams.map(t => <option key={t} value={t}>{t}</option>)}
           </select>
         </label>
+        {(subteams.length > 0 || route.subteams !== '') && (
+          <SubteamPicker options={subteams} value={route.subteams} onChange={v => { go({ subteams: v }); }} />
+        )}
       </div>
       <details className="talk-more" open={cmpOn || route.vs_team === '1' ? true : undefined} data-testid="talk-compare-ctl">
         <summary>比べる</summary>
@@ -857,7 +892,7 @@ function SummaryWithCompare({ d, route, navigate, fx, teamQ }: { d: TalkSummaryR
         data={d}
         tab={parseTalkTab(route.tab)}
         onTab={t => { go({ tab: t === 'numbers' ? '' : t }); }}
-        apoQuery={{ team: route.team, fixture: fx }}
+        apoQuery={{ team: route.team, subteams: route.subteams, fixture: fx }}
         onOpen={id => { go({ owner: id }); }}
         view={{
           selected, only: route.only === '1',
@@ -909,20 +944,25 @@ export function TalkPanel({ route, navigate, fixture }: { route: TalkRoute; navi
       </>
     );
   }
-  const teamQ = route.team === '' ? '' : `&team=${encodeURIComponent(route.team)}`;
+  const teamQ = teamQuery(route.team, route.subteams);
   return (
     <>
       {title}{banner}
       <Loader<TalkSummaryResponse> path={`/api/crm/talk-review/summary?${q}${teamQ}`} fixture={fx ? () => fixtureSummary(from, to, route.team) : null}>
         {d => (
           <>
-            <Controls route={route} navigate={navigate} teams={d.teams} from={from} to={to} today={today} />
+            <Controls route={route} navigate={navigate} teams={d.teams} subteams={d.subteams} from={from} to={to} today={today} />
             <p className="w8-subtle">
               {d.from === d.to ? d.from : `${d.from} 〜 ${d.to}`}（日本時間）。名前を押すと、その人の電話の一覧が見られます。
             </p>
             {d.counting_days.length > 0 && (
               <p className="w8-alert" role="status" data-testid="talk-counting-days">
                 {describeDays(d.counting_days)} のアポは数えている途中です。数え終わるまで、その日のアポは表に入っていません（数え終わると自動で更新します）。
+              </p>
+            )}
+            {d.subteams_error && (
+              <p className="w8-alert" role="alert" data-testid="talk-subteams-error">
+                チームの詳細を読めませんでした（営業KPI のシートを読めないため）。チームの詳細では絞らずに出しています。
               </p>
             )}
             {d.dials_error && (

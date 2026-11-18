@@ -1,5 +1,5 @@
 // /app/talk: トークの振り返り (ADR-033)。Google ログインした社内の人なら誰でも開ける。
-// 画面の中身は管理画面の ?view=talk と同じ TalkPanel を使う。URL は ?from=&to=&team=&owner=&call= (view は付けない)。
+// 画面の中身は管理画面の ?view=talk と同じ TalkPanel を使う。URL は ?from=&to=&team=&subteams=&owner=&call= (view は付けない)。
 import { TalkPanel, type TalkRoute } from '../admin/TalkPanel';
 import { parseAdminRoute, type AdminRoute } from '../admin/route';
 import { useQueryRoute } from '../admin/useQueryRoute';
@@ -12,7 +12,7 @@ export function parseTalkRoute(search: string): TalkRoute {
 
 export function talkHref(route: TalkRoute): string {
   const q = new URLSearchParams();
-  for (const k of ['from', 'to', 'team', 'owner', 'call', 'people', 'only', 'cmp_from', 'cmp_to', 'vs_team', 'tab'] as const) {
+  for (const k of ['from', 'to', 'team', 'subteams', 'owner', 'call', 'people', 'only', 'cmp_from', 'cmp_to', 'vs_team', 'tab'] as const) {
     if (route[k] !== '') q.set(k, route[k]);
   }
   // 架空サンプルの表示は、画面を移っても保つ
