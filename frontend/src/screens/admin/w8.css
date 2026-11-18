@@ -323,6 +323,12 @@ code.w8-code {
 .talk-pick { margin-right: 6px; vertical-align: middle; }
 .talk-selbar button { background: #1e293b; color: #e2e8f0; border: 1px solid #334155; border-radius: 4px; padding: 2px 8px; font: inherit; cursor: pointer; }
 .talk-selbar button[aria-pressed='true'] { background: #1e3a5f; }
+.talk-subteam { position: relative; font-size: 13px; color: #94a3b8; }
+.talk-subteam > summary { cursor: pointer; list-style: none; border: 1px solid #334155; border-radius: 4px; padding: 3px 8px; background: #1e293b; }
+.talk-subteam-val { color: #e2e8f0; }
+.talk-subteam-menu { position: absolute; z-index: 20; top: calc(100% + 4px); left: 0; min-width: 200px; max-height: 320px; overflow: auto; display: flex; flex-direction: column; gap: 4px; padding: 8px 10px; background: #0f172a; border: 1px solid #334155; border-radius: 6px; box-shadow: 0 4px 12px rgb(0 0 0 / 40%); }
+.talk-subteam-menu label { color: #e2e8f0; white-space: nowrap; cursor: pointer; }
+.talk-subteam-menu button { align-self: flex-start; margin-top: 4px; }
 .talk-more { margin: 0 0 8px; }
 .talk-more > summary { cursor: pointer; color: #94a3b8; font-size: 13px; }
 .talk-more .talk-period button { white-space: nowrap; }

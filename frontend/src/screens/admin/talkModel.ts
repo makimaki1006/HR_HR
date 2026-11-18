@@ -412,7 +412,7 @@ export function fixtureSummary(from: string, to: string, team: string, prior = f
   return {
     from, to, as_of: `${to}T14:05:00+09:00`, enabled: true,
     teams: ['架空BPOチーム', '架空営業チーム'],
-    checks: FIXTURE_CHECKS, rules: FIXTURE_RULES, people, per_person_day: 10, counting_days: [], dials_error: false, dials_partial: true, dials_fetched_at: `${to} 06:30`, dial_breakdown_pending: false, total: totalOf(people, FIXTURE_CHECKS), team_totals,
+    subteams: ['営業1課', '営業2課', 'チーム未設定'], subteams_error: false, checks: FIXTURE_CHECKS, rules: FIXTURE_RULES, people, per_person_day: 10, counting_days: [], dials_error: false, dials_partial: true, dials_fetched_at: `${to} 06:30`, dial_breakdown_pending: false, total: totalOf(people, FIXTURE_CHECKS), team_totals,
   };
 }
 

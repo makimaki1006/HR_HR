@@ -9,7 +9,9 @@ use chrono::NaiveDate;
 
 use crate::handlers::call_quality::routes::cq_state;
 use crate::handlers::call_quality::sheets::SheetData;
-use crate::handlers::sales_kpi::{kaden_last_day, kaden_of, kaden_period, SHEET_KADEN, SHEET_META};
+use crate::handlers::sales_kpi::{
+    kaden_last_day, kaden_of, kaden_period, members_of, SHEET_KADEN, SHEET_MEMBER, SHEET_META,
+};
 
 /// 期間の人ごとの架電数 (つながった通話)
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -113,6 +115,19 @@ pub fn merge_live(
 pub async fn load(from: NaiveDate, to: NaiveDate, today: NaiveDate) -> Option<Dials> {
     let (kaden, meta) = load_sheets().await?;
     Some(dials_from_sheets(&kaden, &meta, from, to, today))
+}
+
+/// 営業KPI の名簿 (`KPI営業_メンバー`) の ownerId → チーム。営業KPI の絞り込みと同じチーム。
+/// 名簿にチームが無い人は「チーム未設定」。読めなければ `None`
+pub async fn load_roster_teams() -> Option<HashMap<String, String>> {
+    let state = cq_state().ok()?;
+    let (sheet, _) = state.store.get(&state.client, SHEET_MEMBER).await.ok()?;
+    Some(
+        members_of(&sheet)
+            .into_iter()
+            .map(|(id, p)| (id, p.team))
+            .collect(),
+    )
 }
 
 async fn load_sheets() -> Option<(std::sync::Arc<SheetData>, std::sync::Arc<SheetData>)> {

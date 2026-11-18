@@ -22,7 +22,16 @@ enabled: boolean,
 /**
  * 絞り込み用のチーム名
  */
-teams: Array<string>, checks: Array<TalkCheckDef>, rules: TalkAlertRules, people: Array<TalkPersonRow>, 
+teams: Array<string>, 
+/**
+ * 細かいチーム (営業KPI の名簿 `KPI営業_メンバー` のチーム)。`team` で絞った人が属するもの。
+ * 名簿にチームが無い人は「チーム未設定」
+ */
+subteams: Array<string>, 
+/**
+ * 名簿が読めず、細かいチームで絞れなかった (subteams は空、people は細かいチームで絞っていない)
+ */
+subteams_error: boolean, checks: Array<TalkCheckDef>, rules: TalkAlertRules, people: Array<TalkPersonRow>, 
 /**
  * 1 人 1 日あたりに判定する最大本数 (`CALL_REVIEW_PER_PERSON_DAY`)
  */

@@ -144,6 +144,11 @@ pub struct TalkSummaryResponse {
     pub enabled: bool,
     /// 絞り込み用のチーム名
     pub teams: Vec<String>,
+    /// 細かいチーム (営業KPI の名簿 `KPI営業_メンバー` のチーム)。`team` で絞った人が属するもの。
+    /// 名簿にチームが無い人は「チーム未設定」
+    pub subteams: Vec<String>,
+    /// 名簿が読めず、細かいチームで絞れなかった (subteams は空、people は細かいチームで絞っていない)
+    pub subteams_error: bool,
     pub checks: Vec<TalkCheckDef>,
     pub rules: TalkAlertRules,
     pub people: Vec<TalkPersonRow>,
