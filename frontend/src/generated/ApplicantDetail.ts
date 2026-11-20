@@ -11,4 +11,8 @@ export type ApplicantDetail = { values: { [key in string]: string | null }, edit
 /**
  * 求人票の切り替え用。既定で出す `posting_url` が先頭。2 つ以上のときだけ画面に切り替えを出す。
  */
-job_pages: Array<ApplicantLink>, jobcopy_url: string | null, sheet_url: string | null, sheet_embed: boolean, };
+job_pages: Array<ApplicantLink>, jobcopy_url: string | null, sheet_url: string | null, sheet_embed: boolean, 
+/**
+ * 折り返しの電話を Slack に知らせられるか (送り先のチャンネルと Bot のトークンが設定済み)
+ */
+callback_notify: boolean, };
