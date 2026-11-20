@@ -267,7 +267,7 @@ export function CpaCharts({
           return (
             <Figure
               key={s.site}
-              title={`採用単価の推移・${deals.find((d) => d.site === s.site)?.site_name ?? s.site}`}
+              title={`採用単価の推移・${deals.find((d) => d.site === s.site)?.site_name ?? "事業所未登録"}`}
               note={ps
                 .map(
                   (p) =>
