@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { writeFile } from 'node:fs/promises';
 
-// 架空の案件・求人・応募者だけを使う。期間は 2026-10-19〜11-15、応募データは 11/15 まで。
+// 架空の案件・求人・応募者だけを使う。応募データは 11/15 まで。MTG の記録は 9/21 と 10/19（今回 10/19〜11/15、前回 9/21〜10/18）。
 const SHOTS = process.env.JOB_COPY_SHOTS_DIR;
 const listing = (id: string, title: string, status: string) => ({ id, media: 'hrh', media_job_id: `9${id}`, account_id: 'synthetic-shop', title, prefecture: '神奈川県', municipality: '横浜市', category: 'ドライバー', publication_status: status, last_csv_detected_at: null, application_count: null, deal_ids: ['901'] });
 const listings = [listing('301', '合成トラックドライバー', '公開中'), listing('302', '合成ルート配送', '非公開')];
@@ -50,6 +50,10 @@ function applicants(id: string) {
 
 async function open(page: Page) {
   await page.route('**/api/crm/workspace/deals/**', route => route.fulfill({ json: { deal: { id: '901', name: '合成・定期採用' }, partial: [], selected: { deal: { mensetu: '4', syoudaku: '1' }, contacts: {}, company: {} } } }));
+  await page.route('**/api/consulting/deal-detail**', route => route.fulfill({ json: { meta: { found: true }, events: [
+    { kind: 'mtg', date: '2026-09-21', source_label: '架空の記録', fact: true }, { kind: 'zoom_mtg', date: '2026-10-19', source_label: '架空の記録', fact: true },
+    { kind: 'email', date: '2026-11-02', source_label: '架空の記録', fact: true },
+  ] } }));
   await page.route('**/api/job-copy/**', route => {
     const url = new URL(route.request().url());
     if (url.pathname.endsWith('/listings') && url.searchParams.get('deal') === '901') return route.fulfill({ json: { status: 'ready', total: 2, index_built_at: '2026-11-15T00:00:00Z', listings, titles: ['ドライバー'], offset: 0, next_offset: null, refreshing: false, refresh_failed: false, selected_deal: { id: '901', name: '合成・定期採用' } } });
@@ -65,32 +69,50 @@ async function open(page: Page) {
   await page.goto('/app/job-copy?report=deal:901');
 }
 
-test('案件の報告のスライド: 左で選び、外したものは理由を出し、PDF は横長1枚ずつ', async ({ page }) => {
+const SHORT = '週1回、掲載の数字を確認します\n必要に応じて原稿を見直します';
+/** 行動計画の3つの欄を書く（選んでいるのは「次回までの目標と行動計画」のスライド）。 */
+async function fillPlan(page: Page, text: string) {
+  for (const name of ['当社の行動計画', 'ご担当者さまの行動計画', '運用上のゴール']) await page.getByRole('textbox', { name, exact: true }).fill(text);
+}
+
+test('案件の報告のスライド: 左で選び、未記入・外したものは理由を出し、PDF は横長1枚ずつ', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
   await open(page);
   const side = page.getByRole('complementary', { name: '報告の設定' });
-  await expect(side.locator('.rs-thumbs').getByRole('checkbox')).toHaveCount(7);
-  await expect(side.getByRole('checkbox', { name: /面接・採用を出す/ })).toBeChecked();
-  await expect(page.getByRole('region', { name: '外したもの' })).toContainText('次に行うこと：「次に行うこと」が未記入のため');
-  await side.getByLabel('開始', { exact: true }).fill('2026-10-19');
-  await side.getByLabel('終了', { exact: true }).fill('2026-11-15');
-  await side.getByRole('textbox', { name: '次に行うこと1', exact: true }).fill('給与の書き方を、ほかの求人にも広げます');
-  await side.getByRole('textbox', { name: '次に行うこと1の補足', exact: true }).fill('11月下旬までに掲載内容を見直し');
-  await side.getByRole('textbox', { name: '次に行うこと2', exact: true }).fill('面接に進んだ方の応募理由を、引き続きうかがいます');
-  await expect(side.locator('.rs-thumbs').getByRole('checkbox')).toHaveCount(8);
-  await expect(page.locator('.rs-print-deck .rs-slide')).toHaveCount(8);
   const stage = page.getByRole('region', { name: 'スライド', exact: true });
-  await side.getByRole('button', { name: /まとめ/ }).click();
-  await expect(stage).toContainText('応募は前の期間の 3件から 7件に増えました');
-  // 面接・採用は期間の数字（応募）とは別の段に、案件を読んだ日つきの見出しで出す（2026-11-16 利用者決定）
+  const printed = page.locator('.rs-print-deck');
+  // 定期ミーティングの資料の並び: 表紙・目次・掲載求人・導線・進捗・数字の表・総評・求人ごと2枚・補足4枚・対応方針・施策2枚・行動計画・アンケート
+  await expect(side.locator('.rs-thumbs').getByRole('checkbox')).toHaveCount(18);
+  await expect(side.getByRole('checkbox', { name: /面接・採用を出す/ })).toBeChecked();
+  // 期間は前回の MTG の記録から決まる
+  await expect(side).toContainText('前回のMTG（10/19 の記録）');
+  await expect(side.getByLabel('開始', { exact: true })).toHaveValue('2026-10-19');
+  await expect(side.getByLabel('終了', { exact: true })).toHaveValue('2026-11-15');
+  await expect(side.getByLabel('前回の開始')).toHaveValue('2026-09-21');
+  await expect(side.getByLabel('前回の終了')).toHaveValue('2026-10-18');
+  // 文章が未記入のスライドと補足のスライドは、最初は紙に入らない
+  await expect(page.getByRole('region', { name: '外したもの' })).toContainText('次回までの目標と行動計画：共通目標・行動計画が未記入のため');
+  await expect(printed.locator('.rs-slide')).toHaveCount(9);
+  await expect(printed.locator('[data-slide="plan"], [data-slide="trend"], [data-slide="reasons"]')).toHaveCount(0);
+  await side.getByRole('button', { name: /次回までの目標と行動計画/ }).click();
+  await page.getByRole('textbox', { name: '次回の定期MTGまでの共通目標', exact: true }).fill('内定 1名の獲得');
+  await fillPlan(page, SHORT);
+  await expect(side.locator('.rs-thumbs').getByRole('checkbox')).toHaveCount(18);
+  await expect(printed.locator('.rs-slide')).toHaveCount(10);
+  await expect(printed.locator('[data-slide="plan"]')).toContainText('内定 1名の獲得');
+  // 数字の表: 求人ごとの応募数と合計。面接・採用は期間の数字とは別の段に、案件を読んだ日つきの見出しで出す（2026-11-16 利用者決定）
+  await side.getByRole('button', { name: /数字の表/ }).click();
+  await expect(stage.locator('.rs-table tbody tr')).toHaveText(['合成トラックドライバー5', /^合成ルート配送.*2$/, '合計7']);
   const today = new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Tokyo', month: 'numeric', day: 'numeric' }).format(new Date());
   await expect(stage.locator('.rs-totals-h')).toHaveText(`ご契約からの合計（${today} 時点）`);
   await expect(stage.locator('.rs-totals .rs-kp > div')).toHaveText(['面接4件', '採用1名']);
-  await expect(stage.locator('.rs-body > .rs-kp')).not.toContainText(/面接|採用/);
+  await expect(stage.locator('.rs-table')).not.toContainText(/面接|採用/);
+  await expect(stage).not.toContainText(/未取得|HubSpot/);
+  // 前回の MTG の期間と並べる（全体は 前回 3件 → 今回 7件）
+  await side.getByRole('button', { name: /総評と前回との比較/ }).click();
+  await expect(stage.locator('.rs-compare tbody tr').first()).toHaveText('全体3 → 7');
   await expect(stage).not.toContainText(/未取得|HubSpot/);
   // 媒体の費用は紙のどこにも書かない（印刷用の束の全スライド）
-  const printed = page.locator('.rs-print-deck');
-  await expect(printed.locator('.rs-slide')).toHaveCount(8);
   await expect(printed).not.toContainText(/費用|課金|円/);
   // 切り替えで面接・採用を外せる
   await side.getByRole('checkbox', { name: /面接・採用を出す/ }).uncheck();
@@ -98,44 +120,39 @@ test('案件の報告のスライド: 左で選び、外したものは理由を
   await expect(printed).not.toContainText(/面接\d|採用\d|ご契約からの合計/);
   await side.getByRole('checkbox', { name: /面接・採用を出す/ }).check();
   await expect(printed.locator('.rs-totals .rs-kp > div')).toHaveText(['面接4件', '採用1名']);
-  // 応募理由は電話でうかがった分類の件数、どのスライドも枠からはみ出さない
+  // 補足の応募理由は左で選ぶと入る。電話でうかがった分類の件数、どのスライドも枠からはみ出さない
+  await side.getByRole('checkbox', { name: '応募理由を入れる' }).check();
+  await expect(printed.locator('.rs-slide')).toHaveCount(11);
   await side.getByRole('button', { name: /応募理由/ }).click();
   await expect(stage).toContainText('お電話で応募理由をうかがえた 7件の内訳');
   await expect(page.getByRole('region', { name: 'はみ出し' })).toHaveCount(0);
   // 長すぎる文は、はみ出しとして左に出る（紙は直さず、担当者が短くする）
-  const long = '長い文の確認です。'.repeat(13);
-  for (const n of [1, 2, 3]) {
-    await side.getByRole('textbox', { name: `次に行うこと${String(n)}`, exact: true }).fill(long);
-    await side.getByRole('textbox', { name: `次に行うこと${String(n)}の補足`, exact: true }).fill(long);
-  }
-  await expect(page.getByRole('region', { name: 'はみ出し' })).toContainText('次に行うこと（枠からはみ出しています）');
-  await side.getByRole('textbox', { name: '次に行うこと1', exact: true }).fill('給与の書き方を、ほかの求人にも広げます');
-  await side.getByRole('textbox', { name: '次に行うこと1の補足', exact: true }).fill('11月下旬までに掲載内容を見直し');
-  await side.getByRole('textbox', { name: '次に行うこと2', exact: true }).fill('面接に進んだ方の応募理由を、引き続きうかがいます');
-  await side.getByRole('textbox', { name: '次に行うこと2の補足', exact: true }).fill('');
-  await side.getByRole('textbox', { name: '次に行うこと3', exact: true }).fill('');
-  await side.getByRole('textbox', { name: '次に行うこと3の補足', exact: true }).fill('');
+  await side.getByRole('button', { name: /次回までの目標と行動計画/ }).click();
+  await fillPlan(page, Array.from({ length: 25 }, () => '長い文の確認です。長い文の確認です。').join('\n'));
+  await expect(page.getByRole('region', { name: 'はみ出し' })).toContainText('次回までの目標と行動計画（枠からはみ出しています）');
+  await fillPlan(page, SHORT);
   await expect(page.getByRole('region', { name: 'はみ出し' })).toHaveCount(0);
   // 期間が正しくないときは PDF に出せない
   await side.getByLabel('開始', { exact: true }).fill('2026-12-01');
   await expect(page.getByRole('button', { name: 'PDF に出す' })).toBeDisabled();
   await side.getByLabel('開始', { exact: true }).fill('2026-10-19');
+  await expect(page.getByRole('button', { name: 'PDF に出す' })).toBeEnabled();
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/report-slides-screen.png` });
-  if (SHOTS) for (const [n, id] of ['cover', 'summary', 'trend', 'listings', 'changes', 'applicants', 'reasons', 'next'].entries()) {
+  if (SHOTS) for (let n = 0; n < 18; n += 1) {
     await side.locator('.rs-thumbs li').nth(n).getByRole('button').click();
-    await page.locator('.rs-big .rs-slide').screenshot({ path: `${SHOTS}/slide-${String(n + 1)}-${id}.png` });
+    await page.locator('.rs-big .rs-slide').screenshot({ path: `${SHOTS}/slide-${String(n + 1).padStart(2, '0')}.png` });
   }
   // 入れるスライドを外すと、印刷にも出ない。
   await side.getByRole('checkbox', { name: '応募理由を入れる' }).uncheck();
-  await expect(page.locator('.rs-print-deck .rs-slide')).toHaveCount(7);
+  await expect(printed.locator('.rs-slide')).toHaveCount(10);
   await side.getByRole('checkbox', { name: '応募理由を入れる' }).check();
   // 印刷では画面の他の部分を出さず、スライドだけを横長1枚ずつ。
   await page.emulateMedia({ media: 'print' });
   await expect(page.locator('.rs-root')).toBeHidden();
-  await expect(page.locator('.rs-print-deck .rs-slide').first()).toBeVisible();
+  await expect(printed.locator('.rs-slide').first()).toBeVisible();
   const pdf = await page.pdf({ preferCSSPageSize: true, printBackground: true });
   const pages = pdf.toString('latin1').match(/\/Type\s*\/Page[^s]/g) ?? [];
-  expect(pages).toHaveLength(8);
+  expect(pages).toHaveLength(11);
   const box = pdf.toString('latin1').match(/\/MediaBox\s*\[\s*0\s+0\s+([\d.]+)\s+([\d.]+)\s*\]/);
   // 10in × 5.625in = 720pt × 405pt（16:9 の横長）
   expect(Number(box?.[1])).toBeCloseTo(720, 0);
