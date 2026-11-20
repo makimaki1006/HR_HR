@@ -175,9 +175,7 @@ fn refresh(source: &Value, mut moc: Value) -> Result<Value, &'static str> {
             .collect();
         let mut bundle = moc["capture_bundle"].clone();
         bundle["jobs"] = json!([job]);
-        // The per-version areas and the job-wide cells are hidden with the same version groups.
-        let (comparison, groups) =
-            job_copy_capture::dated_comparison_with_groups(&bundle, &applications)?;
+        let comparison = job_copy_capture::dated_comparison(&bundle, &applications)?;
         let reasons = reasons_for(
             &listing,
             &records,
@@ -185,7 +183,7 @@ fn refresh(source: &Value, mut moc: Value) -> Result<Value, &'static str> {
             every_source == Some(true),
             labels.as_ref(),
         );
-        results.push(json!({"listing_id":listing,"summary":job_copy_live::summarize_grouped(&records,&groups),"dated_comparison":comparison,"applicant_reasons":reasons}));
+        results.push(json!({"listing_id":listing,"summary":job_copy_live::summarize(&records),"dated_comparison":comparison,"applicant_reasons":reasons}));
     }
     moc["capturedAt"] = json!(fetched);
     moc["results"] = json!(results);
