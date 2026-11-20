@@ -51,16 +51,15 @@ test.describe('CRM 架電画面: パネルの配置', () => {
     expect(Math.abs((await colWidth(page, 0)) - 300)).toBeLessThanOrEqual(4);
     expect(Math.abs((await colWidth(page, 2)) - 643)).toBeLessThanOrEqual(4);
 
-    // プロパティ: HubSpot のカード「リスト情報」(開いている) の表示名と値 (日付は年月日、空は「未入力」)
+    // プロパティ: HubSpot の「bpo用」のカード「タスク設定」(開いている) の表示名と値 (日付は年月日、空は「未入力」)
     await tablist(page, '左').getByRole('tab', { name: 'プロパティ' }).click();
     const props = page.getByTestId('property-panel');
-    const value = (label: string) => props.locator('dt').filter({ hasText: new RegExp(`^${label}$`, 'u') }).locator('xpath=following-sibling::dd[1]');
+    const value = (label: string) => props.locator('dt').filter({ hasText: new RegExp(`^${label}$`, 'u') }).locator('xpath=following-sibling::dd[1]').first();
     await expect(value('架電日')).toHaveText('2026/09/25');
-    await expect(value('再架電日')).toHaveText('2026/09/30');
-    // 再架電時間は HubSpot では数値 (時)
-    await expect(value('再架電時間')).toHaveText('16');
-    await expect(value('利用中サービス')).toHaveText('未入力');
-    await expect(value('担当者名')).toHaveText('丁野 三郎');
+    // 次回架電日・次回架電時間は タスク設定・リスト情報・BPO用｜タスク設定 の複数のカードに出る (HubSpot と同じ)
+    await expect(value('次回架電日')).toHaveText('2026/09/30');
+    await expect(value('次回架電時間')).toHaveText('16:00');
+    await expect(value('失注の理由')).toHaveText('未入力');
     await expect(props).not.toContainText('bpo_');
     await expect(props).not.toContainText('risuto_');
 
