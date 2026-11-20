@@ -16,7 +16,7 @@ import type { ApplicationRow } from './data';
 import type { ApplicantReasonCollection } from './applicantReasonsModel';
 import { buildDistribution } from './applicantCompositionModel';
 import type { ApplicantDistribution } from './applicantCompositionModel';
-import { AREA_OTHER, AREA_UNKNOWN } from './applicantArea';
+import { AREA_OTHER, AREA_UNKNOWN, mergeSmallAreas } from './applicantArea';
 import { REASON_CATEGORIES, selectedCategory } from './reasonCategories';
 import type { ReasonCategory } from './reasonCategories';
 
@@ -345,13 +345,14 @@ function capWithOther(rows: Bar[], limit: number): Bar[] {
   return [...named.slice(0, limit), { label: AREA_OTHER, count: (other?.count ?? 0) + moved }, ...unknown];
 }
 
-/** 応募者の傾向。性別・年代・都道府県のそれぞれ単独の内訳（3件未満の都道府県は「その他」）。 */
+const smallAreasMerged = (distribution: ApplicantDistribution | null) => distribution && mergeSmallAreas(distribution);
+/** 応募者の傾向。性別・年代・都道府県のそれぞれ単独の内訳（顧客に渡すので、3件未満の都道府県は「その他」）。 */
 export function applicantGroups(rows: readonly ApplicationRow[]): { title: string; rows: Bar[] }[] {
   const attributes = rows.map(row => ({ gender: normalizeGender(row.gender), age: row.age ? Number(row.age) : null, prefecture: row.prefecture, municipality: row.municipality }));
   return [
     { title: '性別', rows: distributionRows(buildDistribution(attributes, 'gender'), true) },
     { title: '年代', rows: distributionRows(buildDistribution(attributes, 'age'), false) },
-    { title: 'お住まい', rows: capWithOther(distributionRows(buildDistribution(attributes, 'prefecture'), true), MAX_AREA_BARS) },
+    { title: 'お住まい', rows: capWithOther(distributionRows(smallAreasMerged(buildDistribution(attributes, 'prefecture')), true), MAX_AREA_BARS) },
   ];
 }
 

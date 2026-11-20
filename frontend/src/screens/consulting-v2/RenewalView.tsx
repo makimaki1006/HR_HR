@@ -44,7 +44,7 @@ function PipeTable({ rows, portal, go }: { rows: PipeRow[]; portal: string | und
               <td>{orText(r.consultant, DASH)}</td>
               <td>{r.stage === null || r.stage === undefined || r.stage === '' ? <small>ステージ名なし</small> : r.stage}</td>
               <td className="cv2-num">{yen(r.amount)}</td>
-              <td><FlagChips flags={r.flags} /></td>
+              <td><FlagChips flags={r.flags} unlinkedMtg={r.mtg_unlinked} /></td>
               <td><CaseLink dealId={r.deal_id} /> <HubspotLink portal={portal} dealId={r.deal_id} /></td>
             </tr>
           ))}

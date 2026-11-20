@@ -57,15 +57,6 @@ pub fn dated_comparison(
     bundle: &Value,
     applications: &[ApplicantRecord],
 ) -> Result<Value, &'static str> {
-    dated_comparison_with_groups(bundle, applications).map(|(comparison, _)| comparison)
-}
-
-/// The comparison, and each attributed application's version (application ID -> version ID) for
-/// job_copy_live::summarize_grouped. The IDs never leave the server.
-pub fn dated_comparison_with_groups(
-    bundle: &Value,
-    applications: &[ApplicantRecord],
-) -> Result<(Value, BTreeMap<String, String>), &'static str> {
     let job = bundle["jobs"]
         .as_array()
         .and_then(|jobs| jobs.first())
@@ -105,7 +96,7 @@ pub fn dated_comparison_with_groups(
         .iter()
         .filter_map(|item| Some((item.application_id.clone(), item.version_id.clone()?)))
         .collect();
-    let hidden_areas = protected_areas(applications, &groups);
+    let areas = rounded_areas(applications);
     let mut per_version = serde_json::Map::new();
     for version in versions {
         let mut dimensions = serde_json::Map::new();
@@ -122,13 +113,12 @@ pub fn dated_comparison_with_groups(
                 dimension,
             );
             let distribution = match dimension {
-                // A version's areas come from the hidden areas (version x gender x age x area
-                // of 3 or more), never from the raw ones.
+                // A version's areas come from the rounded areas, never from the raw ones.
                 AttributeDimension::Prefecture | AttributeDimension::Municipality => distribution
                     .map(|distribution| {
                         area_distribution(
                             &groups,
-                            &hidden_areas,
+                            &areas,
                             &version,
                             dimension == AttributeDimension::Municipality,
                             distribution.denominator,
@@ -141,59 +131,38 @@ pub fn dated_comparison_with_groups(
         per_version.insert(version.clone(),json!({"count":aggregation.per_version.get(&version).copied().unwrap_or(0),"dimensions":dimensions}));
     }
     // Do not expose application IDs or row-level personal attributes to the browser.
-    Ok((
+    Ok(
         json!({"rule_version":aggregation.rule_version,"total":aggregation.total_unique_records,"unknown":aggregation.unknown_records,
         "by_version":per_version,"daily_representatives":index.representatives,"excluded_observations":index.excluded,
         "area_rule":super::job_copy_live::VERSION_AREA_RULE,
         "basis":"変更検知日を基準に集計。媒体生成日が不明の観測は鮮度未確認。"}),
-        groups,
-    ))
+    )
 }
 
-/// Each application's (都道府県, 市区町村) after hiding: by application ID, first row per ID.
-fn protected_areas(
-    applications: &[ApplicantRecord],
-    groups: &BTreeMap<String, String>,
-) -> BTreeMap<String, (String, String)> {
-    let mut seen = std::collections::BTreeSet::new();
-    let mut ids = Vec::new();
-    let mut keys = Vec::new();
+/// Each application's rounded (都道府県, 市区町村): by application ID, first row per ID.
+fn rounded_areas(applications: &[ApplicantRecord]) -> BTreeMap<String, (String, String)> {
+    let mut areas = BTreeMap::new();
     for application in applications {
-        if !seen.insert(application.application_id.as_str()) {
-            continue;
-        }
         let attributes = &application.attributes;
         let area = applicant_area::round_area(
             attributes.prefecture.as_deref(),
             attributes.municipality.as_deref(),
         );
-        ids.push(application.application_id.clone());
-        keys.push(applicant_area::ApplicantKey {
-            group: groups
-                .get(&application.application_id)
-                .cloned()
-                .unwrap_or_default(),
-            gender: attributes
-                .gender
-                .as_deref()
-                .map(str::trim)
-                .filter(|gender| !gender.is_empty())
-                .unwrap_or("不明")
-                .to_owned(),
-            age: super::job_copy_live::age_band(attributes.age.map(u32::from)),
-            prefecture: applicant_area::prefecture_label(&area),
-            municipality: applicant_area::municipality_label(&area),
-            count: 1,
-        });
+        areas
+            .entry(application.application_id.clone())
+            .or_insert_with(|| {
+                applicant_area::round_area_pair(
+                    &applicant_area::prefecture_label(&area),
+                    &applicant_area::municipality_label(&area),
+                )
+            });
     }
-    ids.into_iter()
-        .zip(applicant_area::protect_applicant_keys(&keys))
-        .collect()
+    areas
 }
 
 fn area_distribution(
     groups: &BTreeMap<String, String>,
-    hidden_areas: &BTreeMap<String, (String, String)>,
+    areas: &BTreeMap<String, (String, String)>,
     version: &str,
     municipality: bool,
     denominator: usize,
@@ -203,7 +172,7 @@ fn area_distribution(
         if group != version {
             continue;
         }
-        if let Some((prefecture, city)) = hidden_areas.get(id) {
+        if let Some((prefecture, city)) = areas.get(id) {
             let label = if municipality { city } else { prefecture };
             *counts.entry(label.clone()).or_default() += 1;
         }
@@ -264,7 +233,7 @@ mod tests {
     }
 
     #[test]
-    fn a_version_in_one_city_does_not_name_the_city_next_to_single_gender_and_age() {
+    fn a_version_names_its_city_however_few_applicants_per_gender_and_age() {
         let bundle = json!({"schemaVersion":1,"capturedAt":"2026-10-03T01:00:00Z","jobs":[{"id":"hrh-1","body":"B","history":[{"id":"old","capturedAt":"2026-10-01T01:00:00Z","body":"A"}]}]});
         let app = |id: &str, day: &str, gender: &str, age: u8| ApplicantRecord {
             application_id: id.into(),
@@ -285,33 +254,20 @@ mod tests {
             app("2", "2026-10-01", "男性", 35),
             app("3", "2026-10-01", "女性", 47),
         ];
-        let (result, groups) = dated_comparison_with_groups(&bundle, &apps).unwrap();
+        let result = dated_comparison(&bundle, &apps).unwrap();
         assert_eq!(
             result["area_rule"],
             super::super::job_copy_live::VERSION_AREA_RULE
         );
-        assert_eq!(groups.len(), 3);
         let version = &result["by_version"]["old"]["dimensions"];
         assert_eq!(
             version["municipality"]["categories"],
-            json!([{"category": "その他", "count": 3, "percentage": 100.0}])
+            json!([{"category": "大分県大分市", "count": 3, "percentage": 100.0}])
         );
         assert_eq!(
             version["prefecture"]["categories"],
-            json!([{"category": "その他", "count": 3, "percentage": 100.0}])
+            json!([{"category": "大分県", "count": 3, "percentage": 100.0}])
         );
         assert_eq!(version["gender"]["denominator"], 3);
-        assert!(!result.to_string().contains("大分市"));
-        // 3 applications with the same gender and age keep the city.
-        let apps = vec![
-            app("1", "2026-10-01", "女性", 24),
-            app("2", "2026-10-01", "女性", 25),
-            app("3", "2026-10-01", "女性", 27),
-        ];
-        let result = dated_comparison(&bundle, &apps).unwrap();
-        assert_eq!(
-            result["by_version"]["old"]["dimensions"]["municipality"]["categories"],
-            json!([{"category": "大分県大分市", "count": 3, "percentage": 100.0}])
-        );
     }
 }

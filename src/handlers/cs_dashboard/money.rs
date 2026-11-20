@@ -262,6 +262,7 @@ pub fn build_renewal_pipe(sheets: &Sheets, today: NaiveDate) -> Value {
             "consultant": g("consultant"),
             "retired": g("retired"),
             "flags": g("flags"),
+            "mtg_unlinked": g("mtg_unlinked"),
             "n_flags": g("n_flags"),
         })
     };

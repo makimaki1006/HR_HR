@@ -24,9 +24,13 @@ export function validTodoDate(value: string): boolean {
 export function todoRequest(dealId: string, base: PropValues, due: string, content: string): SaveRequest {
   return { dealId, changes: FIELDS.map(name => ({ object: 'deal' as const, name, base: base[name] ?? null, value: name === 'actionyotei' ? due : content })) };
 }
-export interface TodoReason { kind: 'expiration' | 'expired' | 'contact' | 'stalled' | 'first_contract' | 'nps' | 'target' | 'cpa' | 'mtg' | 'mtg_gap'; text: string; strong?: boolean }
+export interface TodoReason { kind: 'expiration' | 'expired' | 'contact' | 'stalled' | 'first_contract' | 'nps' | 'target' | 'cpa' | 'mtg' | 'mtg_gap'; text: string; strong?: boolean; unlinked_mtg?: boolean }
+/** 「MTGが途絶えている」に添える。同じ会社に、案件へ結び付いていないMTG録画があるときの一覧への入口。 */
+export function UnlinkedMtgLink() {
+  return <a className="nt-unlinked" href="/app/job-copy?view=unlinked" onClick={event => { event.stopPropagation(); }}>未連携のMTGあり</a>;
+}
 export function ReasonChips({ reasons }: { reasons: TodoReason[] }) {
-  return <span className="nt-reasons">{reasons.map(reason => <span className={`nt-reason${reason.strong ? ' nt-strong' : ''}`} key={reason.kind}>{reason.text}</span>)}</span>;
+  return <span className="nt-reasons">{reasons.map(reason => <span className="nt-reason-item" key={reason.kind}><span className={`nt-reason${reason.strong ? ' nt-strong' : ''}`}>{reason.text}</span>{reason.unlinked_mtg && <UnlinkedMtgLink />}</span>)}</span>;
 }
 /** 予定を入れるボタン・小窓の題。予定があるときは「済みにして次を入れる」とそろえる。 */
 export function nextTodoLabel(hasPlan: boolean): string {

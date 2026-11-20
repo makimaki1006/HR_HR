@@ -18,7 +18,7 @@ const summary = {
     prefecture: { [street]: 4, '大分県大分市府内町1-1': 2 },
     municipality: { [`東京都 / ${street.slice(3)}`]: 4, '大分県 / 大分市府内町1-1': 2 },
   },
-  // The area totals on screen are counted from these cells (4 in 新宿区 with the same gender × age).
+  // The area totals on screen are counted from these cells.
   joint_demographics: { total: 6, cells: [
     { gender: '女性', age: '30代', prefecture: street, municipality: `東京都 / ${street.slice(3)}`, count: 4 },
     { gender: '男性', age: '40代', prefecture: '大分県大分市府内町1-1', municipality: '大分県 / 大分市府内町1-1', count: 2 },
@@ -42,6 +42,8 @@ async function openJob(onOpen: (job: JobCopyRecord) => void) {
   await screen.findByText('応募を取得しました。');
 }
 
+// Areas with fewer than 3 applicants (大分市 2) are named as they are.
+const AREAS = { prefecture: [['東京都', 4], ['大分県', 2]], municipality: [['東京都新宿区', 4], ['大分県大分市', 2]] };
 const categories = (record: JobCopyRecord | undefined, dimension: 'prefecture' | 'municipality') =>
   record?.overallApplications?.distributions[dimension]?.categories.map(row => [row.category, row.count]);
 
@@ -66,16 +68,16 @@ describe('HubSpotReadPanel applicant addresses', () => {
     const onOpen = vi.fn<(job: JobCopyRecord) => void>();
     await openJob(onOpen);
     const opened = onOpen.mock.calls.at(-1)?.[0];
-    expect(categories(opened, 'prefecture')).toEqual([['東京都', 4], ['その他', 2]]);
-    expect(categories(opened, 'municipality')).toEqual([['東京都新宿区', 4], ['その他', 2]]);
+    expect(categories(opened, 'prefecture')).toEqual(AREAS.prefecture);
+    expect(categories(opened, 'municipality')).toEqual(AREAS.municipality);
     for (const [job] of onOpen.mock.calls) expect(JSON.stringify(job)).not.toMatch(leaks);
-    expect(opened?.jointDemographics?.cells.map(cell => [cell.municipality, cell.count])).toEqual([['東京都新宿区', 4], ['その他', 2]]);
-    // Without the cells, no area is named (the gender and age totals could be read as one area's).
+    expect(opened?.jointDemographics?.cells.map(cell => [cell.municipality, cell.count])).toEqual(AREAS.municipality);
+    // Without the cells, the areas come from the totals.
     mockApi({ ...applicants, summary: { ...summary, joint_demographics: undefined } });
     cleanup();
     const without = vi.fn<(job: JobCopyRecord) => void>();
     await openJob(without);
-    expect(categories(without.mock.calls.at(-1)?.[0], 'municipality')).toEqual([['その他', 6]]);
+    expect(categories(without.mock.calls.at(-1)?.[0], 'municipality')).toEqual(AREAS.municipality);
     cleanup();
     mockApi(applicants);
     await openJob(onOpen);
@@ -98,7 +100,7 @@ describe('HubSpotReadPanel applicant addresses', () => {
     const opened = onOpen.mock.calls.at(-1)?.[0];
     expect(opened?.versions[0]?.id).toBe(versionId);
     expect(opened?.versions[0]?.distributions?.municipality?.categories.map(row => [row.category, row.count])).toEqual([['東京都新宿区', 4]]);
-    expect(categories(opened, 'municipality')).toEqual([['東京都新宿区', 4], ['その他', 2]]);
+    expect(categories(opened, 'municipality')).toEqual(AREAS.municipality);
     for (const [job] of onOpen.mock.calls) expect(JSON.stringify(job)).not.toMatch(leaks);
     expect(document.body.textContent).not.toMatch(leaks);
   });
