@@ -36,7 +36,7 @@ const ATTEMPTS: u32 = 3;
 const ROUTING_TTL: Duration = Duration::from_secs(600);
 /// 読めなかったときに次に読み直すまでの間 (前回の結果を使い続ける)
 const ROUTING_RETRY: Duration = Duration::from_secs(60);
-const SLACK_API: &str = "https://slack.com/api";
+pub(in crate::crm) const SLACK_API: &str = "https://slack.com/api";
 
 pub const TAB_TEAMS: &str = "①チーム設定_入力";
 pub const TAB_MEMBERS: &str = "②メンバー配置_入力";
@@ -275,6 +275,54 @@ impl RoutingCache {
 
 // ---- Slack Bot ----------------------------------------------------------
 
+/// `chat.postMessage` の失敗。`maybe_sent` は、送ったあと応答を受け取れなかった (届いたか分からない) とき true
+pub(in crate::crm) struct ChatPostError {
+    pub reason: String,
+    pub maybe_sent: bool,
+}
+
+/// Bot のトークンで `chat.postMessage` を 1 回呼ぶ。成功なら投稿の ts。再試行はしない
+/// (新規営業のアポ通知と、応募の折り返しの知らせ `applicant_callback.rs` が使う)
+pub(in crate::crm) async fn chat_post(
+    http: &reqwest::Client,
+    api_base: &str,
+    token: &str,
+    body: &serde_json::Value,
+) -> Result<String, ChatPostError> {
+    let fail = |reason: String, maybe_sent: bool| ChatPostError { reason, maybe_sent };
+    let r = http
+        .post(format!("{api_base}/chat.postMessage"))
+        .bearer_auth(token)
+        .json(body)
+        .send()
+        .await
+        .map_err(|e| {
+            fail(
+                format!("send failed (timeout={})", e.is_timeout()),
+                !e.is_connect(),
+            )
+        })?;
+    let status = r.status();
+    if !status.is_success() {
+        return Err(fail(
+            format!("http {}", status.as_u16()),
+            status.is_server_error(),
+        ));
+    }
+    let v: serde_json::Value = r
+        .json()
+        .await
+        .map_err(|_| fail("unreadable response".into(), true))?;
+    if v.get("ok").and_then(|b| b.as_bool()) != Some(true) {
+        let err = v.get("error").and_then(|e| e.as_str()).unwrap_or("unknown");
+        return Err(fail(format!("slack error: {err}"), false));
+    }
+    v.get("ts")
+        .and_then(|t| t.as_str())
+        .map(str::to_string)
+        .ok_or_else(|| fail("no ts".into(), true))
+}
+
 #[derive(Clone)]
 pub struct BotNotifier {
     inner: Arc<Inner>,
@@ -382,27 +430,9 @@ impl BotNotifier {
     /// 1 回投稿する。成功なら ts
     async fn post_once(&self, body: &serde_json::Value) -> Result<String, String> {
         let i = &self.inner;
-        let r = i
-            .http
-            .post(format!("{}/chat.postMessage", i.api_base))
-            .bearer_auth(&i.token)
-            .json(body)
-            .send()
+        chat_post(&i.http, &i.api_base, &i.token, body)
             .await
-            .map_err(|e| format!("send failed (timeout={})", e.is_timeout()))?;
-        let status = r.status();
-        if !status.is_success() {
-            return Err(format!("http {}", status.as_u16()));
-        }
-        let v: serde_json::Value = r.json().await.map_err(|_| "unreadable response")?;
-        if v.get("ok").and_then(|b| b.as_bool()) != Some(true) {
-            let err = v.get("error").and_then(|e| e.as_str()).unwrap_or("unknown");
-            return Err(format!("slack error: {err}"));
-        }
-        v.get("ts")
-            .and_then(|t| t.as_str())
-            .map(str::to_string)
-            .ok_or_else(|| "no ts".to_string())
+            .map_err(|e| e.reason)
     }
 
     /// `ATTEMPTS` 回まで投稿する

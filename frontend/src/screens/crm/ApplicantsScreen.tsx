@@ -23,6 +23,7 @@ import type { FixedLink } from './centerLinks';
 import { toE164Jp } from './smartEmbed';
 import { ApplicantEditor } from './ApplicantEditor';
 import { ApplicantReminderBand } from './ApplicantReminders';
+import { ApplicantCallback } from './ApplicantCallback';
 import { presenceText, useApplicantPresence, viewersOf } from './ApplicantPresence';
 import './crm.css';
 import './queue.css';
@@ -243,6 +244,7 @@ export function ApplicantsScreen({ fixture = new URLSearchParams(window.location
           <p className="applicant-job"><button type="button" disabled={!detail} onClick={() => { showRelated('deals'); }}>{headline?.deal.length ? headline.deal : '取引を確認'}</button> · <button type="button" disabled={!detail} onClick={() => { showRelated('listings'); }}>{headline?.job.length ? headline.job : '求人票を確認'}</button></p>
           <div className="wd-line wd-line-2"><PhoneRow label="応募者" raw={detail?.phone ?? headline?.phone ?? ''} zoom={dialZoom} compact blocked={!!detail?.stop_reason || busy || !detail} blockReason={!detail ? (detailError ? '詳細を確認できません' : '読み込み中…') : detail.stop_reason ?? (busy ? '通話中です' : null)} /></div>
           <p className="applicant-meta">{headline?.stage} · {headline?.media} · 応募日 {date(headline?.date ?? '')}</p>
+          {detail && <ApplicantCallback key={detail.row.id} row={detail.row} enabled={detail.callback_notify} fixture={fixture} />}
           {presenceHere && <p className="applicant-presence" role="status">{presenceHere}</p>}
           {detail?.stop_reason && <p role="alert">架電禁止・ブロック: {detail.stop_reason}</p>}{dialNotice && <p role="status">{dialNotice}</p>}
         </div></article>

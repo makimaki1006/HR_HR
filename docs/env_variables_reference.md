@@ -318,6 +318,7 @@ Cookie は保持して回復後に再試行できる。認証 Cookie を使っ�
 | `TALK_REVIEW_SLACK_BOT_TOKEN` | 未設定 | **秘密**。新規営業のアポをチームのチャンネルへ送る Slack Bot のトークン (`xoxb-` で始まるもの、`chat:write` が要る)。親の投稿で営業本人とリーダーをメンションしてランクだけを出し、スレッドに中身 (担当者・時刻・ランク・ヒアリング・リンク) を返信する。未設定・形が違えば新規営業の通知は丸ごと無効。BPO の Webhook の経路には影響しない。`CALL_REVIEW_ENABLED=1` のときだけ動く (`src/crm/talk_review/slack_bot.rs`) |
 | `TALK_REVIEW_SLACK_ROUTING_SHEET_ID` | 未設定 | 新規営業の Slack の宛先を引くスプレッドシート「新規営業組織指定（Slack通知設定）」の ID。`GOOGLE_SA_KEY_B64` のサービスアカウントで読み取りのみ (シートを共有しておく)。タブ「①チーム設定_入力」(チーム名・Slack user ID・有効・アポ通知先チャンネルID)、「②メンバー配置_入力」(所属チームを選択・HubSpot ID・有効)、「社員マスタ_API」(HubSpot owner ID・Slack user ID) を見出し名で読み、10 分キャッシュする。アポ通知先チャンネルIDが空・無いチームには送らない。未設定なら新規営業の通知は無効 |
 | `TALK_REVIEW_APP_URL` | `https://hr-hw.onrender.com` | Slack の文に入れる振り返りの画面のリンクの頭 |
+| `APPLICANT_CALLBACK_SLACK_CHANNEL_ID` | 未設定 | CRM の応募の画面の「折り返しを知らせる」ボタンの送り先の Slack チャンネル ID (`C…`)。投稿は `TALK_REVIEW_SLACK_BOT_TOKEN` の Bot が `chat.postMessage` で行う (`CALL_REVIEW_ENABLED` には依らない)。Bot を送り先のチャンネルに入れておく。この変数か Bot のトークンが未設定ならボタンは押せず、理由を出す。HR_HR のリンクの頭は `TALK_REVIEW_APP_URL` (`src/crm/applicant_callback.rs`) |
 | `ZOOM_ACCOUNT_ID` | 未設定 | Zoom Server-to-Server OAuth のアカウント ID。Zoom Phone の録音・文字起こしの読み取りに使う |
 | `ZOOM_CLIENT_ID` | 未設定 | 同 OAuth のクライアント ID |
 | `ZOOM_CLIENT_SECRET` | 未設定 | 同 OAuth のクライアント secret。サーバだけが使い、ブラウザ・ログには出さない |
