@@ -381,6 +381,10 @@ fn router_full(
             get(super::call_queue::get_call_queue),
         )
         .route(
+            "/api/crm/call-queue/stage-breakdown",
+            get(super::call_queue::get_stage_breakdown),
+        )
+        .route(
             "/api/crm/call-queue/pipelines",
             get(super::call_queue::get_call_queue_pipelines),
         )

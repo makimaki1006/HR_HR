@@ -105,6 +105,8 @@ mod tests {
             .expect("CallQueueResponse の TS 型を書き出せない");
         crate::crm::call_queue::CallQueuePipelinesResponse::export_all(&cfg)
             .expect("CallQueuePipelinesResponse の TS 型を書き出せない");
+        crate::crm::call_queue::StageBreakdownResponse::export_all(&cfg)
+            .expect("StageBreakdownResponse の TS 型を書き出せない");
         crate::crm::caller_metrics::TodayMetricsResponse::export_all(&cfg)
             .expect("TodayMetricsResponse の TS 型を書き出せない");
         crate::crm::caller_metrics::AllCallersResponse::export_all(&cfg)
