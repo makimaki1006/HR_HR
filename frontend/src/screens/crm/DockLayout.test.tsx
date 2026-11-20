@@ -8,6 +8,8 @@ import { CallQueueScreen } from './CallQueueScreen';
 import { emailSaved } from './emailApi';
 import { DEFAULT_LAYOUT, DOCK_STORAGE_KEY, LEGACY_DOCK_STORAGE_KEY, dockReducer, serializeLayout } from './dockModel';
 import { DEFAULT_SELECTED, PROPS_STORAGE_KEY } from './propertyModel';
+import { HUBSPOT_CARDS } from './hubspotCards';
+import { withResultProps } from './callResultModel';
 import type { SelectedProps } from './propertyModel';
 import { makeItem, makeResponse, okCatalogFetch, okMetadataFetch, okPipelinesFetch, okUserFetch, resetDockStorage, setScreenHeight } from './queueTestUtil';
 import type { QueueFilters } from './queueModel';
@@ -19,7 +21,6 @@ import type { DetailFetch } from './useDealDetail';
 import type { CatalogFetch } from './usePropertyCatalog';
 import { fixtureOwnersFetch } from './useOwners';
 import { fakeWriteApi } from './fakeWrite';
-import { RESULT_PROPERTY_NAMES } from './callResultModel';
 import type { OwnersFetch } from './useOwners';
 import type { MetadataFetch } from './useResultDefinitions';
 
@@ -302,12 +303,20 @@ describe('layout v2: migration, maximize, compact summary', () => {
   });
 });
 
+/** カードの開閉ボタン */
+function toggleOf(card: HTMLElement): HTMLButtonElement {
+  const b = card.querySelector<HTMLButtonElement>('.pp-card-toggle');
+  if (b === null) throw new Error('toggle');
+  return b;
+}
+
 describe('selected properties are read in the same detail request', () => {
   it('the detail request carries the chosen properties; applying a new choice re-reads once with the new list and saves it', async () => {
     const c = counted();
     await openDeal(c);
     expect(c.n.detail).toBe(1);
-    expect(c.props[0]).toEqual(DEFAULT_SELECTED);
+    // 既定の項目に、架電結果の入力欄の項目を足して読む (同じ 1 回の読み取り)
+    expect(c.props[0]).toEqual(withResultProps(DEFAULT_SELECTED));
     fireEvent.click(tab('プロパティ'));
     const panel = screen.getByTestId('property-panel');
     fireEvent.click(within(panel).getByRole("button", { name: "表示設定 ▾" }));
@@ -323,7 +332,7 @@ describe('selected properties are read in the same detail request', () => {
     expect(c.n.detail).toBe(1);
     fireEvent.click(within(picker).getByRole('button', { name: 'この項目で表示する' }));
     await waitFor(() => { expect(c.n.detail).toBe(2); });
-    expect(c.props[1]?.deals).toEqual([...DEFAULT_SELECTED.deals, 'amount']);
+    expect(c.props[1]?.deals).toEqual(withResultProps({ ...DEFAULT_SELECTED, deals: [...DEFAULT_SELECTED.deals, 'amount'] }).deals);
     expect((JSON.parse(window.localStorage.getItem(PROPS_STORAGE_KEY) ?? '{}') as { deals: string[] }).deals).toContain('amount');
     await within(screen.getByTestId('property-panel')).findByText('金額');
     expect(within(screen.getByTestId('property-panel')).getByText('120,000')).toBeTruthy();
@@ -335,7 +344,7 @@ describe('selected properties are read in the same detail request', () => {
     fireEvent.click(screen.getByRole("button", { name: "表示設定 ▾" }));
     fireEvent.click(screen.getByRole("menuitem", { name: "表示する項目を選ぶ" }));
     const picker = screen.getByRole('region', { name: '表示する項目を選ぶ' });
-    const all = within(picker).getByRole<HTMLInputElement>('checkbox', { name: '「取引ステージのプロパティ」の項目をまとめて選ぶ' });
+    const all = within(picker).getByRole<HTMLInputElement>('checkbox', { name: '「取引の売上」の項目をまとめて選ぶ' });
     expect(all.checked).toBe(false);
     const info = within(picker).getByRole<HTMLInputElement>('checkbox', { name: '「取引情報」の項目をまとめて選ぶ' });
     expect(info.checked).toBe(false);
@@ -347,7 +356,7 @@ describe('selected properties are read in the same detail request', () => {
     expect(within(picker).getByRole('button', { name: 'この項目で表示する' }).hasAttribute('disabled')).toBe(true);
   });
 
-  it('「HubSpotのカードから選ぶ」 picks a whole HubSpot card; unpicking リスト情報 leaves BPOアポ情報 partly chosen; 既定に戻す brings both back', async () => {
+  it('「HubSpotのカードから選ぶ」 picks a whole HubSpot card; unpicking リスト情報 leaves タスク設定 partly chosen; 既定に戻す brings both back', async () => {
     const c = counted();
     await openDeal(c);
     fireEvent.click(tab('プロパティ'));
@@ -358,20 +367,17 @@ describe('selected properties are read in the same detail request', () => {
     // カードの選択は種類の切り替えより上にある
     expect(picker.firstElementChild).toBe(presets);
     const list = within(presets).getByRole<HTMLInputElement>('checkbox', { name: 'HubSpot のカード「リスト情報」の項目をまとめて選ぶ' });
-    const bpo = within(presets).getByRole<HTMLInputElement>('checkbox', { name: 'HubSpot のカード「BPOアポ情報」の項目をまとめて選ぶ' });
-    expect([list.checked, bpo.checked]).toEqual([true, true]);
-    expect(presets.textContent).toContain('リスト情報(43 項目)');
-    expect(presets.textContent).toContain('BPOアポ情報(25 項目)');
+    const task = within(presets).getByRole<HTMLInputElement>('checkbox', { name: 'HubSpot のカード「タスク設定」の項目をまとめて選ぶ' });
+    expect([list.checked, task.checked]).toEqual([true, true]);
+    expect(presets.textContent).toContain('リスト情報(12 項目)');
+    expect(presets.textContent).toContain('タスク設定(7 項目)');
     fireEvent.click(list);
-    // 担当者名などは両方のカードにあるので、BPOアポ情報は一部だけ選んだ状態になる
-    expect([list.checked, bpo.checked, bpo.indeterminate]).toEqual([false, false, true]);
+    // 次回架電日はどちらのカードにもあるので、タスク設定は一部だけ選んだ状態になる
+    expect([list.checked, task.checked, task.indeterminate]).toEqual([false, false, true]);
     fireEvent.click(within(picker).getByRole('button', { name: 'この項目で表示する' }));
     await waitFor(() => { expect(c.n.detail).toBe(2); });
-    // 選んだ項目 (BPOアポ情報の残り + 架電結果のカード) に、架電結果の入力欄の項目を足して読む (同じ 1 回の読み取り)
-    expect(c.props[1]?.deals).toEqual(['bpo_appo_date', 'scheduled_business_meeting_date', 'negotiation_type', 'bpo_20251', 'bpo_24', 'bpo_20252', 'bpo_2', 'bpo_1',
-      'recruitment_issues', 'bpo_20253', 'remarks_after_calling', 'charge_impression', 'bpo_29', 'bpo_apo_rikulogi', 'bpo_transactio_id', 'bpo_hsurl',
-      'nkadainofukasa', 'tjikanjiku', 'ckyougoujoukyou', 'ahkessaifuro', 'bpo_13', 'bpo_14', 'bpo_16', 'bpo_51', 'nitteigiri',
-      ...RESULT_PROPERTY_NAMES.filter(n => n.startsWith('risuto_') || n === 'saikadenn_zikan')]);
+    const listNames = HUBSPOT_CARDS.find(x => x.id === 'list_info')?.items.map(i => i.name) ?? [];
+    expect(c.props[1]?.deals).toEqual(withResultProps({ ...DEFAULT_SELECTED, deals: DEFAULT_SELECTED.deals.filter(n => !listNames.includes(n)) }).deals);
     // リスト情報は出さない (選んだ項目が 0)
     const panel = screen.getByTestId('property-panel');
     await waitFor(() => { expect(within(panel).queryByTestId('pp-card-list_info')).toBeNull(); });
@@ -381,36 +387,35 @@ describe('selected properties are read in the same detail request', () => {
     fireEvent.click(within(again).getByRole('button', { name: '既定に戻す' }));
     fireEvent.click(within(again).getByRole('button', { name: 'この項目で表示する' }));
     await waitFor(() => { expect(c.n.detail).toBe(3); });
-    expect(c.props[2]).toEqual(DEFAULT_SELECTED);
+    expect(c.props[2]).toEqual(withResultProps(DEFAULT_SELECTED));
   });
 
-  it('the default panel shows the HubSpot cards リスト情報 (open) and BPOアポ情報 (closed) in HubSpot order, with HubSpot labels only', async () => {
+  it('the default panel shows the HubSpot bpo用 cards in HubSpot order (left 5, then the 中央「BPO用」tab 4), with HubSpot labels only', async () => {
     await openDeal(counted());
     fireEvent.click(tab('プロパティ'));
     const panel = screen.getByTestId('property-panel');
-    const list = within(panel).getByRole('region', { name: 'リスト情報' });
-    const bpo = within(panel).getByRole('region', { name: 'BPOアポ情報' });
-    // HubSpot と同じ順 (リスト情報 → BPOアポ情報)
-    expect([...panel.querySelectorAll('.pp-card')].map(el => el.getAttribute('aria-label'))).toEqual(['リスト情報', 'BPOアポ情報', '架電結果']);
-    const listToggle = within(list).getByRole('button', { name: /リスト情報/ });
-    const bpoToggle = within(bpo).getByRole('button', { name: /BPOアポ情報/ });
-    expect([listToggle.getAttribute('aria-expanded'), bpoToggle.getAttribute('aria-expanded')]).toEqual(['true', 'false']);
-    const labels = [...list.querySelectorAll('dt')].map(d => d.textContent);
-    expect(labels).toHaveLength(43);
-    expect(labels.slice(0, 5)).toEqual(['URL_求人検索 ※編集不可', '架電日', '再架電日', '再架電時間', '激アツメモ（決済・利用サービス・決算・職種など）']);
-    // 値: 日付は年月日、空は未入力、URL はリンク (パネルに開く)
-    const value = (label: string) => [...list.querySelectorAll('dt')].find(d => d.textContent === label)?.nextElementSibling?.textContent;
-    expect(value('架電日')).toBe('2026/09/25');
-    expect(value('利用中サービス')).toBe('未入力');
-    expect(within(list).getAllByRole('link').map(a => a.getAttribute('href'))).toEqual(expect.arrayContaining(['https://www.example.com/job/1', 'https://www.example.com/job/2']));
-    // BPOアポ情報は閉じている。開くと HubSpot の並びで出る
-    expect(bpo.querySelectorAll('dt')).toHaveLength(0);
-    fireEvent.click(bpoToggle);
-    expect(bpoToggle.getAttribute('aria-expanded')).toBe('true');
-    expect([...bpo.querySelectorAll('dt')].map(d => d.textContent).slice(0, 3)).toEqual(['BPOアポ取得日', '商談予定日時', '商談種別']);
-    expect(within(bpo).getByRole('link', { name: 'https://app.hubspot.com/contacts/0/record/0-3/1' })).toBeTruthy();
+    expect([...panel.querySelectorAll('.pp-card')].map(el => el.getAttribute('aria-label'))).toEqual(HUBSPOT_CARDS.map(c => c.title));
+    const task = within(panel).getByRole('region', { name: 'タスク設定' });
+    const admin = within(panel).getByRole('region', { name: '管理情報' });
+    const taskToggle = toggleOf(task);
+    const adminToggle = toggleOf(admin);
+    expect([taskToggle.getAttribute('aria-expanded'), adminToggle.getAttribute('aria-expanded')]).toEqual(['true', 'false']);
+    expect([...task.querySelectorAll('dt')].map(d => d.textContent)).toEqual(['架電日', '次回架電日', '次回架電時間', 'タスクメモ', 'タスク優先度', '失注の理由', '失注の理由（詳細）']);
+    const value = (label: string) => [...task.querySelectorAll('dt')].find(d => d.textContent === label)?.nextElementSibling?.textContent;
+    expect(value('架電日')).toMatch(/^\d{4}\/\d{2}\/\d{2}$|^未入力$/u);
+    expect(value('失注の理由')).toBe('未入力');
+    // 接触・日程切りは中央の「架電記録」で、開いている
+    const log = within(panel).getByRole('region', { name: 'BPO用｜架電記録' });
+    expect([...log.querySelectorAll('dt')].map(d => d.textContent).slice(0, 2)).toEqual(['接触', '日程切り']);
+    // URL はリンク (検索用の URL_求人検索)
+    const search = within(panel).getByRole('region', { name: '検索用' });
+    expect(within(search).getAllByRole('link').length).toBeGreaterThan(0);
+    // 管理情報は閉じている。開くと HubSpot の並びで出る
+    expect(admin.querySelectorAll('dt')).toHaveLength(0);
+    fireEvent.click(adminToggle);
+    expect([...admin.querySelectorAll('dt')].map(d => d.textContent).slice(0, 2)).toEqual(['レコードID', 'BPOアポ取得日']);
     // 内部名は画面に出さない
-    expect(panel.textContent).not.toMatch(/risuto_|bpo_|recruit_media|tanntousya/u);
+    expect(panel.textContent).not.toMatch(/risuto_|bpo_|nitteigiri/u);
     // カードに無い項目は無いので「そのほかの項目」は出さない
     expect(within(panel).queryByRole('region', { name: '案件(そのほかの項目)' })).toBeNull();
   });

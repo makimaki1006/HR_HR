@@ -69,11 +69,11 @@ export async function resetState(): Promise<void> {
   await hsMutate('contacts', '7000000000', { jobtitle: '総務部長' });
 }
 
-/** プロパティのタブを開き、BPOアポ情報の折りたたみを開く */
+/** プロパティのタブを開き、架電後情報 (bpo用 の左サイドバー、既定で閉じている) の折りたたみを開く */
 export async function openPropertyPanel(page: Page) {
   await page.getByRole('tab', { name: 'プロパティ' }).click();
   const panel = page.getByTestId('property-panel');
-  const header = panel.getByText('BPOアポ情報');
+  const header = panel.getByText('架電後情報', { exact: true });
   await expect(header).toBeVisible();
   if (!(await panel.getByText('架電先電話番号').isVisible())) await header.click();
   await expect(panel.getByText('架電先電話番号')).toBeVisible();
