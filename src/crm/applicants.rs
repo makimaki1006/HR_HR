@@ -1,6 +1,8 @@
 //! 応募 (0-421) の読み取り・保存。正本と業務履歴は HubSpot。
 #[path = "applicant_write.rs"]
 mod editing;
+#[path = "applicant_phone.rs"]
+mod phone;
 #[path = "applicant_presence.rs"]
 mod presence;
 pub(super) use presence::presence;
@@ -216,6 +218,8 @@ pub(super) struct ApplicantsState {
     details: TtlCache<String, ApplicantDetail>,
     reminders: TtlCache<(), ApplicantReminders>,
     presence: presence::PresenceState,
+    /// 直近 60 日の応募の電話番号の下 4 桁 (下 4 桁での検索用)
+    phones: Arc<phone::PhoneIndex>,
 }
 impl Default for ApplicantsState {
     fn default() -> Self {
@@ -229,6 +233,7 @@ impl Default for ApplicantsState {
             details: TtlCache::new(DETAIL_TTL, 500),
             reminders: TtlCache::new(REMINDER_TTL, 1),
             presence: presence::PresenceState::default(),
+            phones: Arc::default(),
         }
     }
 }
@@ -470,6 +475,10 @@ pub(super) async fn queue(
     let all = q.scope.as_deref() == Some("all");
     let query = q.q.as_deref().unwrap_or("").trim();
     let target = q.qt.as_deref().unwrap_or("applicant");
+    // 応募者の検索に電話番号 (全部か下 4 桁) が入ったら、名前の検索でなく番号で引く
+    let phone_query = (target == "applicant")
+        .then(|| phone::parse(query))
+        .flatten();
     let mut stages: Vec<String> = q
         .stages
         .as_deref()
@@ -540,6 +549,9 @@ pub(super) async fn queue(
         return error_json(StatusCode::SERVICE_UNAVAILABLE, "not_configured");
     };
     let key = format!("{}:{key}", client.applicant_write_revision());
+    // 下 4 桁の検索用の読み込みを裏で始める (テストでは偽の HubSpot への呼び出しを増やさない)
+    #[cfg(not(test))]
+    ctx.applicants.phones.warm(&client);
     if q.fresh != Some(1) {
         if let Some(body) = ctx.applicants.queues.get(&key) {
             return Json(body).into_response();
@@ -630,6 +642,28 @@ pub(super) async fn queue(
                 });
             }
         }
+        match &phone_query {
+            Some(phone::PhoneQuery::Full(numbers)) => {
+                filters
+                    .push(json!({"propertyName":"denwabangou","operator":"IN","values":numbers}));
+            }
+            Some(phone::PhoneQuery::Last4(digits)) => {
+                let ids = ctx.applicants.phones.lookup(&client, digits).await.map_err(|_| {
+                    (StatusCode::SERVICE_UNAVAILABLE, Json(json!({"error_kind":"phone_index_loading","message":"下4桁の検索を準備しています。1分ほど待ってから、もう一度検索してください。"}))).into_response()
+                })?;
+                if ids.is_empty() {
+                    return Ok(ApplicantQueue {
+                        items: vec![],
+                        total: 0,
+                        next_cursor: None,
+                        pipelines: available,
+                        media_options: options(&defs),
+                    });
+                }
+                filters.push(json!({"propertyName":"hs_object_id","operator":"IN","values":ids}));
+            }
+            None => {}
+        }
         let body = |pos: &Position, kind| {
             let mut b = search_body(&filters, pos, kind, &properties);
             if !pos.related.is_empty() {
@@ -642,7 +676,7 @@ pub(super) async fn queue(
                 }).collect();
                 b["filterGroups"] = json!(groups);
             }
-            if !query.is_empty() && target == "applicant" {
+            if !query.is_empty() && target == "applicant" && phone_query.is_none() {
                 b["query"] = json!(query);
             }
             b
