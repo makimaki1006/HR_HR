@@ -487,7 +487,7 @@ fn call_body(
 }
 
 /// 日時プロパティは REST では ISO 8601、Search でもそうだが、エポック ms の文字列のこともある
-fn parse_time_ms(v: &Value) -> Option<i64> {
+pub(super) fn parse_time_ms(v: &Value) -> Option<i64> {
     match v {
         Value::String(s) => s.parse::<i64>().ok().or_else(|| {
             DateTime::parse_from_rfc3339(s)

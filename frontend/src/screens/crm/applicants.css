@@ -63,6 +63,7 @@
 .applicants-app .applicants-search input { flex: 0 1 360px; min-width: 0; width: min(360px, 65vw); padding: 5px 8px; border: 1px solid #cbd6e2; border-radius: 4px; }
 
 .applicants-search { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; }
+.applicants-search-note { font-size: 12px; color: #516f90; }
 .applicants-search select { padding: 5px 8px; border: 1px solid #cbd6e2; border-radius: 4px; }
 .applicant-job button { color: #17658c; font: inherit; background: transparent; border: 0; padding: 0; text-align: left; text-decoration: underline; overflow-wrap: anywhere; }
 .applicant-related:focus { outline: 2px solid #2684ae; outline-offset: -2px; }
