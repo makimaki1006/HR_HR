@@ -19,6 +19,8 @@ pub(super) struct MeetingData {
     pub(super) contacts: Option<Arc<HashMap<String, NaiveDate>>>,
     /// 取引ごとの最後のメールの日（`CS_メール履歴`。接触には数えない）。
     pub(super) emails: Option<Arc<HashMap<String, NaiveDate>>>,
+    /// 同じ会社に、案件へ結び付いていないMTG録画がある取引（`cs::unlinked_mtg_deals`）。
+    pub(super) unlinked_mtg: std::collections::HashSet<String>,
 }
 /// シートの取得時刻（MTG・Zoom・通話・メール）。どれかが取り直されたら数え直す。
 type SheetsKey = [Option<std::time::Instant>; 4];
@@ -55,11 +57,17 @@ impl MeetingData {
             call.as_deref(),
             mail.as_deref(),
         );
+        let pending = store.latest(cs::SHEET_PENDING_RECORDINGS).await;
+        let unlinked_mtg = match (&pending, store.latest(cs::SHEET_DEAL).await) {
+            (Some(pending), Some(deal)) => cs::unlinked_mtg_deals(Some(pending), &deal),
+            _ => Default::default(),
+        };
         Self {
             last,
             as_of: meta.as_ref().and_then(|m| cs::data_as_of(m)),
             contacts,
             emails,
+            unlinked_mtg,
         }
     }
     /// 案件一覧・要対応で使う接触。MTG の集計対象（リクロジ_納品管理）だけ記録から決める。
@@ -141,6 +149,10 @@ struct DealBoardReason {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     strong: Option<bool>,
+    /// 「MTGが途絶えている」で、同じ会社に案件へ結び付いていないMTG録画があるときだけ true。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    unlinked_mtg: Option<bool>,
 }
 #[derive(Serialize, Deserialize, ts_rs::TS)]
 struct DealBoardRow {
@@ -364,7 +376,7 @@ impl<'a> Metrics<'a> {
             return reasons;
         }
         let mut add = |kind: &str, text: &str, strong: bool| {
-            reasons.push(json!({"kind":kind,"text":text,"strong":strong}))
+            reasons.push(json!({"kind":kind,"text":text,"strong":strong}));
         };
         if cs::low_nps(nps(&work.record)) {
             add("nps", "定期の満足度が4以下", false);
@@ -381,11 +393,19 @@ impl<'a> Metrics<'a> {
         // 60日以上は「MTGが途絶えている」（今日の要対応と同じ基準）、30〜59日は別の印「MTGが空いている」。
         if let Some(days) = self.mtg_days(work, today) {
             match cs::mtg_band_for_days(days) {
-                cs::MtgBand::Critical => add(
-                    "mtg",
-                    &format!("MTGが途絶えている（最後のMTGから {days} 日）"),
-                    true,
-                ),
+                cs::MtgBand::Critical => {
+                    add(
+                        "mtg",
+                        &format!("MTGが途絶えている（最後のMTGから {days} 日）"),
+                        true,
+                    );
+                    // 同じ会社に、案件へ結び付いていないMTG録画がある（結び付けは人が行う）。
+                    if self.meetings.unlinked_mtg.contains(id) {
+                        if let Some(reason) = reasons.last_mut() {
+                            reason["unlinked_mtg"] = json!(true);
+                        }
+                    }
+                }
                 cs::MtgBand::Yellow => add(
                     "mtg_gap",
                     &format!("MTGが空いている（最後のMTGから {days} 日）"),
@@ -565,6 +585,7 @@ mod tests {
             as_of: Some("2026-10-15".into()),
             contacts: Some(Arc::new(HashMap::from([("1".into(), day())]))),
             emails: Some(Arc::new(HashMap::new())),
+            unlinked_mtg: Default::default(),
         }
     }
     fn reasons(s: &Snapshot, m: &MeetingData) -> Vec<Value> {

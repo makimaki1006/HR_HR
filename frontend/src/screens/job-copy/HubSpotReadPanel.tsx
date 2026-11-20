@@ -13,8 +13,8 @@ import type { JointDemographics } from './reverseSearchModel';
 import { HUBSPOT_BUSY_MESSAGE, isHubSpotBusy } from './SnapshotErrorNotice';
 
 /**
- * The gender × age × area cells of the live read. The area totals are counted from them, so a
- * record without readable cells names no area (roundApplicantAreasInRecord).
+ * The gender × age × area cells of the live read. The area totals are counted from them when
+ * they cover every applicant (roundApplicantAreasInRecord).
  */
 function liveJoint(summary: Summary): { jointDemographics: JointDemographics } | Record<string, never> {
   if (summary.joint_demographics == null) return {};

@@ -139,8 +139,8 @@ describe('printable report billing', () => {
   });
 });
 
-describe('area totals from the protected cells', () => {
-  it('does not leave a remainder that names the hidden cells\' area', () => {
+describe('area totals from the cells', () => {
+  it('names every area of the cells', () => {
     // 由布市 3 = 女性・60代 1 + 男性・30代 2; 大分市 3 = 男性・20代 3.
     const record = roundApplicantAreasInRecord({ ...job([], {}, '2026-08-12T00:00:00Z'),
       overallApplications: { total: 6, missingDate: 0, fetchedAt: '2026-08-12T00:00:00Z', byDate: {}, distributions: {
@@ -151,8 +151,7 @@ describe('area totals from the protected cells', () => {
         { gender: '男性', age: '30代', prefecture: '大分県', municipality: '大分県由布市', count: 2 },
         { gender: '男性', age: '20代', prefecture: '大分県', municipality: '大分県大分市', count: 3 },
       ] } });
-    expect(record.overallApplications?.distributions.municipality?.categories.map(row => [row.category, row.count])).toEqual([['大分県大分市', 3], ['その他', 3]]);
-    expect(JSON.stringify(record)).not.toContain('由布市');
+    expect(record.overallApplications?.distributions.municipality?.categories.map(row => [row.category, row.count])).toEqual([['大分県由布市', 3], ['大分県大分市', 3]]);
   });
 });
 

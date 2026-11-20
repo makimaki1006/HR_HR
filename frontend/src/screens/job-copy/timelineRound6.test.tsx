@@ -92,12 +92,11 @@ describe('small groups of applicants', () => {
     { gender: '男性', age: '30代', prefecture: '大分県', municipality: '大分県 / 由布市挾間町', count: 2 },
     { gender: '男性', age: '20代', prefecture: '大分県', municipality: '大分県 / 大分市府内町', count: 3 },
   ];
-  it('never shows one applicant by gender × age × city in the reverse search', () => {
+  it('finds one applicant by gender × age × city in the reverse search', () => {
     const joint = parseJointDemographics({ total: 6, cells }, 6);
-    expect(joint.cells.every(cell => cell.count >= 3 || (cell.municipality === 'その他' && cell.prefecture === 'その他'))).toBe(true);
     const job = { ...demo('demo-job-001'), jointDemographics: joint };
-    expect(reverseSearch([job], { gender: '女性', age: '60代', prefecture: '', municipality: '大分県由布市', minimum: 1 })).toEqual([]);
-    expect(reverseSearchOptions([job], 'municipality')).toEqual(['大分県大分市', 'その他']);
+    expect(reverseSearch([job], { gender: '女性', age: '60代', prefecture: '', municipality: '大分県由布市', minimum: 1 }).map(row => [row.count, row.denominator])).toEqual([[1, 6]]);
+    expect(new Set(reverseSearchOptions([job], 'municipality'))).toEqual(new Set(['大分県大分市', '大分県由布市']));
     // The total is kept.
     expect(joint.cells.reduce((sum, cell) => sum + cell.count, 0)).toBe(6);
   });
@@ -112,7 +111,8 @@ describe('small groups of applicants', () => {
 
   it('does not compare an area merged into その他 as 0件 / −100 points', () => {
     const before = roundAreaDistribution({ total: 3, categories: [{ category: '大分県由布市', count: 3, percentage: null }] }, 'municipality');
-    const after = roundAreaDistribution({ total: 4, categories: [{ category: '大分県由布市', count: 1, percentage: null }, { category: '大分県大分市', count: 3, percentage: null }] }, 'municipality');
+    // A snapshot stored before 2026-11-20 may still hold その他 for the areas it merged.
+    const after = roundAreaDistribution({ total: 4, categories: [{ category: 'その他', count: 1, percentage: null }, { category: '大分県大分市', count: 3, percentage: null }] }, 'municipality');
     const rows = compareDistributions(before, after, { areas: true }) ?? [];
     expect(rows.map(row => [row.category, row.beforeCount, row.afterCount])).toEqual([['その他', 3, 1], ['大分県大分市', 0, 3]]);
     expect(rows.some(row => row.deltaPp === -100)).toBe(false);

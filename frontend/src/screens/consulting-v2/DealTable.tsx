@@ -234,7 +234,7 @@ function Cell({ col, r, onOpen, portal }: { col: DealColumn; r: DealRow; onOpen:
       // 初回契約の関門が期限超過なら、その理由を名札の下に小さく出す（名札は増やさない）
       return (
         <>
-          <FlagChips flags={r.flags} />
+          <FlagChips flags={r.flags} unlinkedMtg={r.mtg_unlinked} />
           {r.first_contract?.reason ? <small className="cv2-first-reason">{r.first_contract.reason}</small> : null}
         </>
       );

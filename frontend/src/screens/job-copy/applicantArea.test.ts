@@ -45,7 +45,7 @@ describe('applicant address rounding', () => {
     for (const label of ['東京都新宿区', '東京都（市区町村不明）', 'その他', '不明']) expect(roundAreaLabel('municipality', label)).toBe(label);
   });
 
-  it('merges areas with fewer than 3 applicants into その他 and keeps the total', () => {
+  it('keeps areas with fewer than 3 applicants by name and keeps the total', () => {
     const result = roundAreaDistribution({ total: 7, categories: [
       { category: `東京都 / 新宿区西新宿2-8-1 ○○ビル301`, count: 1, percentage: null },
       { category: '東京都 / 新宿区歌舞伎町1-1', count: 2, percentage: null },
@@ -53,23 +53,23 @@ describe('applicant address rounding', () => {
       { category: '福岡県 / 福岡市中央区天神1', count: 1, percentage: null },
       { category: '不明', count: 1, percentage: null },
     ] }, 'municipality');
-    expect(result.categories.map(row => [row.category, row.count])).toEqual([['東京都新宿区', 3], ['その他', 3], ['不明', 1]]);
+    expect(result.categories.map(row => [row.category, row.count])).toEqual([['東京都新宿区', 3], ['大分県大分市', 2], ['福岡県福岡市中央区', 1], ['不明', 1]]);
     expect(result.categories.reduce((sum, row) => sum + row.count, 0)).toBe(7);
     expect(result.categories[0]?.percentage).toBeCloseTo(300 / 7, 10);
     expect(JSON.stringify(result)).not.toMatch(leaks);
-    expect(roundAreaCounts('prefecture', { 東京都: 3, 大分県: 2, 不明: 1 })).toEqual({ 東京都: 3, その他: 2, 不明: 1 });
+    expect(roundAreaCounts('prefecture', { 東京都: 3, 大分県: 2, 不明: 1 })).toEqual({ 東京都: 3, 大分県: 2, 不明: 1 });
   });
 
-  it('rounds and merges the demo applicant rows (12 applications of demo-001 v1)', () => {
+  it('rounds the demo applicant rows (12 applications of demo-001 v1)', () => {
     const rows = [
       ['大分県', '大分市'], ['大分県', '大分市'], ['大分県', '別府市'], ['大分県', '大分市'], ['大分県', '別府市'], ['福岡県', '福岡市'],
       ['大分県', '大分市'], ['大分県', '中津市'], ['大分県', '大分市'], ['福岡県', '福岡市'], [null, null], ['大分県', null],
     ].map(([prefecture, municipality]) => ({ gender: null, age: null, prefecture: prefecture ?? null, municipality: municipality ?? null }));
-    expect(buildDistribution(rows, 'municipality')?.categories.map(row => [row.category, row.count])).toEqual([['大分県大分市', 5], ['その他', 6], ['不明', 1]]);
-    expect(buildDistribution(rows, 'prefecture')?.categories.map(row => [row.category, row.count])).toEqual([['大分県', 9], ['その他', 2], ['不明', 1]]);
+    expect(buildDistribution(rows, 'municipality')?.categories.map(row => [row.category, row.count])).toEqual([['大分県大分市', 5], ['大分県別府市', 2], ['福岡県福岡市', 2], ['大分県中津市', 1], ['大分県（市区町村不明）', 1], ['不明', 1]]);
+    expect(buildDistribution(rows, 'prefecture')?.categories.map(row => [row.category, row.count])).toEqual([['大分県', 9], ['福岡県', 2], ['不明', 1]]);
   });
 
-  it('rounds joint cells, merges small areas per job and never offers a raw address as a reverse-search option', () => {
+  it('rounds joint cells and never offers a raw address as a reverse-search option', () => {
     const joint = parseJointDemographics({ total: 6, cells: [
       { gender: '男性', age: '30代', prefecture: '東京都', municipality: '東京都 / 新宿区西新宿2-8-1 ○○ビル301', count: 2 },
       { gender: '男性', age: '30代', prefecture: '東京都', municipality: '東京都 / 新宿区歌舞伎町1-1', count: 2 },
@@ -78,10 +78,11 @@ describe('applicant address rounding', () => {
     ] }, 6);
     expect(joint).toEqual({ total: 6, cells: [
       { gender: '男性', age: '30代', prefecture: '東京都', municipality: '東京都新宿区', count: 4 },
-      { gender: '女性', age: '20代', prefecture: 'その他', municipality: 'その他', count: 2 },
+      { gender: '女性', age: '20代', prefecture: '大分県', municipality: '大分県大分市', count: 1 },
+      { gender: '女性', age: '20代', prefecture: '福岡県', municipality: '福岡県福岡市中央区', count: 1 },
     ] });
     const job = { id: 'synthetic', jointDemographics: joint } as JobCopyRecord;
-    expect(reverseSearchOptions([job], 'municipality')).toEqual(['東京都新宿区', 'その他']);
+    expect(new Set(reverseSearchOptions([job], 'municipality'))).toEqual(new Set(['東京都新宿区', '大分県大分市', '福岡県福岡市中央区']));
     expect(reverseSearch([job], { gender: '', age: '', prefecture: '', municipality: '東京都新宿区', minimum: 1 }).map(row => [row.count, row.denominator])).toEqual([[4, 6]]);
     // 丸める前のデータが直接入っていても、選択肢と検索は丸めた値で答える
     const unrounded = { id: 'raw', jointDemographics: { total: 3, cells: [{ gender: '男性', age: '30代', prefecture: '東京都', municipality: '東京都 / 新宿区西新宿2-8-1', count: 3 }] } } as JobCopyRecord;
@@ -99,12 +100,10 @@ describe('applicant address rounding', () => {
         joint_demographics: { total: 34, cells: Object.entries(municipality).map(([label, count]) => ({ gender: '男性', age: '30代', prefecture: label.split(' / ')[0], municipality: label, count })) } },
       dated_comparison: { total: 34, unknown: 31, basis: '合成の日付対応', by_version: { [id]: { count: 3, dimensions: { gender: null, age: null, prefecture: null, municipality: versionMunicipality } } }, daily_representatives: {} } }] };
     const [job] = parseRealMoc(JSON.stringify(snapshot));
-    expect(job?.overallApplications?.distributions.municipality?.categories.map(row => [row.category, row.count])).toEqual([['東京都新宿区', 31], ['その他', 3]]);
-    // 東京都 is counted from the protected cells (31), not taken from the stored total (32): with
-    // 「東京都 32」 next to 「男性・30代・東京都新宿区 31」, the hidden 港区 applicant would be in 東京都.
-    expect(job?.overallApplications?.distributions.prefecture?.categories.map(row => [row.category, row.count])).toEqual([['東京都', 31], ['その他', 3]]);
+    expect(job?.overallApplications?.distributions.municipality?.categories.map(row => [row.category, row.count])).toEqual([['東京都新宿区', 31], ['東京都港区', 1], ['大分県大分市', 2]]);
+    expect(job?.overallApplications?.distributions.prefecture?.categories.map(row => [row.category, row.count])).toEqual([['東京都', 32], ['大分県', 2]]);
     expect(job?.versions[0]?.distributions?.municipality?.categories.map(row => [row.category, row.count])).toEqual([['東京都新宿区', 3]]);
-    expect(job?.jointDemographics?.cells.map(cell => [cell.prefecture, cell.municipality, cell.count])).toEqual([['東京都', '東京都新宿区', 31], ['その他', 'その他', 3]]);
+    expect(job?.jointDemographics?.cells.map(cell => [cell.prefecture, cell.municipality, cell.count])).toEqual([['東京都', '東京都新宿区', 31], ['東京都', '東京都港区', 1], ['大分県', '大分県大分市', 2]]);
     expect(JSON.stringify(job)).not.toMatch(leaks);
     if (job) expect(roundApplicantAreasInRecord(job)).toEqual(job);
   });

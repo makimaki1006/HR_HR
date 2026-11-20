@@ -4,7 +4,7 @@ import { apiGet } from '../../api/client';
 import type { WorkspaceResponse } from '../../generated/WorkspaceResponse';
 import { ProposalMemo } from './ProposalMemo';
 import { contractWriteApi } from './dealContractApi';
-import { NextTodoButton, OverdueBadge } from './NextTodo';
+import { NextTodoButton, OverdueBadge, UnlinkedMtgLink } from './NextTodo';
 import { ownerParams } from './OwnerTodo';
 import { backoff, runWhenDue } from '../../shared/preparingRetry';
 import { navigateJobCopy, updateJobCopyQuery, useJobCopySearch } from './navigation';
@@ -14,7 +14,7 @@ import { expiryText } from './DealHeading';
 import { OutLink } from './Pressable';
 import './home.css';
 export interface RiskFlag { key: string; label: string; new: boolean; since: string | null }
-export interface RiskRow { deal_id: string; name: string; company: string | null; consultant: string; flags: string[]; risk_flags: RiskFlag[]; good_flags?: RiskFlag[]; days_left: number | null; days_since_contact: number | null; mtg_last: string | null; actionyotei: string | null; actionnaiyou: string | null; /** 案件一覧から開くときの最後の接触（一覧と同じ値を出す）。 */ list_contact?: { date: string | null; status: 'ready' | 'outside' | 'unavailable' | 'none' } }
+export interface RiskRow { deal_id: string; name: string; company: string | null; consultant: string; flags: string[]; risk_flags: RiskFlag[]; good_flags?: RiskFlag[]; /** MTGが60日以上空いていて、同じ会社に案件へ結び付いていないMTG録画がある。 */ mtg_unlinked?: boolean; days_left: number | null; days_since_contact: number | null; mtg_last: string | null; actionyotei: string | null; actionnaiyou: string | null; /** 案件一覧から開くときの最後の接触（一覧と同じ値を出す）。 */ list_contact?: { date: string | null; status: 'ready' | 'outside' | 'unavailable' | 'none' } }
 export interface RiskResponse { status: string; data_day: string | null; previous_day: string | null; comparison: 'ready' | 'first' | 'unavailable'; rows: RiskRow[]; refreshing?: boolean; refresh_failed?: boolean }
 export function riskGroups(data: RiskResponse) {
   if (data.comparison !== 'ready') return [{ title: '危ない案件の一覧', rows: data.rows }];
@@ -26,9 +26,9 @@ export function earliestSince(flags: RiskFlag[]): string | null {
 }
 /** 危ない案件の既定は、コンサルKPI「今日」と同じタグ 2 つ以上。 */
 export const RISK_MIN_FLAGS = 2;
-function Flags({ flags, good = false }: { flags: RiskFlag[]; good?: boolean }) {
+function Flags({ flags, good = false, unlinkedMtg = false }: { flags: RiskFlag[]; good?: boolean; unlinkedMtg?: boolean }) {
   const since = earliestSince(flags);
-  return <><ul className="cr-flags">{flags.map(f => <li key={f.key} className={good ? 'cr-good' : f.new ? 'cr-new' : ''}><strong>{f.label}</strong>{f.new && <span className="cr-new-mark" title="前回の集計から新しく付いたタグ">新</span>}</li>)}</ul>{since && <small className="cr-since">{formatDateJst(since)}から</small>}</>;
+  return <><ul className="cr-flags">{flags.map(f => <li key={f.key} className={good ? 'cr-good' : f.new ? 'cr-new' : ''}><strong>{f.label}</strong>{f.new && <span className="cr-new-mark" title="前回の集計から新しく付いたタグ">新</span>}</li>)}{unlinkedMtg && !good && <li><UnlinkedMtgLink /></li>}</ul>{since && <small className="cr-since">{formatDateJst(since)}から</small>}</>;
 }
 /** 満了までの日数の色。案件のページの見出し（expiryText）と同じ判定で、30 日以内と過ぎて 30 日以内は赤い太字。 */
 export function expiryClass(days: number): string {
@@ -101,7 +101,7 @@ export function RiskDetail({ row, onClose, onSaved, side = false }: { row: RiskR
   const lastMtg = row.mtg_last ?? data?.events?.filter(e => inContract(e) && (e.kind === 'mtg' || e.kind === 'zoom_mtg')).map(e => e.date).sort().at(-1) ?? null;
   return <dialog className={side ? 'cr-detail cr-side' : 'cr-detail'} open={side || undefined} ref={dialog} aria-labelledby="risk-detail-title" onCancel={onClose}>
     <header><h2 id="risk-detail-title">{row.name}</h2><button className="jc-button" onClick={onClose}>閉じる</button></header>
-    <p>{row.company ?? '顧客未登録'} ／ {row.consultant || '担当未登録'}</p><Flags flags={row.good_flags ?? row.risk_flags} good={!!row.good_flags} />
+    <p>{row.company ?? '顧客未登録'} ／ {row.consultant || '担当未登録'}</p><Flags flags={row.good_flags ?? row.risk_flags} good={!!row.good_flags} unlinkedMtg={!!row.mtg_unlinked} />
     <nav className="cr-next" aria-label="次へ進む"><a className="jc-button" href={jobsHref(search, row.deal_id)} onClick={e => { e.preventDefault(); navigateJobCopy(new URL(e.currentTarget.href)); }}>案件のページを開く</a>{jobsReady ? <a className="jc-button" href={jobsHref(search, row.deal_id, listing)} onClick={e => { e.preventDefault(); navigateJobCopy(new URL(e.currentTarget.href)); }}>求人を見る</a> : <span className="cr-next-wait">求人を確認しています…</span>}{/^\d+$/.test(portal) && <OutLink href={`https://app.hubspot.com/contacts/${portal}/record/0-3/${row.deal_id}`} name="HubSpotで開く" />}</nav>
     {error && <div className="cr-error" role="alert"><span>{error}</span><button type="button" className="jc-button" onClick={retry}>もう一度読み込む</button></div>}{!data && !error && <p role="status">詳細を読み込んでいます…</p>}
     {data && !data.meta.found && <p>{data.meta.reason ?? '詳細が見つかりませんでした。'}</p>}
@@ -136,7 +136,7 @@ export function ConsultantRisk({ good = false }: { good?: boolean }) {
     {ready && !good && <p className="cr-scope" role="note"><label><input type="checkbox" checked={includeSingle} onChange={e => { updateJobCopyQuery({ risk_all: e.target.checked ? '1' : null }, 'replace'); }} /> タグが1つだけの案件も出す</label> <span>{includeSingle ? `タグが1つだけの案件 ${String(singles)}件を含めて ${String(shown.length)}件を出しています。` : `タグが2つ以上の案件 ${String(shown.length)}件を出しています（コンサルKPIの「今日」と同じ基準）。タグが1つだけの案件 ${String(singles)}件は出していません。`}</span></p>}
     {error && <p role="alert">{title}を読み込めませんでした。再読み込みしてください。</p>}{!error && (!data || data.status === 'preparing') && <p role="status">案件を集計しています…</p>}{data?.status === 'failed' && <p role="alert">案件を取得できませんでした。再読み込みしてください。</p>}
     {ready?.refresh_failed && <p>前に取得した担当と予定を表示しています。</p>}
-    {view && (good ? [{ title: 'いい案件の一覧', rows: view.rows }] : riskGroups(view)).map(group => <section key={group.title} aria-label={group.title}>{!good && <h2>{group.title} <small>{group.rows.length}件</small></h2>}<div className="cr-scroll"><table><thead><tr>{['案件・顧客', '担当', good ? '理由' : 'タグ・いつから', '満了まで', '最後の接触', '次の予定'].map(label => <th key={label}>{label}</th>)}<th className="cr-open-col"><span className="jc-visually-hidden">詳細</span></th></tr></thead><tbody>{group.rows.map(r => <tr key={r.deal_id} className={r.deal_id === selected ? 'cr-row-open' : undefined} onClick={() => { updateJobCopyQuery({ risk_deal: r.deal_id }); }}><th scope="row"><button type="button" className="jc-row-name" onClick={e => { e.stopPropagation(); updateJobCopyQuery({ risk_deal: r.deal_id }); }}>{r.name}</button><small>{r.company ?? '顧客未登録'}</small></th><td>{r.consultant || '未登録'}</td><td><Flags flags={r.good_flags ?? r.risk_flags} good={good} />{good && r.flags.length > 0 && <small>危ないタグもあり（{r.flags.length}件）</small>}</td><td><ExpiryDays days={r.days_left} empty="未登録" /></td><td>{r.days_since_contact === null ? '記録なし' : `${String(r.days_since_contact)}日前`}</td><td>{formatDateJst(r.actionyotei, '予定なし')}<small>{r.actionnaiyou ?? '内容未登録'}</small></td><td className="cr-open-cell"><button type="button" className="jc-open" aria-label={`${r.name}の詳細を開く`} onClick={e => { e.stopPropagation(); updateJobCopyQuery({ risk_deal: r.deal_id }); }}>詳細 ▸</button></td></tr>)}{!group.rows.length && <tr><td colSpan={7}>該当する案件はありません。</td></tr>}</tbody></table></div></section>)}
+    {view && (good ? [{ title: 'いい案件の一覧', rows: view.rows }] : riskGroups(view)).map(group => <section key={group.title} aria-label={group.title}>{!good && <h2>{group.title} <small>{group.rows.length}件</small></h2>}<div className="cr-scroll"><table><thead><tr>{['案件・顧客', '担当', good ? '理由' : 'タグ・いつから', '満了まで', '最後の接触', '次の予定'].map(label => <th key={label}>{label}</th>)}<th className="cr-open-col"><span className="jc-visually-hidden">詳細</span></th></tr></thead><tbody>{group.rows.map(r => <tr key={r.deal_id} className={r.deal_id === selected ? 'cr-row-open' : undefined} onClick={() => { updateJobCopyQuery({ risk_deal: r.deal_id }); }}><th scope="row"><button type="button" className="jc-row-name" onClick={e => { e.stopPropagation(); updateJobCopyQuery({ risk_deal: r.deal_id }); }}>{r.name}</button><small>{r.company ?? '顧客未登録'}</small></th><td>{r.consultant || '未登録'}</td><td><Flags flags={r.good_flags ?? r.risk_flags} good={good} unlinkedMtg={!!r.mtg_unlinked} />{good && r.flags.length > 0 && <small>危ないタグもあり（{r.flags.length}件）</small>}</td><td><ExpiryDays days={r.days_left} empty="未登録" /></td><td>{r.days_since_contact === null ? '記録なし' : `${String(r.days_since_contact)}日前`}</td><td>{formatDateJst(r.actionyotei, '予定なし')}<small>{r.actionnaiyou ?? '内容未登録'}</small></td><td className="cr-open-cell"><button type="button" className="jc-open" aria-label={`${r.name}の詳細を開く`} onClick={e => { e.stopPropagation(); updateJobCopyQuery({ risk_deal: r.deal_id }); }}>詳細 ▸</button></td></tr>)}{!group.rows.length && <tr><td colSpan={7}>該当する案件はありません。</td></tr>}</tbody></table></div></section>)}
   </main>{row && <RiskDetail key={`${row.deal_id}-${String(side)}`} side={side} row={row} onClose={() => { updateJobCopyQuery({ risk_deal: null }); }} onSaved={() => { setReload(n => n + 1); }} />}</div>;
 }
 

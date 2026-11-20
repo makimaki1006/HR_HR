@@ -3637,6 +3637,8 @@ pub(super) fn deal_rows_uncached(sheets: &Sheets, today: NaiveDate) -> (Vec<Valu
     let mut view_count: BTreeMap<&str, usize> = BTreeMap::new();
     let mut phase_count: BTreeMap<&str, usize> = BTreeMap::new();
     let mtg_risk = latest_mtg_risk_by_deal(&sheets.mtg);
+    let unlinked_mtg =
+        super::unlinked_mtg_deals(sheets.pending_recordings.as_deref(), &sheets.deal);
     let (stay_long, stay_esc) = super::stage_stay::view_ids(sheets, today);
     for d in &act {
         let (owner, retired) = who
@@ -3829,6 +3831,8 @@ pub(super) fn deal_rows_uncached(sheets: &Sheets, today: NaiveDate) -> (Vec<Valu
             "mtg_source": gap.source,
             "mtg_source_label": source_label,
             "mtg_forced_by_expiry": gap.forced_by_expiry,
+            // MTGが60日以上空いている案件で、同じ会社に案件へ結び付いていないMTG録画がある
+            "mtg_unlinked": gap.band == super::MtgBand::Critical && unlinked_mtg.contains(&d.id),
             "saiyomokuhyou": d.saiyomokuhyou,
             "rate_tassei": d.rate_tassei(),
             "cpa": mycpa, "cpa_band_median": bmed, "cpa_vs_band": vs_band,
@@ -3982,7 +3986,7 @@ pub(super) fn build_deal_board_with_sales(
 /// 🔴 シートは `SheetStore` がキャッシュした `Arc` をそのまま渡してくるので、取り直すまでは同じ `Arc` になる。
 ///    `Weak` で持つのは、覚えている間にシートの割り当てが解放されて同じ番地が別のシートに使われ、
 ///    違うデータを同じ鍵と見なすのを防ぐため（`Weak` は中身を持ち続けない。取り直した後の古い中身は解放される）。
-pub(super) type DiffKey = (NaiveDate, [std::sync::Weak<SheetData>; 11]);
+pub(super) type DiffKey = (NaiveDate, [std::sync::Weak<SheetData>; 12]);
 
 fn diff_key(sheets: &Sheets, today: NaiveDate) -> DiffKey {
     let w = std::sync::Arc::downgrade;
@@ -4000,6 +4004,12 @@ fn diff_key(sheets: &Sheets, today: NaiveDate) -> DiffKey {
             w(&sheets.meta),
             w(&sheets.zoom_mtg),
             w(&sheets.mail_history),
+            // 案件の行の「未連携のMTGあり」に使う。読めていないときは空の鍵どうしで同じと見なす
+            sheets
+                .pending_recordings
+                .as_ref()
+                .map(w)
+                .unwrap_or_default(),
         ],
     )
 }
