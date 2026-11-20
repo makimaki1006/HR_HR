@@ -87,6 +87,11 @@ use crate::hubspot::{
 };
 use crate::AppState;
 
+#[path = "stage_breakdown.rs"]
+mod stage_breakdown;
+pub(super) use stage_breakdown::get_stage_breakdown;
+pub use stage_breakdown::StageBreakdownResponse;
+
 pub const DEFAULT_LIMIT: u32 = 25;
 pub const MAX_LIMIT: u32 = 50;
 pub const MAX_Q_CHARS: usize = 100;
@@ -135,6 +140,8 @@ pub struct CallQueueState {
     counts: TtlCache<QueueCountKey, u64>,
     /// パイプライン定義の先読み (背景の優先度) が走っているか
     labels_refreshing: RefreshGate,
+    /// ステージの内訳と推移の計算結果 (10 分)
+    breakdowns: stage_breakdown::BreakdownStore,
 }
 
 impl CallQueueState {
@@ -159,6 +166,7 @@ impl CallQueueState {
             pages: TtlCache::new(QUEUE_PAGE_TTL, QUEUE_PAGE_MAX),
             counts: TtlCache::new(QUEUE_COUNT_TTL, QUEUE_COUNT_MAX),
             labels_refreshing: RefreshGate::new(),
+            breakdowns: stage_breakdown::BreakdownStore::new(),
         }
     }
 
@@ -1872,30 +1880,50 @@ fn condition_value_scope(params: &Params) -> super::queue_property_filter::Value
     }
 }
 
-pub(super) async fn get_call_queue(
-    session: Session,
-    State(state): State<Arc<AppState>>,
-    Extension(ctx): Extension<Arc<CrmCtx>>,
-    RawQuery(raw): RawQuery,
-) -> Response {
+/// 架電一覧とステージの内訳で共通の前処理 (認可・クエリ・役割・HubSpot 設定・ステージ一覧・詳細条件の解決)
+struct Prepared {
+    params: Params,
+    role: CrmRole,
+    owner: OwnerParam,
+    email: String,
+    client: Arc<HubSpotClient>,
+    now: DateTime<Utc>,
+}
+
+/// `breakdown` = ステージの内訳用。選んだパイプラインの全ステージを対象にし、ステージの絞り込み・並べ替えは使わない
+async fn prepare(
+    session: &Session,
+    state: &Arc<AppState>,
+    ctx: &Arc<CrmCtx>,
+    raw: &str,
+    breakdown: bool,
+) -> Result<Prepared, Response> {
     // 1) 認可 (HubSpot の設定有無より先。キャッシュから返すときも毎回ここを通す)
-    let principal =
-        match rbac::authorize(&session, &state, &ctx.access, Some(RecordType::Deal)).await {
-            Ok(p) => p,
-            Err(denied) => return denied.into_response(),
-        };
-    // 2) クエリ
-    let mut params = match parse_params(raw.as_deref().unwrap_or("")) {
+    let principal = match rbac::authorize(session, state, &ctx.access, Some(RecordType::Deal)).await
+    {
         Ok(p) => p,
-        Err(name) => return bad_param(name),
+        Err(denied) => return Err(denied.into_response()),
     };
+    // 2) クエリ
+    let mut params = match parse_params(raw) {
+        Ok(p) => p,
+        Err(name) => return Err(bad_param(name)),
+    };
+    if breakdown {
+        params.all_deals = true;
+        params.stages.clear();
+        params.custom_sort = None;
+    }
     // 3) 役割。担当者の指定は誰でも自由 (全員分・担当なし・他人も可)。未指定のときの既定だけ役割で変わる
     let role = rbac::resolve_role(&principal);
     let owner = effective_owner(&params.owner, role);
     let email = principal.email.clone().unwrap_or_default();
     // 4) HubSpot 設定
     let Some(client) = state.crm_hubspot() else {
-        return error_json(StatusCode::SERVICE_UNAVAILABLE, "not_configured");
+        return Err(error_json(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "not_configured",
+        ));
     };
     let now = ctx.queue.now();
     if params.all_deals {
@@ -1906,12 +1934,15 @@ pub(super) async fn get_call_queue(
         .await
         {
             Ok(Ok(d)) => d,
-            Ok(Err(e)) => return hubspot_error_response(&e),
-            Err(_) => return timeout_response(),
+            Ok(Err(e)) => return Err(hubspot_error_response(&e)),
+            Err(_) => return Err(timeout_response()),
         };
         for p in &params.pipelines {
             let Some(def) = defs.iter().find(|d| d.id == p.id) else {
-                return error_json(StatusCode::SERVICE_UNAVAILABLE, "pipeline_unavailable");
+                return Err(error_json(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "pipeline_unavailable",
+                ));
             };
             params
                 .all_stages
@@ -1920,15 +1951,15 @@ pub(super) async fn get_call_queue(
         params.all_stages.sort();
         params.all_stages.dedup();
         if params.stages.iter().any(|s| !params.all_stages.contains(s)) {
-            return bad_param("stage");
+            return Err(bad_param("stage"));
         }
     }
     if !params.property_groups.is_empty() || params.custom_sort.is_some() {
         let entry = match tokio::time::timeout(CRM_REQUEST_DEADLINE, ctx.catalog.get(&client)).await
         {
             Ok(Ok((entry, _))) => entry,
-            Ok(Err(e)) => return hubspot_error_response(&e),
-            Err(_) => return timeout_response(),
+            Ok(Err(e)) => return Err(hubspot_error_response(&e)),
+            Err(_) => return Err(timeout_response()),
         };
         let value_scope = condition_value_scope(&params);
         for group in &params.property_groups {
@@ -1941,7 +1972,7 @@ pub(super) async fn get_call_queue(
                     &value_scope,
                 ) {
                     Ok(f) => fs.push(f),
-                    Err(message) => return condition_error(message),
+                    Err(message) => return Err(condition_error(message)),
                 }
             }
             params.property_filter_groups.push(fs);
@@ -1956,12 +1987,39 @@ pub(super) async fn get_call_queue(
                 .property("deals", property)
                 .is_some_and(super::queue_property_filter::sortable)
             {
-                return condition_error(
+                return Err(condition_error(
                     "この項目では並べ替えできません。取引の項目から選び直してください。",
-                );
+                ));
             }
         }
     }
+    Ok(Prepared {
+        params,
+        role,
+        owner,
+        email,
+        client,
+        now,
+    })
+}
+
+pub(super) async fn get_call_queue(
+    session: Session,
+    State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<Arc<CrmCtx>>,
+    RawQuery(raw): RawQuery,
+) -> Response {
+    let Prepared {
+        params,
+        role,
+        owner,
+        email,
+        client,
+        now,
+    } = match prepare(&session, &state, &ctx, raw.as_deref().unwrap_or(""), false).await {
+        Ok(p) => p,
+        Err(resp) => return resp,
+    };
     // 5) cursor (署名・条件・有効期限。HubSpot は呼ばない)
     let today_ms = jst_today_ms(now);
     let hash = condition_hash(&email, role, &params, &owner, today_ms);

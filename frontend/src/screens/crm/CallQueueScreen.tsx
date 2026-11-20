@@ -9,6 +9,7 @@ import { BarMenu } from './BarMenu';
 import { queueQuery, selectedViewId, viewSearch } from './savedViewsModel';
 import { useDismiss } from './useDismiss';
 import { QueueSortDialog } from './QueueSortDialog';
+import { StageBreakdownDialog } from './StageBreakdown';
 import { QueueGroupEditor, PropertySortPicker } from './QueueConditionGroups';
 import { groupsOf, groupPatch } from './queueModel';
 import { leavesQueue } from './queueDrop';
@@ -296,6 +297,7 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
   const search = initialSearch ?? window.location.search;
   const [mode, setMode] = useState<QueueMode>(() => parseMode(search));
   const [filters, setFilters] = useState<QueueFilters>(() => parseFilters(search));
+  const [breakdownOpen, setBreakdownOpen] = useState(false);
   const [initialQueue] = useState(() => queueQuery(search));
   const [initialQueueKey] = useState(() => filtersKey(filters));
   const [initialMode] = useState(mode);
@@ -872,6 +874,9 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
             {state.phase === 'ready' && <p className="cq-count" role="status" data-testid="queue-count"
               title={total !== null ? [(filters.target==='all'?'条件に合うすべての取引の件数です。':QUEUE_TOTAL_NOTE), `(${filters.target==='all'?'条件に合う取引の総数':QUEUE_TOTAL_NOTE_SHORT})`].join(' ') : undefined}>{queueCountText(total, state.items.length, droppedCount)}
               {total !== null && <span className="cq-info" data-glyph="ⓘ" aria-hidden="true" />}</p>}
+            {state.phase === 'ready' && mode === 'live' && <button type="button" className="cq-btn cq-breakdown-btn" data-testid="open-stage-breakdown"
+              title="いまの条件に合う取引が、どのステージに何件いるか（未済の残りと日ごとの推移）" onClick={() => { setBreakdownOpen(true); }}>ステージの内訳</button>}
+            {breakdownOpen && <StageBreakdownDialog filters={filters} onClose={() => { setBreakdownOpen(false); }} />}
             {state.phase === 'ready' && notes.length > 0 && <details className="cq-notes-mini" role="status" data-testid="queue-notes"><summary title="一部の情報が欠けています" aria-label={`一部の情報が欠けています(${String(notes.length)} 項目)`}><span aria-hidden="true">⚠{notes.length}</span></summary>
               <div className="cq-notes-pop"><strong>一部の情報が欠けています</strong><small>（{notes.length} 項目）</small><ul>{notes.map(n => <li key={n}>{n}</li>)}</ul></div></details>}
             {mode === 'live' && state.last !== null && <p className="cq-scope-note cq-info" data-testid="scope-note" tabIndex={0}
