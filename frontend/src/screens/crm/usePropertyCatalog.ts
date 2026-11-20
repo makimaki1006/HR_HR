@@ -28,9 +28,11 @@ const FIXTURE_BASE_DEAL_PROPS = new Set(['dealname', 'hubspot_owner_id', 'bpo_13
 /** HubSpot のカード (hubspotCards.ts) の項目と、以前の既定にあった項目 (fixtureExtraDealProps.json) を、架空の項目グループとして並べる (表示名はカードと同じ) */
 function fixtureCardProps(): CrmCatalogProperty[] {
   const out: CrmCatalogProperty[] = [];
+  // アポ処理の項目 (FIXTURE_APPO_GROUPS) は型をそちらで決めているので、ここでは足さない (アポ獲得者 bpo_26 は担当者を選ぶ型)
+  const appo = new Set(FIXTURE_APPO_GROUPS.flatMap(g => g.properties.map(x => x.name)));
   for (const c of [...HUBSPOT_CARDS, { items: fixtureExtra.items }]) {
     for (const it of c.items) {
-      if (FIXTURE_BASE_DEAL_PROPS.has(it.name) || out.some(x => x.name === it.name)) continue;
+      if (FIXTURE_BASE_DEAL_PROPS.has(it.name) || appo.has(it.name) || out.some(x => x.name === it.name)) continue;
       const typed = FIXTURE_TYPED_PROPS[it.name];
       out.push(typed ? { ...typed, label: it.label } : it.name === 'scheduled_business_meeting_date' ? p(it.name, it.label, 'datetime', 'date')
         : FIXTURE_DATE_PROPS.has(it.name) ? p(it.name, it.label, 'date', 'date') : p(it.name, it.label, 'string', 'text'));
