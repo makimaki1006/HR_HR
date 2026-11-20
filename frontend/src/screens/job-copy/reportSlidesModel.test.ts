@@ -4,8 +4,8 @@ import type { ApplicationRow } from './data';
 import type { LoadedApplications } from './listingApplicationDates';
 import { combineApplicants, parseReportTarget } from './reportSlidesLoad';
 import {
-  alignedPeriod, applicantGroups, applicantsHeadline, buildReport, changesHeadline, clampPeriod, listingsHeadline, normalizeGender, periodText, reasonBars,
-  reasonsHeadline, summaryHeadline, trendHeadline,
+  alignedPeriod, applicantGroups, applicantsHeadline, buildReport, changesHeadline, clampPeriod, emptyTexts, normalizeGender, periodText, reasonBars,
+  reasonsHeadline, trendHeadline,
 } from './reportSlidesModel';
 import type { ReportInput, ReportListing, ReportOptions, Slide } from './reportSlidesModel';
 
@@ -46,27 +46,16 @@ const input = (patch: Partial<ReportInput> = {}): ReportInput => ({
   asOf: '2026-11-15', outcomes: { interviews: 4, hires: 1, readOn: '2026-11-16' }, applicants, ...patch,
 });
 const options = (patch: Partial<ReportOptions> = {}): ReportOptions => ({
-  from: '2026-10-19', to: '2026-11-15', addressee: '合成運輸', subject: '', owner: '担当A', sender: '', createdOn: '2026-11-15', nextActions: [], nextHeadline: '', ...patch,
+  from: '2026-10-19', to: '2026-11-15', addressee: '合成運輸', subject: '', owner: '担当A', sender: '', createdOn: '2026-11-15', ...patch,
 });
 const slide = <T extends Slide['id']>(slides: Slide[], id: T) => slides.find((item): item is Extract<Slide, { id: T }> => item.id === id);
 
 describe('見出しの1文', () => {
-  it('まとめは前の期間と比べた件数だけを書く', () => {
-    expect(summaryHeadline(12, 7)).toBe('応募は前の期間の 7件から 12件に増えました');
-    expect(summaryHeadline(3, 7)).toBe('応募は前の期間の 7件から 3件に減りました');
-    expect(summaryHeadline(5, 5)).toBe('応募は前の期間と同じ 5件でした');
-    expect(summaryHeadline(5, null)).toBe('この期間の応募は 5件です');
-  });
   it('推移は最も多い週。端数の週は見出しの対象にせず、並んだら日付を出さない', () => {
     expect(trendHeadline([{ label: '', count: 1 }, { label: '', count: 3 }], 'week', ['2026-10-19', '2026-10-26'])).toBe('応募が最も多かったのは10月26日の週で、3件です');
     expect(trendHeadline([{ label: '', count: 5 }, { label: '', count: 3 }], 'week', ['2026-10-22', '2026-10-26'], [false, true])).toBe('応募が最も多かったのは10月26日の週で、3件です');
     expect(trendHeadline([{ label: '', count: 2 }, { label: '', count: 2 }], 'week', ['2026-10-19', '2026-10-26'])).toBe('期間中の応募は 4件で、週ごとでは最も多いときで 2件です');
     expect(trendHeadline([{ label: '', count: 0 }], 'month', ['2026-10-01'])).toBe('この期間に応募はありませんでした');
-  });
-  it('求人ごとは最も多い求人。長い求人名は20字で省く', () => {
-    expect(listingsHeadline([{ label: 'A', count: 5 }, { label: 'B', count: 2 }])).toBe('応募が最も多かったのは「A」で、5件です');
-    expect(listingsHeadline([{ label: 'あ'.repeat(30), count: 5 }])).toBe(`応募が最も多かったのは「${'あ'.repeat(20)}…」で、5件です`);
-    expect(listingsHeadline([{ label: 'A', count: 2 }, { label: 'B', count: 2 }])).toBe('応募が最も多かった求人は 2件あり、それぞれ 2件です');
   });
   it('前後は最も増えた見直しだけを書き、増えた見直しが無ければ件数の説明だけ', () => {
     const card = { listingId: '1', title: 'A', what: '本文を見直し' };
@@ -98,26 +87,26 @@ describe('期間', () => {
 describe('案件の単位のまとめ', () => {
   const result = buildReport(input(), options());
   it('求人をまとめ、重なる応募は1回だけ数え、前の期間と比べる（面接・採用は既定で出す。費用は出さない）', () => {
-    const summary = slide(result.slides, 'summary');
-    // 今の期間: 合成トラック 5 + 合成ルート配送 2 − 重なり 1 = 6。前の期間: 1 + 1 = 2。
-    expect(summary?.headline).toBe('応募は前の期間の 2件から 6件に増えました');
-    expect(summary?.kpis).toEqual([
-      { label: '応募', value: '6件', sub: '前の期間 2件' },
-      { label: '応募のあった求人', value: '2件', sub: '求人 2件のうち' },
-      { label: '掲載中の求人', value: '1件', sub: null },
-    ]);
+    const numbers = slide(result.slides, 'numbers');
+    // 今の期間: 合成トラック 5、合成ルート配送 2。媒体の週ごとの記録が無いので、表は応募数だけ。
+    expect(numbers?.hasPerf).toBe(false);
+    expect(numbers?.groups).toEqual([{ name: null, period: null, rows: [
+      { label: '合成トラックドライバー', impressions: null, clicks: null, ctr: null, applications: 5 },
+      { label: '合成ルート配送（11/5 終了）', impressions: null, clicks: null, ctr: null, applications: 2 },
+    ], total: { label: '合計', impressions: null, clicks: null, ctr: null, applications: 7 } }]);
     // 面接・採用は期間の数ではないので、期間の数字とは別の段。見出しに案件を読んだ日を書く。
-    expect(summary?.totals).toEqual({ heading: 'ご契約からの合計（11/16 時点）', kpis: [{ label: '面接', value: '4件', sub: null }, { label: '採用', value: '1名', sub: null }] });
-    expect(result.excluded.some(item => item.name.includes('面接') || item.name.includes('採用'))).toBe(false);
-    expect(summary?.points).toEqual(['10月19日の「合成トラックドライバー」の本文の見直しの前後4週で、応募は 1件から 5件になりました', 'お電話でうかがえた応募理由は「給与・手当」が最も多くなっています']);
+    expect(numbers?.totals).toEqual({ heading: 'ご契約からの合計（11/16 時点）', kpis: [{ label: '面接', value: '4件', sub: null }, { label: '採用', value: '1名', sub: null }] });
+    expect(result.excluded.some(item => item.name.includes('面接'))).toBe(false);
+    // 全体は重なる応募を1回だけ数える: 今回 5 + 2 − 1 = 6、前回 1 + 1 = 2。
+    expect(slide(result.slides, 'review')?.compare).toEqual([{ label: '全体', cells: ['2 → 6'] }, { label: '合成トラックドライバー', cells: ['1 → 5'] }, { label: '合成ルート配送（11/5 終了）', cells: ['1 → 2'] }]);
   });
-  it('入れないスライドの文はまとめの箇条書きにも入れない', () => {
-    const off = buildReport(input(), options({ off: ['changes'] }));
-    expect(slide(off.slides, 'summary')?.points).toEqual(['お電話でうかがえた応募理由は「給与・手当」が最も多くなっています']);
+  it('目次は入れるスライドのある章だけ（未記入の章・入れない章は出さない）', () => {
+    expect(slide(result.slides, 'toc')?.items).toEqual(['掲載求人のご確認', '成果報告', 'アンケートのお願い']);
+    expect(slide(buildReport(input(), options({ off: ['closing'] })).slides, 'toc')?.items).toEqual(['掲載求人のご確認', '成果報告']);
   });
-  const totalsOf = (r: ReturnType<typeof buildReport>) => slide(r.slides, 'summary')?.totals ?? null;
-  const outcomeReasons = (r: ReturnType<typeof buildReport>) => r.excluded.filter(item => item.name.startsWith('まとめ（面接') || item.name.startsWith('まとめ（採用'));
-  const periodKpis = ['応募 6件', '応募のあった求人 2件', '掲載中の求人 1件'];
+  const totalsOf = (r: ReturnType<typeof buildReport>) => slide(r.slides, 'numbers')?.totals ?? null;
+  const outcomeReasons = (r: ReturnType<typeof buildReport>) => r.excluded.filter(item => item.name.startsWith('数字の表（面接') || item.name.startsWith('数字の表（採用'));
+  const rowsOf = (r: ReturnType<typeof buildReport>) => slide(r.slides, 'numbers')?.groups.flatMap(group => group.rows.map(row => row.applications));
   it('過去の期間で作っても、面接・採用の見出しは案件を読んだ日のまま', () => {
     const past = buildReport(input(), options({ from: '2026-09-21', to: '2026-10-18' }));
     expect(totalsOf(past)?.heading).toBe('ご契約からの合計（11/16 時点）');
@@ -125,27 +114,27 @@ describe('案件の単位のまとめ', () => {
   it('切り替えで外すと面接・採用の段が無くなり、外した理由にも入れない（期間の数字は変わらない）', () => {
     const without = buildReport(input(), options({ include: { outcomes: false } }));
     expect(totalsOf(without)).toBeNull();
-    expect(slide(without.slides, 'summary')?.kpis.map(kpi => `${kpi.label} ${kpi.value}`)).toEqual(periodKpis);
+    expect(rowsOf(without)).toEqual([5, 2]);
     expect(outcomeReasons(without)).toEqual([]);
   });
   it('案件を読み込めなかったときは出さず、外した理由に「読み込めなかったため」を入れる', () => {
     const failed = buildReport(input({ outcomes: null, outcomesFailed: true }), options());
     expect(totalsOf(failed)).toBeNull();
-    expect(slide(failed.slides, 'summary')?.kpis.map(kpi => `${kpi.label} ${kpi.value}`)).toEqual(periodKpis);
-    expect(outcomeReasons(failed)).toEqual([{ name: 'まとめ（面接・採用）', reason: '面接・採用は読み込めなかったため外しています' }]);
+    expect(rowsOf(failed)).toEqual([5, 2]);
+    expect(outcomeReasons(failed)).toEqual([{ name: '数字の表（面接・採用）', reason: '面接・採用は読み込めなかったため外しています' }]);
   });
   it('案件に記録が無いときは出さず、外した理由に「記録が無いため」を入れる', () => {
     const empty = buildReport(input({ outcomes: { interviews: null, hires: null, readOn: '2026-11-16' } }), options());
     expect(totalsOf(empty)).toBeNull();
-    expect(outcomeReasons(empty)).toEqual([{ name: 'まとめ（面接・採用）', reason: '面接・採用は案件に記録が無いため外しています' }]);
+    expect(outcomeReasons(empty)).toEqual([{ name: '数字の表（面接・採用）', reason: '面接・採用は案件に記録が無いため外しています' }]);
   });
   it('片方だけ空なら、ある方だけ出して空の方の理由を入れる。入力された 0 はそのまま出す', () => {
     const hiresOnly = buildReport(input({ outcomes: { interviews: null, hires: 0, readOn: '2026-11-16' } }), options());
     expect(totalsOf(hiresOnly)).toEqual({ heading: 'ご契約からの合計（11/16 時点）', kpis: [{ label: '採用', value: '0名', sub: null }] });
-    expect(outcomeReasons(hiresOnly)).toEqual([{ name: 'まとめ（面接）', reason: '面接は案件に記録が無いため外しています' }]);
+    expect(outcomeReasons(hiresOnly)).toEqual([{ name: '数字の表（面接）', reason: '面接は案件に記録が無いため外しています' }]);
     const interviewsOnly = buildReport(input({ outcomes: { interviews: 0, hires: null, readOn: '2026-11-16' } }), options());
     expect(totalsOf(interviewsOnly)).toEqual({ heading: 'ご契約からの合計（11/16 時点）', kpis: [{ label: '面接', value: '0件', sub: null }] });
-    expect(outcomeReasons(interviewsOnly)).toEqual([{ name: 'まとめ（採用）', reason: '採用は案件に記録が無いため外しています' }]);
+    expect(outcomeReasons(interviewsOnly)).toEqual([{ name: '数字の表（採用）', reason: '採用は案件に記録が無いため外しています' }]);
   });
   it('週ごとの応募と見直しの印', () => {
     const trend = slide(result.slides, 'trend');
@@ -158,11 +147,13 @@ describe('案件の単位のまとめ', () => {
     expect(trend?.headline).toBe('応募が最も多かったのは10月19日の週で、4件です');
   });
   it('求人ごとの応募は多い順。終了した求人には終了日', () => {
-    expect(slide(result.slides, 'listings')?.bars).toEqual([{ label: '合成トラックドライバー', count: 5 }, { label: '合成ルート配送（11/5 終了）', count: 2 }]);
+    expect(slide(result.slides, 'numbers')?.groups.flatMap(group => group.rows.map(row => [row.label, row.applications]))).toEqual([['合成トラックドライバー', 5], ['合成ルート配送（11/5 終了）', 2]]);
+    // 掲載求人のスライドは掲載中の求人だけ
+    expect(slide(result.slides, 'listings')).toMatchObject({ names: ['合成トラックドライバー'], total: 1 });
   });
   it('同じ求人名は媒体と勤務地で区別する', () => {
     const twin = buildReport(input({ listings: [{ ...truck, place: '神奈川県横浜市' }, { ...route, title: '合成トラックドライバー', ended: false, place: '東京都新宿区', media: 'airwork' }] }), options());
-    expect(slide(twin.slides, 'listings')?.bars.map(bar => bar.label)).toEqual(['合成トラックドライバー［HRハッカー・神奈川県横浜市］', '合成トラックドライバー［AirWork・東京都新宿区］']);
+    expect(slide(twin.slides, 'numbers')?.groups.flatMap(group => group.rows.map(row => row.label))).toEqual(['合成トラックドライバー［HRハッカー・神奈川県横浜市］', '合成トラックドライバー［AirWork・東京都新宿区］']);
   });
   it('変えたことと前後は、前後4週がそろった見直しだけ', () => {
     expect(slide(result.slides, 'changes')?.cards).toEqual([{ date: '2026-10-19', listingId: '101', title: '合成トラックドライバー', what: '本文を見直し', before: 1, after: 5 }]);
@@ -187,45 +178,49 @@ describe('案件の単位のまとめ', () => {
     expect(reasons?.note).toBe('お電話で応募理由をうかがえた 5件の内訳。1件で複数の理由をうかがった場合は、それぞれに数えています。');
   });
   it('紙に社内の言葉・判定の言葉を出さない', () => {
-    expect(result.slides.map(item => item.id)).toEqual(['cover', 'summary', 'trend', 'listings', 'changes', 'applicants', 'reasons']);
+    expect(result.slides.map(item => item.id)).toEqual(['cover', 'toc', 'listings', 'route', 'goals', 'numbers', 'review', 'listing:101', 'listing:102', 'trend', 'changes', 'applicants', 'reasons', 'policy', 'measure:101', 'measure:102', 'plan', 'closing']);
+    // 文章が未記入のスライドは、書く場所として返すが出力しない
+    expect(result.slides.filter(item => item.blank).map(item => item.id)).toEqual(['goals', 'policy', 'measure:101', 'measure:102', 'plan']);
     expect(JSON.stringify(result.slides)).not.toMatch(/未取得|HubSpot|pt|効果|合成・定期採用/);
   });
-  it('表紙の件名は既定で空（案件名を出さない）。空なら期間だけ', () => {
-    expect(slide(result.slides, 'cover')).toMatchObject({ addressee: '合成運輸 御中', subtitle: '2026年10月19日〜11月15日', footer: '担当：担当A ／ 2026年11月15日' });
-    expect(slide(buildReport(input(), options({ subject: '第2支店' })).slides, 'cover')?.subtitle).toBe('第2支店 ／ 2026年10月19日〜11月15日');
+  it('表紙は宛名・題・定期MTGの日（題は既定で「運用戦略」。案件名を出さない）', () => {
+    expect(slide(result.slides, 'cover')).toMatchObject({ addressee: '合成運輸 御中', title: '運用戦略', subtitle: '定期MTG 2026/11/15', footer: '担当：担当A' });
+    expect(slide(buildReport(input(), options({ subject: '第2支店 運用戦略' })).slides, 'cover')?.title).toBe('第2支店 運用戦略');
   });
-  it('次に行うことは3項目まで。書けば8枚そろう', () => {
-    const full = buildReport(input(), options({ nextActions: [{ text: '給与の書き方をほかの求人にも広げます', sub: '11月下旬まで' }, { text: '', sub: '' }, { text: '応募理由を引き続きうかがいます', sub: '' }, { text: '4つ目', sub: '' }] }));
-    expect(full.slides).toHaveLength(8);
-    expect(slide(full.slides, 'next')?.items).toEqual([{ text: '給与の書き方をほかの求人にも広げます', sub: '11月下旬まで' }, { text: '応募理由を引き続きうかがいます', sub: '' }]);
+  it('書いた文章は行ごとの箇条書きになり、書いたスライドは出力に入る', () => {
+    const full = buildReport(input(), options({ texts: { ...emptyTexts(), commonGoal: '内定 1名の獲得', planOurs: '週1回、掲載の数字を確認します\n\n必要に応じて原稿を見直します' } }));
+    expect(slide(full.slides, 'plan')).toMatchObject({ blank: false, goal: '内定 1名の獲得' });
+    expect(slide(full.slides, 'plan')?.columns[0]).toEqual({ title: '当社の行動計画', lines: ['週1回、掲載の数字を確認します', '必要に応じて原稿を見直します'] });
+    expect(slide(full.slides, 'toc')?.items).toContain('ご提案');
   });
 });
 
 describe('外す判定', () => {
-  it('一部の求人しか数えられないときは、まとめ・推移・求人ごとを外す', () => {
+  it('一部の求人しか数えられないときは、推移と全体の比較を外す', () => {
     const airwork: ReportListing = { id: '103', title: '合成倉庫スタッフ', media: 'airwork', ended: false, endedOn: null, byDate: null, events: null };
     const result = buildReport(input({ listings: [truck, route, airwork] }), options());
-    expect(result.slides.map(item => item.id)).toEqual(['cover', 'changes', 'applicants', 'reasons']);
-    expect(result.excluded).toContainEqual({ name: 'まとめ', reason: '求人の一部しか数えられないため（応募日を読み込めなかった求人が 1件あります（合成倉庫スタッフ））' });
+    expect(result.slides.map(item => item.id)).not.toContain('trend');
+    expect(slide(result.slides, 'review')?.compare.map(row => row.label)).not.toContain('全体');
+    expect(result.excluded).toContainEqual({ name: '応募の推移', reason: '求人の一部しか数えられないため（応募日を読み込めなかった求人が 1件あります（合成倉庫スタッフ））' });
     const capped = buildReport(input({ partial: ['求人が多いため、先頭の50件までしか読んでいません'] }), options());
     expect(capped.slides.map(item => item.id)).not.toContain('trend');
   });
   it('応募日がどの求人も分からなければ、件数を使うスライドを外す', () => {
     const none = { ...truck, byDate: null };
     const result = buildReport(input({ listings: [none], applicants: { rows: null, reasons: null, missingReason: '一部の求人の応募者を読み込めなかったため' } }), options());
-    expect(result.slides.map(item => item.id)).toEqual(['cover']);
+    expect(result.slides.map(item => item.id)).toEqual(['cover', 'toc', 'listings', 'route', 'goals', 'policy', 'plan', 'closing']);
   });
-  it('求人の単位では「求人ごとの応募」を出さない', () => {
+  it('求人の単位では面接・採用を出さない', () => {
     const result = buildReport(input({ scope: 'listing', listings: [truck], overlap: {}, outcomes: null, applicants: combineApplicants([loaded(truckRows, truckReasons)], 0, 'listing') }), options());
-    expect(result.slides.map(item => item.id)).toEqual(['cover', 'summary', 'trend', 'changes', 'applicants', 'reasons']);
-    expect(slide(result.slides, 'summary')?.kpis.map(kpi => kpi.label)).toEqual(['応募', '掲載中の求人']);
+    expect(result.slides.map(item => item.id)).toEqual(['cover', 'toc', 'listings', 'route', 'goals', 'numbers', 'review', 'listing:101', 'trend', 'changes', 'applicants', 'reasons', 'policy', 'measure:101', 'plan', 'closing']);
+    expect(slide(result.slides, 'numbers')?.totals).toBeNull();
     // 求人の単位でも、ほかの求人に結び付いた応募の理由は外す（求人の画面と同じ）
     expect(slide(result.slides, 'reasons')?.bars).toEqual([{ label: '給与・手当', count: 3 }, { label: '勤務地・通勤', count: 2 }]);
   });
   it('最初の応募が前の期間の初めより後なら比べない', () => {
-    const young = { ...truck, byDate: { '2026-10-05': 1, '2026-10-20': 2 } };
+    const young = { ...truck, byDate: { '2026-10-05': 1, '2026-10-20': 2 }, events: null };
     const result = buildReport(input({ listings: [young], overlap: {} }), options());
-    expect(slide(result.slides, 'summary')?.headline).toBe('この期間の応募は 2件です');
+    expect(slide(result.slides, 'review')?.compare).toEqual([{ label: '合成トラックドライバー', cells: ['— → 2'] }]);
   });
   it('期間内に見直しが無い・前後4週がそろわなければ「変えたことと前後」を外す', () => {
     expect(buildReport(input(), options({ from: '2026-11-02', to: '2026-11-15' })).excluded).toContainEqual({ name: '変えたことと前後の応募', reason: '期間中に本文・画像の見直しが無いため' });

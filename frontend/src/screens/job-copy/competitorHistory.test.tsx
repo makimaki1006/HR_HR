@@ -127,7 +127,7 @@ describe('報告のスライド「周りの求人の様子」', () => {
     listings: [{ id: '30', title: '顧客A フォークリフト', media: 'hrh', ended: false, endedOn: null, byDate: { '2026-11-01': 2 }, events: { listingId: '30', bodyChangedAt: null, bodyChanges: [], imageChanges: [], startOn: '2026-08-01', statusEvents: [] } }],
     applicants: { rows: null, reasons: null, missingReason: 'テスト' }, competitor: records, ...patch,
   });
-  const options: ReportOptions = { from: '2026-10-19', to: '2026-11-15', addressee: '', subject: '', owner: '', sender: '', createdOn: '2026-11-16', nextActions: [], nextHeadline: '' };
+  const options: ReportOptions = { from: '2026-10-19', to: '2026-11-15', addressee: '', subject: '', owner: '', sender: '', createdOn: '2026-11-16' };
   it('期間の終わりまでのいちばん新しい記録を 1 枚に写す', () => {
     const slide = buildReport(input(), options).slides.find(item => item.id === 'around');
     expect(slide).toMatchObject({
