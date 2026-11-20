@@ -1,7 +1,9 @@
 /**
  * 顧客報告のスライドに渡す数を、既存の読み込みから集める（新しい API は使わない）。
  * - 案件: 案件のまとめと同じ loadDealData（求人・応募日別・本文と画像の変更。課金は読むが紙には出さない）、
- *         契約・成果と同じ案件の読み取り（案件名・面接 mensetu・採用 syoudaku）、求人ごとの応募者（listingApplicationDates）。
+ *         契約・成果と同じ案件の読み取り（案件名・面接 mensetu・採用 syoudaku）、求人ごとの応募者（listingApplicationDates）、
+ *         危ない案件の小窓と同じ案件の記録（MTG の日。前回の MTG から期間を決めるのに使う）。
+ * 媒体の表示回数・クリック数は、求人の読み取りに入っている週ごとの実績（Indeed・AirWork）をそのまま使う。
  * - 求人: 求人の画面と同じ loadVersions・loadApplicationDates・fetchBodyDates。
  * 読んだ結果はこのタブのメモリに持ち、開き直したときは読み直さない（「最新にする」で読み直す）。
  */
@@ -13,6 +15,7 @@ import type { DealListingInput } from './dealSummaryModel';
 import { fetchBodyDates } from './bodyDatesShared';
 import { indeedWeeklyPerformance, publicationLabel, weeklyPerfRaw } from './hubspotListings';
 import type { HubSpotListing } from './hubspotListings';
+import type { HrhPerformanceCollection } from './hrhPerformanceModel';
 import { loadVersions } from './listingDetailCache';
 import { loadApplicationDates } from './listingApplicationDates';
 import type { LoadedApplications } from './listingApplicationDates';
@@ -32,12 +35,13 @@ export function parseReportTarget(value: string | null): ReportTarget | null {
 }
 export const reportParam = (target: ReportTarget) => `${target.scope}:${target.id}`;
 
-function reportListing(row: HubSpotListing, byDate: Record<string, number> | null, billing: BillingEntry[], bodyChangedAt: string | null, changes: ListingChanges | undefined): ReportListing {
+function reportListing(row: HubSpotListing, byDate: Record<string, number> | null, perf: HrhPerformanceCollection | undefined, bodyChangedAt: string | null, changes: ListingChanges | undefined): ReportListing {
+  const billing: BillingEntry[] = perfBillingEntries(perf, row.media_job_id);
   const events: EventSource = eventSourceOf(row, bodyChangedAt, changes, billing);
   const ends = (events.statusEvents ?? []).filter(event => event.kind === 'end').map(event => event.date).sort();
   return {
     id: row.id, title: row.title ?? '求人', media: row.media, place: [row.prefecture, row.municipality].filter(Boolean).join('') || null,
-    ended: publicationLabel(row.publication_status) === '掲載終了', endedOn: row.listing_ended_on ?? ends.at(-1) ?? null, byDate, events,
+    ended: publicationLabel(row.publication_status) === '掲載終了', endedOn: row.listing_ended_on ?? ends.at(-1) ?? null, byDate, events, perf: perf?.rows ?? null,
   };
 }
 
@@ -76,17 +80,31 @@ async function eachLimited<T, R>(items: readonly T[], limit: number, run: (item:
   return out;
 }
 
+interface DealRecords { events?: { kind: string; date: string; attach?: { state: string } }[] }
+/**
+ * 案件の MTG の記録の日（古い順）。危ない案件の小窓の「最後のMTG」と同じ決まり（MTG の記録と Zoom の開催。別の契約の記録は入れない）。
+ * 読めなかったときは null（期間は画面で選ぶ）。
+ */
+async function loadMtgDates(id: string, signal: AbortSignal): Promise<string[] | null> {
+  const result = await apiGet<DealRecords>(`/api/consulting/deal-detail?deal_id=${encodeURIComponent(id)}`, { signal, timeoutMs: 30_000 }).catch(() => null);
+  if (!result?.ok || !Array.isArray(result.data.events)) return null;
+  const dates = result.data.events
+    .filter(event => (event.kind === 'mtg' || event.kind === 'zoom_mtg') && (!event.attach || event.attach.state === 'own' || event.attach.state === 'moved_in'))
+    .map(event => event.date.slice(0, 10)).filter(date => /^\d{4}-\d{2}-\d{2}$/.test(date));
+  return [...new Set(dates)].sort();
+}
+
 export type LoadResult = { ok: true; input: ReportInput } | { ok: false; message: string };
 
 async function loadDeal(id: string, signal: AbortSignal): Promise<LoadResult> {
-  const [data, detail] = await Promise.all([
+  const [data, detail, mtgDates] = await Promise.all([
     loadDealData(id, '', signal),
     apiGet<WorkspaceResponse>(`/api/crm/workspace/deals/${encodeURIComponent(id)}?${new URLSearchParams({ deal_props: 'mensetu,syoudaku' }).toString()}`, { signal, timeoutMs: 35_000 }),
+    loadMtgDates(id, signal),
   ]);
   if (!data) return { ok: false, message: 'この案件の求人を読み込めませんでした。時間を置いてもう一度開いてください。' };
   const listings = data.rows.map(row => {
-    const perf = data.perf.get(row.id);
-    return reportListing(row, data.applications.get(row.id) ?? null, perfBillingEntries(perf, row.media_job_id), jstDate(data.bodyDates[row.id] ?? row.summary?.body_changed_at), data.changes?.[row.id]);
+    return reportListing(row, data.applications.get(row.id) ?? null, data.perf.get(row.id), jstDate(data.bodyDates[row.id] ?? row.summary?.body_changed_at), data.changes?.[row.id]);
   });
   const inputs: DealListingInput[] = data.rows.map(row => ({ id: row.id, title: row.title ?? '', media: row.media, ended: false, byDate: data.applications.get(row.id) ?? null, billing: [], fetchedDate: data.fetched.get(row.id) ?? null }));
   // 応募日別に1件も無いと分かっている求人は読まない（期間の応募者・理由は応募日で数えるので、入るものが無い）。
@@ -101,6 +119,7 @@ async function loadDeal(id: string, signal: AbortSignal): Promise<LoadResult> {
     outcomes: values ? { interviews: count(values.mensetu), hires: count(values.syoudaku), readOn: todayJst() } : null, outcomesFailed: !values,
     applicants: combineApplicants(loaded, wanted.length > APPLICANT_LISTING_LIMIT ? wanted.length : 0, 'deal'),
     partial: data.capped ? ['求人が多いため、先頭の50件までしか読んでいません'] : [],
+    mtgDates,
   } };
 }
 
@@ -114,8 +133,7 @@ async function loadListing(id: string, signal: AbortSignal): Promise<LoadResult>
   if (!versions.ok) return { ok: false, message: 'この求人を読み込めませんでした。時間を置いてもう一度開いてください。' };
   const row = versions.data.listing;
   const perf = indeedWeeklyPerformance(weeklyPerfRaw(versions.data, row.media), row.media, row.media_job_id);
-  const billing = perfBillingEntries(perf, row.media_job_id);
-  const listing = reportListing(row, applications?.overall.byDate ?? null, billing,
+  const listing = reportListing(row, applications?.overall.byDate ?? null, perf,
     jstDate((dates.ok ? dates.data.dates?.[id] : null) ?? row.summary?.body_changed_at), dates.ok ? dates.data.changes?.[id] : undefined);
   return { ok: true, input: {
     scope: 'listing', id, name: row.title ?? null, company: versions.data.company_name ?? null,

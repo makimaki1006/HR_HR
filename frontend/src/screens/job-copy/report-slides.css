@@ -1,4 +1,4 @@
-/* 顧客報告のスライド（暫定。見た目は後で決める） */
+/* 顧客報告のスライド（並びは定期ミーティングの資料。見た目は後で決める） */
 .rs-root { padding: 16px 24px 40px; min-width: 0; }
 .rs-top { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .rs-top h1 { font-size: 19px; margin: 0; }
@@ -13,7 +13,7 @@
 .rs-period { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 .rs-period label, .rs-field { display: grid; gap: 2px; font-size: 12px; color: var(--jc-muted); }
 .rs-field { margin-top: 4px; }
-.rs-period input, .rs-field input, .rs-next-inputs input { font: inherit; color: var(--jc-ink); border: 1px solid #b8c4cd; border-radius: 4px; padding: 3px 6px; min-width: 0; }
+.rs-period input, .rs-field input { font: inherit; color: var(--jc-ink); border: 1px solid #b8c4cd; border-radius: 4px; padding: 3px 6px; min-width: 0; }
 .rs-presets { display: flex; gap: 4px; margin-top: 4px; flex-wrap: wrap; }
 .rs-presets .jc-button { font-size: 11.5px; padding: 1px 8px; }
 .rs-thumbs { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
@@ -22,9 +22,18 @@
 .rs-thumbs li.rs-off button { opacity: .5; }
 .rs-thumbs button { all: unset; cursor: pointer; display: grid; grid-template-columns: 22px 1fr; gap: 4px; font-size: 12px; padding: 2px 0; }
 .rs-num { color: var(--jc-muted); text-align: center; }
-.rs-next-inputs fieldset { border: none; margin: 0 0 6px; padding: 0; display: grid; grid-template-columns: 16px 1fr; gap: 3px 4px; }
-.rs-next-inputs legend { float: left; color: var(--jc-muted); width: 16px; padding: 0; }
-.rs-next-inputs input:nth-of-type(2) { grid-column: 2; font-size: 11.5px; }
+.rs-field select, .rs-field textarea { font: inherit; color: var(--jc-ink); border: 1px solid #b8c4cd; border-radius: 4px; padding: 3px 6px; min-width: 0; }
+.rs-field textarea { resize: vertical; line-height: 1.5; }
+.rs-basis { margin: 4px 0 0; font-size: 11.5px; color: var(--jc-muted); }
+.rs-period-h { margin-top: 6px; font-size: 12px; font-weight: 700; }
+.rs-blank { margin-left: 6px; font-size: 10.5px; color: #9a5b10; }
+.rs-write { margin-top: 12px; background: #fff; border: 1px solid var(--jc-border); border-radius: 6px; padding: 10px 12px; font-size: 12.5px; }
+.rs-write h2 { font-size: 13px; margin: 0 0 4px; }
+.rs-cols2, .rs-cols3, .rs-pairin { display: grid; gap: 0 12px; }
+.rs-cols2 { grid-template-columns: 1fr 1fr; }
+.rs-cols3 { grid-template-columns: repeat(3, 1fr); }
+.rs-pairin { grid-template-columns: 1fr 2fr; }
+@media (max-width: 980px) { .rs-cols2, .rs-cols3 { grid-template-columns: minmax(0, 1fr); } }
 .rs-excluded { margin-top: 12px; border-top: 1px dashed var(--jc-border); padding-top: 6px; }
 .rs-excluded ul { margin: 0; padding-left: 16px; color: var(--jc-muted); }
 .rs-stage { background: #e9ebee; border-radius: 6px; padding: 14px; min-width: 0; }
@@ -85,10 +94,41 @@
 .rs-three h3 { margin: 0 0 .4em; font-size: max(10px, 1.5cqw); }
 .rs-three .rs-hb { font-size: max(9px, 1.35cqw); }
 .rs-three .rs-hb-row { grid-template-columns: 40% 1fr; }
-.rs-next { list-style: none; counter-reset: n; display: grid; gap: .8em; font-size: max(11px, 1.8cqw); margin: 0; padding: 0; }
-.rs-next li { display: grid; grid-template-columns: 2.2em 1fr; gap: .6em; align-items: start; }
-.rs-next li::before { counter-increment: n; content: counter(n); background: #3d6e8f; color: #fff; font-weight: 700; width: 1.8em; height: 1.8em; display: flex; align-items: center; justify-content: center; border-radius: 50%; }
-.rs-next small { display: block; color: #5b6570; font-size: .8em; }
+/* 定期ミーティングの資料の並びのスライド */
+.rs-h { margin: 0 0 .4em; font-size: max(10px, 1.5cqw); color: #3d6e8f; }
+.rs-toc { margin: .6em 0 0; padding-left: 1.4em; font-size: max(13px, 2.4cqw); line-height: 2; }
+.rs-names { margin: 0; padding-left: 1.3em; font-size: max(12px, 2cqw); line-height: 1.7; columns: 2; column-gap: 6%; }
+.rs-sum { margin-top: auto; font-size: max(13px, 2.3cqw); font-weight: 700; text-align: right; }
+.rs-route { display: grid; grid-template-columns: repeat(5, 1fr); gap: 2%; align-items: stretch; margin-top: 1em; font-size: max(10px, 1.6cqw); }
+.rs-node { border: 2px solid #3d6e8f; background: #f4f7fa; padding: 1.1em .4em; text-align: center; font-weight: 700; position: relative; }
+.rs-node::after { content: ""; position: absolute; left: 50%; bottom: -1.3em; height: 1.3em; border-left: 2px solid #3d6e8f; }
+.rs-route-to { grid-column: 1 / -1; margin-top: 1.2em; background: #16324a; color: #fff; text-align: center; padding: .7em; font-weight: 700; }
+.rs-caption { margin-top: 1.4em; text-align: center; font-size: max(12px, 2cqw); font-weight: 700; }
+.rs-goals { margin: 0 0 .8em; display: grid; gap: .35em; font-size: max(11px, 1.7cqw); }
+.rs-goals div { display: grid; grid-template-columns: 30% 1fr; gap: 1em; border-bottom: 1px solid #dfe4e9; padding-bottom: .3em; }
+.rs-goals dt { font-weight: 700; }
+.rs-goals dd { margin: 0; }
+.rs-boxes { display: grid; gap: 2.5%; flex: 1; min-height: 0; }
+.rs-box { border: 1px solid #c9d2da; border-top: 4px solid #3d6e8f; background: #f7f9fb; padding: .6em .8em; font-size: max(10px, 1.45cqw); min-width: 0; }
+.rs-box h3 { margin: 0 0 .4em; font-size: 1em; color: #16324a; }
+.rs-box h3.rs-box-sub { margin-top: .8em; }
+.rs-box ul { margin: 0; padding-left: 1.2em; line-height: 1.6; overflow-wrap: anywhere; }
+.rs-goal { font-size: max(14px, 2.6cqw); font-weight: 700; text-align: center; border-bottom: 2px solid #3d6e8f; padding-bottom: .3em; margin-bottom: .7em; }
+.rs-table { width: 100%; border-collapse: collapse; font-size: max(10px, 1.45cqw); }
+.rs-table th, .rs-table td { border-bottom: 1px solid #dfe4e9; padding: .35em .6em; text-align: right; white-space: nowrap; }
+.rs-table th:first-child { text-align: left; white-space: normal; font-weight: 400; overflow-wrap: anywhere; }
+.rs-table thead th { background: #16324a; color: #fff; font-weight: 700; }
+.rs-table thead th:first-child { font-weight: 700; }
+.rs-table .rs-group th { background: #eef2f6; font-weight: 700; color: #3d6e8f; }
+.rs-table .rs-total th, .rs-table .rs-total td { font-weight: 700; border-top: 2px solid #8a97a3; }
+.rs-compare { font-size: max(9px, 1.25cqw); }
+.rs-split { display: grid; grid-template-columns: 1fr 1fr; gap: 4%; flex: 1; min-height: 0; }
+.rs-split .rs-points { margin-top: 0; font-size: max(10px, 1.5cqw); }
+.rs-facts { display: grid; grid-template-columns: 1fr 1fr; gap: .6em 4%; }
+.rs-facts div { border-top: 4px solid #3d6e8f; background: #f4f7fa; padding: .5em .7em; }
+.rs-facts span { display: block; font-size: max(9px, 1.3cqw); color: #4a5560; }
+.rs-facts b { font-size: max(15px, 2.8cqw); line-height: 1.15; }
+.rs-facts small { display: block; font-size: max(9px, 1.2cqw); color: #4a5560; }
 
 /* 印刷: スライドだけを横長1枚ずつ。画面の他の部分は出さない */
 /* 画面では見えない所に印刷と同じ大きさで並べる（はみ出しを測るため） */
