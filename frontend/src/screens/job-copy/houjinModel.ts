@@ -14,6 +14,8 @@ export interface CustomerIndex {
   last_expiration: string;
   focus: boolean;
   focus_why: string[];
+  /** 旧社名・取引名での書き方。検索にだけ使い、画面には出さない */
+  aliases?: string[];
 }
 export interface CustomerDeal {
   deal_id: string;
@@ -175,7 +177,7 @@ export function filterCustomers(rows: CustomerIndex[], q: URLSearchParams) {
   const text = q.get("houjin_search")?.trim().toLocaleLowerCase() ?? "";
   const filtered = rows.filter(
     (r) =>
-      (!text || `${r.name} ${r.houjin}`.toLocaleLowerCase().includes(text)) &&
+      (!text || `${r.name} ${r.houjin} ${(r.aliases ?? []).join(" ")}`.toLocaleLowerCase().includes(text)) &&
       (q.get("houjin_focus") !== "1" || r.focus) &&
       (q.get("houjin_active") !== "1" || (r.active ?? 0) > 0) &&
       customerFilters.every(([key, field, , , scale]) => {
@@ -210,7 +212,7 @@ export function sitesOf(deals: CustomerDeal[]) {
         key,
         name:
           rows.find((d) => d.site_name)?.site_name ??
-          (key === "__no_site__" ? "事業所未登録" : key),
+          "事業所未登録",
         rows,
         lastStart: rows.reduce((m, d) => (d.start > m ? d.start : m), ""),
       };

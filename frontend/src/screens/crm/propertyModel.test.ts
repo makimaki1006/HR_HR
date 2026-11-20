@@ -63,11 +63,11 @@ describe('viewValue (how a property value is shown)', () => {
 });
 
 describe('the chosen properties (stored per browser)', () => {
-  it('the default is the items of the HubSpot cards リスト情報 + BPOアポ情報 + 架電結果 (deal properties, card order, no duplicates); no contact / company items', () => {
+  it('the default is the items of the HubSpot bpo用 cards (deal properties, card order, no duplicates); no contact / company items', () => {
     expect(DEFAULT_SELECTED.deals).toEqual(cardPropertyNames());
-    expect(DEFAULT_SELECTED.deals).toHaveLength(68);
-    expect(DEFAULT_SELECTED.deals.slice(0, 4)).toEqual(['bpo_32', 'risuto_kadennbi', 'risuto_saikadennbi', 'saikadenn_zikan']);
-    expect(DEFAULT_SELECTED.deals.slice(-6)).toEqual(['ahkessaifuro', 'bpo_13', 'bpo_14', 'bpo_16', 'bpo_51', 'nitteigiri']);
+    expect(DEFAULT_SELECTED.deals).toHaveLength(56);
+    expect(DEFAULT_SELECTED.deals.slice(0, 4)).toEqual(['risuto_kadennbi', 'bpo_13', 'bpo_14', 'bpo_16']);
+    expect(DEFAULT_SELECTED.deals.slice(-6)).toEqual(['mail_', 'syokusyu_risuto', 'rikulogi_jigyounaiyou', 'syugyoubasyo', 'bosyuriyu', 'rikulogi_1']);
     expect(DEFAULT_SELECTED.deals.length).toBeLessThanOrEqual(MAX_SELECTED_PER_OBJECT);
     expect(DEFAULT_SELECTED.contacts).toEqual([]);
     expect(DEFAULT_SELECTED.companies).toEqual([]);
@@ -120,32 +120,31 @@ describe('the chosen properties (stored per browser)', () => {
   });
 });
 
-describe('HubSpot sidebar cards (hubspotCards.json, copied from the HubSpot deal record on 2026-10-08)', () => {
-  it('has リスト情報 (open) then BPOアポ情報 (closed), with the exact internal names in HubSpot order, then 架電結果 (added by HR_HR, open)', () => {
-    expect(HUBSPOT_CARDS_CHECKED_AT).toBe('2026-10-08');
-    expect(HUBSPOT_CARDS.map(c => [c.title, c.expanded, c.items.length])).toEqual([['リスト情報', true, 43], ['BPOアポ情報', false, 25], ['架電結果', true, 5]]);
-    // 架電結果の入力欄 (BPO の組) の項目のうち、上の 2 枚に無いもの
-    expect(HUBSPOT_CARDS[2]?.items).toEqual([
-      { label: '次回架電日', name: 'bpo_13' }, { label: '次回架電時間', name: 'bpo_14' }, { label: 'タスクメモ', name: 'bpo_16' },
-      { label: '接触', name: 'bpo_51' }, { label: '日程切り', name: 'nitteigiri' },
+describe('HubSpot bpo用 cards (hubspotCards.json, copied from the HubSpot deal record page「bpo用」on 2026-11-16)', () => {
+  it('has the 5 left-sidebar cards then the 4 property cards of the 中央「BPO用」tab, with the exact internal names in HubSpot order', () => {
+    expect(HUBSPOT_CARDS_CHECKED_AT).toBe('2026-11-16');
+    expect(HUBSPOT_CARDS.map(c => [c.title, c.expanded, c.items.length])).toEqual([
+      ['タスク設定', true, 7], ['検索用', true, 4], ['管理情報', false, 5], ['リスト情報', true, 12], ['架電後情報', false, 22],
+      ['BPO用｜メモ', true, 1], ['BPO用｜架電記録', true, 5], ['BPO用｜タスク設定', true, 4], ['BPO用｜リスト情報 🚨編集不可', false, 8],
     ]);
-    expect(HUBSPOT_CARDS[0]?.items.map(i => i.name)).toEqual([
-      'bpo_32', 'risuto_kadennbi', 'risuto_saikadennbi', 'saikadenn_zikan', 'risuto_bikou', 'service1', 'bpo_43', 'syuuryou', 'kyotenkessaiari',
-      'syokusyu_risuto', 'tanntousya', 'hurigana_', 'risuto_tanntouyakusyoku', 'ketteishamei', 'ketteishanoyakushoku', 'kessaishamei',
-      'kessaishanoyakushoku', 'daihyou', 'honsya', 'rikulogi_2', 'risuto_adoresu', 'aposyutokubi', 'rikulogi_jigyounaiyou', 'rikulogi_syuugyoubasyo',
-      'rikulogi_1', 'miapokayouinsentaku', 'miapokayouinjiyuukinyuu', 'risuto_ninnzuu', 'bosyuriyu', 'risuto_syusyusaki', 'gyoukai', 'etc_',
-      'kigyouzentaininzuu', 'syugyoubasyo', 'sihonkin', 'head_office_address', 'recruit_media_observed_list', 'recruit_media_observed_job_categories',
-      'recruit_media_observed_urls', 'recruit_media_first_observed_at', 'recruit_media_last_observed_at', 'recruit_media_posting_period_raw',
-      'recruit_media_observation_status',
+    expect(HUBSPOT_CARDS.map(c => c.items.map(i => i.name))).toEqual([
+      ['risuto_kadennbi', 'bpo_13', 'bpo_14', 'bpo_16', 'bpo_17', 'closed_lost_reason', 'closed_lost_reason_detail'],
+      ['website_url', 'bpo_32', 'bpo_39', 'ai__'],
+      ['hs_object_id', 'bpo_appo_date', 'bpo_transactio_id', 'hubspot_owner_id', 'bpo_hsurl'],
+      ['hs_object_id', 'hubspot_owner_id', 'name_sub', 'dennwa', 'rikulogi_syuugyoubasyo', 'bpo_20252', 'risuto_bikou', 'bpo_13', 'bpo_3', 'bpo_4', 'jimumenbahaifu', 'hs_lastmodifieddate'],
+      ['bpo_23', 'bpo__', 'bpo_33', 'bpo_24', 'risuto_ninnzuu', 'bpo_34', 'recruitment_period', 'recruitment_method', 'bpo_25', 'bpo_35', 'remarks_after_calling', 'bpo_21', 'bpo_22', 'risuto_tanntouyakusyoku', 'charge_impression', 'bpo_29', 'risuto_adoresu', 'bpo_26', 'nkadainofukasa', 'tjikanjiku', 'ckyougoujoukyou', 'ahkessaifuro'],
+      ['bpo_16'],
+      ['bpo_51', 'nitteigiri', 'bpo_53', 'recruitment_method', 'bpo_24'],
+      ['bpo_13', 'bpo_14', 'bpo_17', 'mail_'],
+      ['syokusyu_risuto', 'risuto_tanntouyakusyoku', 'rikulogi_jigyounaiyou', 'rikulogi_syuugyoubasyo', 'syugyoubasyo', 'risuto_ninnzuu', 'bosyuriyu', 'rikulogi_1'],
     ]);
-    expect(HUBSPOT_CARDS[1]?.items.map(i => i.name)).toEqual([
-      'bpo_appo_date', 'scheduled_business_meeting_date', 'negotiation_type', 'bpo_20251', 'bpo_24', 'risuto_ninnzuu', 'bpo_20252', 'bpo_2', 'bpo_1',
-      'recruitment_issues', 'bpo_20253', 'remarks_after_calling', 'risuto_tanntouyakusyoku', 'tanntousya', 'hurigana_', 'charge_impression', 'bpo_29',
-      'risuto_adoresu', 'bpo_apo_rikulogi', 'bpo_transactio_id', 'bpo_hsurl', 'nkadainofukasa', 'tjikanjiku', 'ckyougoujoukyou', 'ahkessaifuro',
-    ]);
+    // 接触・日程切りは中央の「架電記録」
+    expect(HUBSPOT_CARDS[6]?.items.slice(0, 2).map(i => i.name)).toEqual(['bpo_51', 'nitteigiri']);
+    // FS 側の項目でなく BPO 用の項目 (商談方法（bpo用）・担当者名（漢字）など)
+    expect(HUBSPOT_CARDS[4]?.items.map(i => i.name)).toEqual(expect.arrayContaining(['bpo_33', 'bpo_35', 'bpo_21', 'bpo_22', 'bpo_26']));
+    expect(cardPropertyNames()).not.toEqual(expect.arrayContaining(['bpo_20251', 'bpo_20253', 'tanntousya']));
     // 表示名は HubSpot のカードのまま
-    expect(HUBSPOT_CARDS[0]?.items[0]).toEqual({ label: 'URL_求人検索 ※編集不可', name: 'bpo_32' });
-    expect(HUBSPOT_CARDS[1]?.items.at(-1)).toEqual({ label: 'A/H（決裁フロー）', name: 'ahkessaifuro' });
+    expect(HUBSPOT_CARDS[1]?.items[1]).toEqual({ label: 'URL_求人検索 ※編集不可', name: 'bpo_32' });
     for (const c of HUBSPOT_CARDS) for (const it of c.items) expect(it.name).toMatch(/^[a-z0-9_]{1,100}$/);
   });
 
@@ -153,22 +152,22 @@ describe('HubSpot sidebar cards (hubspotCards.json, copied from the HubSpot deal
     const idx = catalogIndex(FIXTURE_CATALOG);
     const sel = { deals: [...DEFAULT_SELECTED.deals, 'bpo_50', 'gone_from_hubspot'], contacts: [], companies: [] };
     const { sections, others } = cardSections(sel, idx);
-    expect(sections.map(x => x.card.title)).toEqual(['リスト情報', 'BPOアポ情報', '架電結果']);
-    expect(sections[0]?.entries.slice(0, 3).map(e => e.prop.label)).toEqual(['URL_求人検索 ※編集不可', '架電日', '再架電日']);
-    expect(sections[0]?.entries).toHaveLength(43);
-    expect(sections[1]?.entries.map(e => e.prop.name)).toContain('tanntousya');
-    expect(sections[0]?.entries.map(e => e.prop.name)).toContain('tanntousya');
-    expect(sections.map(x => x.unavailable)).toEqual([0, 0, 0]);
+    expect(sections.map(x => x.card.title)).toEqual(HUBSPOT_CARDS.map(c => c.title));
+    expect(sections[0]?.entries.map(e => e.prop.label)).toEqual(['架電日', '次回架電日', '次回架電時間', 'タスクメモ', 'タスク優先度', '失注の理由', '失注の理由（詳細）']);
+    expect(sections[3]?.entries).toHaveLength(12);
+    // 同じ項目が 2 枚に出る (次回架電日は タスク設定 と BPO用｜タスク設定 と リスト情報)
+    expect(sections.filter(x => x.entries.some(e => e.prop.name === 'bpo_13')).map(x => x.card.title)).toEqual(['タスク設定', 'リスト情報', 'BPO用｜タスク設定']);
+    expect(sections.map(x => x.unavailable)).toEqual([0, 0, 0, 0, 0, 0, 0, 0, 0]);
     expect(others.map(e => e.prop.name)).toEqual(['bpo_50']);
     // 一覧に無い (HubSpot で隠された) カードの項目は数えるだけで出さない
     const without = catalogIndex({ ...FIXTURE_CATALOG, objects: FIXTURE_CATALOG.objects.map(o => (o.object_type !== 'deals' ? o
       : { ...o, groups: o.groups.map(g => ({ ...g, properties: g.properties.filter(p => p.name !== 'risuto_bikou') })) })) });
-    expect(cardSections(DEFAULT_SELECTED, without).sections.map(x => [x.entries.length, x.unavailable])).toEqual([[42, 1], [25, 0], [5, 0]]);
-    const listCard = HUBSPOT_CARDS[0];
+    expect(cardSections(DEFAULT_SELECTED, without).sections.map(x => [x.entries.length, x.unavailable])[3]).toEqual([11, 1]);
+    const listCard = HUBSPOT_CARDS[3];
     if (listCard === undefined) throw new Error('card');
-    expect(cardAvailableNames(listCard, without)).toHaveLength(42);
-    // 外した項目はどちらのカードにも出ない
-    const fewer = toggleSelected(DEFAULT_SELECTED, 'deals', ['tanntousya'], false);
-    expect(cardSections(fewer, idx).sections.map(x => x.entries.some(e => e.prop.name === 'tanntousya'))).toEqual([false, false, false]);
+    expect(cardAvailableNames(listCard, without)).toHaveLength(11);
+    // 外した項目はどのカードにも出ない
+    const fewer = toggleSelected(DEFAULT_SELECTED, 'deals', ['bpo_13'], false);
+    expect(cardSections(fewer, idx).sections.some(x => x.entries.some(e => e.prop.name === 'bpo_13'))).toBe(false);
   });
 });

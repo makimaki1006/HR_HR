@@ -5,9 +5,9 @@ import { useCrmWrite, WRITES_OFF_NOTE } from '../crm/useCrmWrite';
 import { fieldKey } from '../crm/writeModel';
 import { contractWriteApi } from './dealContractApi';
 import { ownerParams } from './OwnerTodo';
-import { useJobCopySearch } from './navigation';
+import { updateJobCopyQuery, useJobCopySearch } from './navigation';
 import { formatDateJst } from './format';
-import { OutLink } from './Pressable';
+import { GoLink, OutLink } from './Pressable';
 import { MANUAL_LINKS_FIELD, addManualLink, dealChoices, removeManualLink } from './unlinkedMtgModel';
 import type { UnlinkedResponse, UnlinkedRow } from './unlinkedMtgModel';
 import { demoUnlinkedMtg } from './demoUnlinkedMtg';
@@ -23,6 +23,27 @@ async function readLinks(dealId: string): Promise<{ ok: true; base: string | nul
   if (!r.ok || r.data.partial.some(p => p.part === 'selected_properties')) return { ok: false };
   const v = r.data.selected.deal[MANUAL_LINKS_FIELD];
   return { ok: true, base: typeof v === 'string' ? v : null };
+}
+
+/** 今日の画面の 1 行。案件を選んでいない録画があるときだけ出し、押すと一覧（view=unlinked）へ移る。 */
+export function UnlinkedMtgLine() {
+  const search = useJobCopySearch(); const query = ownerParams(search);
+  const demo = new URLSearchParams(search).get('demo') === '1';
+  const [loaded, setLoaded] = useState<{ query: string; count: number } | null>(null);
+  useEffect(() => {
+    if (demo) return;
+    const ctl = new AbortController(); const wait = backoff(5000);
+    const load = async () => {
+      const r = await apiGet<UnlinkedResponse>(`/api/job-copy/unlinked-mtg?${query}`, { signal: ctl.signal, timeoutMs: 120_000 });
+      if (ctl.signal.aborted || !r.ok) return;
+      if (r.data.status === 'preparing') { runWhenDue(ctl.signal, wait(), () => { void load(); }); return; }
+      setLoaded({ query, count: r.data.status === 'ready' ? (r.data.rows ?? []).filter(row => !row.selected).length : 0 });
+    };
+    void load(); return () => { ctl.abort(); };
+  }, [query, demo]);
+  const count = demo ? (demoUnlinkedMtg.rows ?? []).filter(row => !row.selected).length : loaded?.query === query ? loaded.count : 0;
+  if (count === 0) return null;
+  return <p className="jh-go-line"><span>案件が決まっていないMTG録画 {count}件</span><GoLink onClick={() => { updateJobCopyQuery({ view: 'unlinked' }); }}>案件を選ぶ</GoLink></p>;
 }
 
 export function UnlinkedMtg() {

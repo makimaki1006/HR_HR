@@ -39,7 +39,7 @@ export function ListingTasks({ options, hearingSummary, hearingPanel }: { option
       <Card title={TITLES.edit} text="今の本文を基に直し、確認待ちの案として保存します" note={options.edit.disabled} disabled={options.edit.disabled !== null} pressed={active === 'edit'} onClick={() => { if (active !== 'edit') options.edit.onOpen(); toggle('edit'); }} />
       <Card title={TITLES.rikurozi} text="AirWork と重ならない文章を作ります（数分）" note={options.rikurozi.disabled} disabled={options.rikurozi.disabled !== null} pressed={active === 'rikurozi'} onClick={() => { toggle('rikurozi'); }} />
       <Card title={TITLES.hearing} text={hearingSummary} pressed={active === 'hearing'} onClick={() => { toggle('hearing'); }} />
-      <Card title={TITLES.analysis} text="本文と画像・変更の前後・応募者など" onClick={options.onAnalysis} />
+      <Card title={TITLES.analysis} text="本文と画像・応募者・応募理由など" onClick={options.onAnalysis} />
     </div>
     {panels.map(([task, panel]) => panel && (active === task || opened.includes(task)) ? <div key={task} className="lt-panel" role="region" aria-label={TITLES[task]} hidden={active !== task}>
       <div className="lt-panel-head"><h3>{TITLES[task]}</h3><CloseListButton label={TITLES[task]} onClick={() => { onChange(null); }} /></div>

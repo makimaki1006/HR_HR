@@ -58,7 +58,7 @@ test('危ない案件・詳細・次の予定・担当切替・URLの往復', as
   await page.reload(); await expect(page.getByRole('combobox', { name: '担当者', exact: true })).toHaveValue('架空の担当B');
   await expect(fresh).toContainText('架空の採用支援B');
   if (dir) await page.screenshot({ path: `${dir}/risk-owner.png`, fullPage: false });
-  await page.getByRole('button', { name: '案件一覧', exact: true }).click();
+  await page.getByRole('navigation', { name: '案件管理のメニュー' }).getByRole('button', { name: '案件', exact: true }).click();
   await expect(page).toHaveURL(/owner=22/); await expect(page).toHaveURL(/view=deals/);
   await page.goBack(); await expect(fresh).toContainText('架空の採用支援B');
   await expect(page.getByRole('combobox', { name: '担当の種類' })).toHaveValue('consultant');

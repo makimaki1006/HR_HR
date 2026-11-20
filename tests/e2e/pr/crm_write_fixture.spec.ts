@@ -32,8 +32,8 @@ test.describe('CRM 架電画面: 項目の書き換え (架空サンプル)', ()
     // 読み取りだけの項目 (※編集不可) には「編集」が付かない
     await expect(panel.getByRole('button', { name: /URL_求人検索.*を編集/ })).toHaveCount(0);
 
-    await panel.getByRole('button', { name: '募集職種（リストデータ）を編集' }).click();
-    const input = panel.getByRole('textbox', { name: '募集職種（リストデータ）' });
+    await panel.getByRole('button', { name: '事業所名（支店名・営業所名・工場名等）を編集' }).click();
+    const input = panel.getByRole('textbox', { name: '事業所名（支店名・営業所名・工場名等）' });
     await input.fill('事務スタッフ(架空)');
     await panel.getByRole('button', { name: '保存', exact: true }).click();
     await expect(panel.getByText('✓ 保存済み')).toBeVisible();
@@ -45,8 +45,8 @@ test.describe('CRM 架電画面: 項目の書き換え (架空サンプル)', ()
     await openFirst(page);
     await page.getByRole('tab', { name: 'プロパティ' }).click();
     const panel = page.getByTestId('property-panel');
-    await panel.locator('dt', { hasText: '募集職種（リストデータ）' }).dblclick();
-    await expect(panel.getByRole('textbox', { name: '募集職種（リストデータ）' })).toBeVisible();
+    await panel.locator('dt', { hasText: '事業所名（支店名・営業所名・工場名等）' }).dblclick();
+    await expect(panel.getByRole('textbox', { name: '事業所名（支店名・営業所名・工場名等）' })).toBeVisible();
     await panel.getByRole('button', { name: 'やめる' }).click();
     // 編集できない項目 (※編集不可) の項目名をダブルクリックしても始まらない
     await panel.locator('dt', { hasText: 'URL_求人検索' }).dblclick();
@@ -100,7 +100,7 @@ test.describe('CRM 架電画面: 項目の書き換え (架空サンプル)', ()
     await openFirst(page);
     await page.getByRole('tab', { name: 'プロパティ' }).click();
     const panel = page.getByTestId('property-panel');
-    await panel.getByRole('button', { name: 'アポ取得日を編集' }).click();
+    await panel.getByRole('button', { name: '架電日を編集', exact: true }).click();
     const edit = panel.locator('.wr-edit').first();
     // 入力は YYYY/MM/DD の文字入力 (ブラウザ標準の日付ポップアップではない)
     const input = edit.getByRole('textbox');
@@ -139,7 +139,7 @@ test.describe('CRM 架電画面: 項目の書き換え (架空サンプル)', ()
       await page.setViewportSize(vp);
       await page.getByRole('tab', { name: 'プロパティ' }).click();
       const panel = page.getByTestId('property-panel');
-      await panel.getByRole('button', { name: 'アポ取得日を編集' }).click();
+      await panel.getByRole('button', { name: '架電日を編集', exact: true }).click();
       await panel.locator('.wr-edit').first().getByRole('textbox').fill('2026/05/10');
       await panel.locator('.wr-edit').first().getByRole('button', { name: 'カレンダーを開く' }).click();
       await expectPopoverSane(page);

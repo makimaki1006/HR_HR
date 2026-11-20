@@ -27,9 +27,8 @@ test('いい案件の印・共通の詳細・メモ追記・担当とURLの保�
   await expect(row.getByRole('listitem')).toHaveText((goodRow.good_flags ?? []).map(f => f.label));
   await expect(row.getByText('危ないタグもあり（2件）')).toBeVisible();
   await expect(page.locator('.cr-new-mark')).toHaveCount(0);
-  // メニューからは外した（案件一覧の「いい」の印へ）。URL で開いたときは案件一覧が現在地
-  await expect(page.getByRole('navigation', { name: '案件管理のメニュー' }).getByRole('button', { name: 'いい案件' })).toHaveCount(0);
-  await expect(page.getByRole('button', { name: '案件一覧', exact: true })).toHaveAttribute('aria-current', 'page');
+  // メニューの「いい案件」が現在地（2026-11-20 にメニューへ戻した）
+  await expect(page.getByRole('navigation', { name: '案件管理のメニュー' }).getByRole('button', { name: 'いい案件', exact: true })).toHaveAttribute('aria-current', 'page');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   const dir = process.env.CONSULTANT_SCREENSHOT_DIR;
   if (dir) await page.screenshot({ path: `${dir}/good-list.png`, fullPage: false });
@@ -55,7 +54,7 @@ test('いい案件の印・共通の詳細・メモ追記・担当とURLの保�
   await expect(page.getByRole('heading', { level: 1, name: /^いい案件/ })).toHaveText('いい案件 0件');
   await page.reload(); await expect(list.getByText('該当する案件はありません。')).toBeVisible();
   await expect(page).toHaveURL(/view=good/); await expect(page).toHaveURL(/owner=22/);
-  await page.getByRole('button', { name: '案件一覧', exact: true }).click(); await expect(page).toHaveURL(/view=deals/);
+  await page.getByRole('navigation', { name: '案件管理のメニュー' }).getByRole('button', { name: '案件', exact: true }).click(); await expect(page).toHaveURL(/view=deals/);
   await page.goBack(); await expect(list).toBeVisible();
   await expect(page.getByRole('combobox', { name: '担当者', exact: true })).toHaveValue('架空の担当B');
   expect(errors).toEqual([]);

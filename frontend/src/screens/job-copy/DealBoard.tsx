@@ -1,5 +1,5 @@
 import { DealApplicationReasons } from './DealApplicationReasons';
-import { ExpiryDays, RiskDetail, detailRow } from './ConsultantRisk';
+import { ExpiryDays, RiskDetail, detailRow, useSideDetail } from './ConsultantRisk';
 import { ReportFreshness } from './ReportFreshness';
 import { Fragment, useEffect, useRef, useState } from 'react';
 import { apiGet } from '../../api/client';
@@ -48,6 +48,7 @@ export function DealBoard() {
   const search = useJobCopySearch(); const query = new URLSearchParams(search); const ownerQuery = ownerParams(search);
   const [data, setData] = useState<DealBoardResponse | null>(null); const [error, setError] = useState(''); const [reload, setReload] = useState(0);
   const [expanded, setExpanded] = useState<string[]>([]);
+  const side = useSideDetail();
   const scrollRef = useRef<HTMLDivElement>(null);
   const [moreRight, setMoreRight] = useState(false);
   const checkScroll = () => {
@@ -125,7 +126,7 @@ export function DealBoard() {
   const page = Math.min(pages, /^[1-9]\d{0,5}$/.test(requested) ? Number(requested) : 1);
   const change = (values: Record<string, string | null>) => { updateJobCopyQuery({ ...values, deals_page: null }, 'replace'); };
   const changeSort = (key: DealSort) => { change({ deals_sort: key, deals_direction: sort === key && descending ? 'asc' : 'desc' }); };
-  return <div className="jc-page"><main className="jc-detail jh-home db-board" id="job-details">
+  return <div className={selected && side ? 'jc-page cr-split' : 'jc-page'}><main className="jc-detail jh-home db-board" id="job-details">
     <Breadcrumbs crumbs={[{ level: 'home', label: '案件管理', current: false }, { level: 'deal', label: '案件の一覧', current: true }]} onSelect={() => { updateJobCopyQuery({ view: null }); }} />
     <header className="jh-head"><div><h1>案件の一覧</h1>{firstOnly && <p>初回案件の応募の立ち上がりを確認できます。</p>}</div><button className="jc-button" onClick={() => { setReload(n => n + 1); }}>再読み込み</button></header>
     {error && <p role="alert">{error}</p>}
@@ -167,7 +168,7 @@ export function DealBoard() {
       </section>
       <div className="db-list-meta"><p aria-live="polite">{rows.length}件・{page} / {pages}ページ</p><p className="jh-note">並び: {sort === 'priority' ? firstOnly ? '目安より少ない → 開始から日数の長い順' : 'タグが多い順' : `${dealSorts.find(([key]) => key === sort)?.[1] ?? ''}の${descending ? '多い・新しい順' : '少ない・古い順'}`} {sort !== 'priority' && <button type="button" className="jh-link" onClick={() => { change({ deals_sort: null, deals_direction: null }); }}>標準の並びに戻す</button>}</p></div>
       <div className={`db-scroll-frame${moreRight ? ' db-more-right' : ''}`}><div className="db-board-scroll" ref={scrollRef} onScroll={checkScroll} tabIndex={0} role="region" aria-label="案件一覧（横スクロール）"><table className={`db-table${firstOnly ? ' db-launch-table' : ''}`}><thead><tr>{(firstOnly || zeroOnly ? columns.slice(0, 1) : columns).map(([key, label]) => <SortHeader key={key} label={label} active={sort === key} descending={descending} onSort={() => { changeSort(key); }} />)}{zeroOnly && ['担当', '契約期間', 'ステージ', '求人票の数', 'HubSpot'].map(label => <th scope="col" key={label}>{label}</th>)}{firstOnly && ['担当', '契約開始日', '開始からの応募数', '目安との比較', '最初の応募', '週ごとの応募', '掲載中の求人数'].map(label => <th scope="col" key={label}>{label}</th>)}<th scope="col" className="db-toggle-column">詳しい数字・詳細</th></tr></thead><tbody>
-        {rows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE).map(row => <Fragment key={row.id}><tr onClick={event => { if (!(event.target as HTMLElement).closest('button, a')) updateJobCopyQuery({ risk_deal: row.id }); }}>
+        {rows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE).map(row => <Fragment key={row.id}><tr className={row.id === selected?.id ? 'cr-row-open' : undefined} onClick={event => { if (!(event.target as HTMLElement).closest('button, a')) updateJobCopyQuery({ risk_deal: row.id }); }}>
           <th scope="row"><button type="button" className="jc-row-name" title={row.name ?? '案件名未取得'} onClick={() => { updateJobCopyQuery({ risk_deal: row.id }); }}>{row.name ?? '案件名未取得'}</button><small title={row.company ?? '顧客名未取得'}>{row.company ?? '顧客名未取得'}</small><DealApplicationReasons value={row.application_reasons} outOfScope={row.applications_out_of_scope} /></th>
           {zeroOnly ? <><td>{row.consultant ?? '未設定'}</td><td>{formatDateJst(row.launch.start, '開始日未取得')} 〜 {formatDateJst(row.expiration, '満了日未取得')}</td><td>{row.stage ?? '未取得'}</td><td>{row.listing_count === null ? '未取得' : `${String(row.listing_count)}件`}</td><td><a href={`https://app.hubspot.com/contacts/${ready.hubspot_portal_id}/record/0-3/${row.id}`} target="_blank" rel="noreferrer">HubSpotで開く</a></td></> : firstOnly ? <LaunchCells row={row} preparing={preparing} /> : <><td><ReasonChips reasons={row.reasons} />{!row.reasons.length && '—'}</td>
           <td>{row.applications_out_of_scope ? '対象外' : <>{row.recent_applications ?? (preparing ? '集計中' : '未取得')}<small>前の4週 {row.previous_applications === null ? '未取得' : `${String(row.previous_applications)}件`} ／ 差 {applicationChange(row.applications_change)}</small>{!!row.unknown_application_ids?.length && <small>日付不明 {row.unknown_application_ids.length}件を除外</small>}</>}</td>
@@ -178,6 +179,5 @@ export function DealBoard() {
       </tbody></table></div></div>
       <PageNav className="db-pages" label="案件のページ送り" size={PAGE_SIZE} hasPrev={page > 1} hasNext={page < pages} onPrev={() => { updateJobCopyQuery({ deals_page: String(page - 1) }); }} onNext={() => { updateJobCopyQuery({ deals_page: String(page + 1) }); }}>{page} / {pages}</PageNav>
     </>}
-    {selected && <RiskDetail key={selected.id} row={{ ...detailRow(selected.id, selected.name ?? '案件名未登録', selected.company), consultant: selected.consultant ?? '', days_left: selected.days_left, mtg_last: selected.last_mtg, list_contact: { date: selected.last_contact, status: selected.contact_status }, ...(reason === 'good' && goodIds?.get(selected.id) ? { good_flags: goodIds.get(selected.id) ?? [] } : {}) }} onClose={() => { updateJobCopyQuery({ risk_deal: null }); }} onSaved={() => { setReload(n => n + 1); }} />}
-  </main></div>;
+  </main>{selected && <RiskDetail key={`${selected.id}-${String(side)}`} side={side} row={{ ...detailRow(selected.id, selected.name ?? '案件名未登録', selected.company), consultant: selected.consultant ?? '', days_left: selected.days_left, mtg_last: selected.last_mtg, list_contact: { date: selected.last_contact, status: selected.contact_status }, ...(reason === 'good' && goodIds?.get(selected.id) ? { good_flags: goodIds.get(selected.id) ?? [] } : {}) }} onClose={() => { updateJobCopyQuery({ risk_deal: null }); }} onSaved={() => { setReload(n => n + 1); }} />}</div>;
 }

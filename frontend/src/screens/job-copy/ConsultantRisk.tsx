@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { InfoTip } from './InfoTip';
 import { apiGet } from '../../api/client';
 import type { WorkspaceResponse } from '../../generated/WorkspaceResponse';
@@ -44,16 +44,29 @@ export function ExpiryDays({ days, empty }: { days: number | null; empty: string
 export const RECENT_RECORDS = 3;
 /** 小窓の詳細を読み込む期限。記録の多い案件でも読み切れるよう、既定（15 秒）より長くする。 */
 const DETAIL_TIMEOUT_MS = 30_000;
-export function jobsHref(search: string, deal: string, listing?: string) {
+/** 一覧の右に詳細を並べられる幅（PC）。これより狭いときは小窓で出す。 */
+const SIDE_DETAIL_QUERY = '(min-width: 1200px)';
+const watchSideDetail = (notify: () => void) => {
+  if (typeof window.matchMedia !== 'function') return () => undefined;
+  const media = window.matchMedia(SIDE_DETAIL_QUERY);
+  media.addEventListener('change', notify);
+  return () => { media.removeEventListener('change', notify); };
+};
+/** 案件の詳細を一覧の右に出すか（幅が足りるときだけ）。 */
+export function useSideDetail(): boolean {
+  return useSyncExternalStore(watchSideDetail, () => typeof window.matchMedia === 'function' && window.matchMedia(SIDE_DETAIL_QUERY).matches);
+}
+export function jobsHref(search: string, deal: string | null, listing?: string) {
   const q = new URLSearchParams(search);
   // 来た元（危ない案件・案件一覧など）を ?from= に残し、案件のページの「← ○○に戻る」とメニューの選択に使う。
   const from = q.get('view') ?? 'today';
   for (const k of ['view', 'risk_deal', 'company', 'deal', 'listing', 'job', 'feature', 'analysis', 'drawer', 'drawerEvent', 'popup', 'popupListing', 'dialog', 'compareLeft', 'compareRight', 'from']) q.delete(k);
-  q.set('deal', deal); if (listing) q.set('listing', listing); q.set('from', from);
+  if (deal) q.set('deal', deal); if (listing) q.set('listing', listing); q.set('from', from);
   return `/app/job-copy?${q.toString()}`;
 }
 interface Detail { meta: { found: boolean; reason?: string }; deal?: { name: string; start: string; expiration: string; period: number | null; amount: number | null }; events?: { kind: string; date: string; period?: string | null; contact?: boolean; time?: string | null; end_time?: string | null; end_date?: string | null; direction?: string | null; mail_type?: string | null; zoom_held_time?: string | null; subject?: string; source_label: string; fact: boolean; link_certainty?: string; attach?: { state: string }; summary?: { summary?: string; next_action?: string; concern?: string }; extracted?: boolean; todo?: string; concern?: string; positive?: string; risk?: string; risk_reason?: string; next?: string }[] }
-export function RiskDetail({ row, onClose, onSaved }: { row: RiskRow; onClose: () => void; onSaved: () => void }) {
+/** side: 一覧の右に並べて出す（一覧を残したまま次々に開ける）。指定が無ければ小窓。 */
+export function RiskDetail({ row, onClose, onSaved, side = false }: { row: RiskRow; onClose: () => void; onSaved: () => void; side?: boolean }) {
   const search = useJobCopySearch();
   const dialog = useRef<HTMLDialogElement>(null);
   const [data, setData] = useState<Detail | null>(null); const [error, setError] = useState(''); const [attempt, setAttempt] = useState(0);
@@ -61,7 +74,7 @@ export function RiskDetail({ row, onClose, onSaved }: { row: RiskRow; onClose: (
   const [actionOptions, setActionOptions] = useState<{value: string; label: string}[]>([]);
   const [workspaceDeal, setWorkspaceDeal] = useState<Record<string, unknown> | null>(null);
   const [portal, setPortal] = useState(''); const [listing, setListing] = useState<string>(); const [jobsReady, setJobsReady] = useState(false);
-  useEffect(() => { dialog.current?.showModal(); }, []);
+  useEffect(() => { if (!side) dialog.current?.showModal(); }, [side]);
   useEffect(() => {
     const ctl = new AbortController();
     void apiGet<WorkspaceResponse>(`/api/crm/workspace/deals/${encodeURIComponent(row.deal_id)}?deal_props=actionyotei,actionnaiyou`, { signal: ctl.signal }).then(r => { if (r.ok && !ctl.signal.aborted) { setPortal(r.data.hubspot_portal_id); setWorkspaceDeal(r.data.selected.deal); } });
@@ -86,7 +99,7 @@ export function RiskDetail({ row, onClose, onSaved }: { row: RiskRow; onClose: (
     ? listContact.status === 'outside' ? '記録なし（対象外）' : listContact.status === 'unavailable' ? '未取得' : formatDateJst(listContact.date, '記録なし')
     : row.days_since_contact === null ? formatDateJst(lastContact, '記録なし') : `${String(row.days_since_contact)}日前`;
   const lastMtg = row.mtg_last ?? data?.events?.filter(e => inContract(e) && (e.kind === 'mtg' || e.kind === 'zoom_mtg')).map(e => e.date).sort().at(-1) ?? null;
-  return <dialog className="cr-detail" ref={dialog} aria-labelledby="risk-detail-title" onCancel={onClose}>
+  return <dialog className={side ? 'cr-detail cr-side' : 'cr-detail'} open={side || undefined} ref={dialog} aria-labelledby="risk-detail-title" onCancel={onClose}>
     <header><h2 id="risk-detail-title">{row.name}</h2><button className="jc-button" onClick={onClose}>閉じる</button></header>
     <p>{row.company ?? '顧客未登録'} ／ {row.consultant || '担当未登録'}</p><Flags flags={row.good_flags ?? row.risk_flags} good={!!row.good_flags} unlinkedMtg={!!row.mtg_unlinked} />
     <nav className="cr-next" aria-label="次へ進む"><a className="jc-button" href={jobsHref(search, row.deal_id)} onClick={e => { e.preventDefault(); navigateJobCopy(new URL(e.currentTarget.href)); }}>案件のページを開く</a>{jobsReady ? <a className="jc-button" href={jobsHref(search, row.deal_id, listing)} onClick={e => { e.preventDefault(); navigateJobCopy(new URL(e.currentTarget.href)); }}>求人を見る</a> : <span className="cr-next-wait">求人を確認しています…</span>}{/^\d+$/.test(portal) && <OutLink href={`https://app.hubspot.com/contacts/${portal}/record/0-3/${row.deal_id}`} name="HubSpotで開く" />}</nav>
@@ -102,6 +115,7 @@ export function RiskDetail({ row, onClose, onSaved }: { row: RiskRow; onClose: (
 export function ConsultantRisk({ good = false }: { good?: boolean }) {
   const title = good ? 'いい案件' : '危ない案件';
   const search = useJobCopySearch(); const query = ownerParams(search); const selected = new URLSearchParams(search).get('risk_deal');
+  const side = useSideDetail();
   const [data, setData] = useState<RiskResponse | null>(null); const [error, setError] = useState(false); const [reload, setReload] = useState(0);
   useEffect(() => {
     const ctl = new AbortController(); const wait = backoff(2000);
@@ -118,13 +132,12 @@ export function ConsultantRisk({ good = false }: { good?: boolean }) {
   const singles = ready ? ready.rows.length - ready.rows.filter(r => r.flags.length >= RISK_MIN_FLAGS).length : 0;
   const view = ready ? { ...ready, rows: shown } : null;
   const row = ready?.rows.find(r => r.deal_id === selected);
-  return <div className="jc-page"><main className="cr-main" id="job-details"><header><div><h1>{title}{good && ready && <small> {ready.rows.length}件</small>}</h1>{ready && <p>{formatDateJst(ready.data_day, '集計日未取得')}のデータ{ready.previous_day ? ` ／ 前回：${formatDateJst(ready.previous_day)}` : ''}</p>}{ready && !good && (ready.comparison === 'first' || ready.comparison === 'unavailable') && <InfoTip label="前回との比較"><p>{ready.comparison === 'first' ? '前回と比べられるのは明日のデータからです。' : '前回との比較を取得できないため、一覧で表示しています。'}</p></InfoTip>}</div><button className="jc-button" onClick={() => { setReload(n => n + 1); }}>再読み込み</button></header>
+  return <div className={row && side ? 'jc-page cr-split' : 'jc-page'}><main className="cr-main" id="job-details"><header><div><h1>{title}{good && ready && <small> {ready.rows.length}件</small>}</h1>{ready && <p>{formatDateJst(ready.data_day, '集計日未取得')}のデータ{ready.previous_day ? ` ／ 前回：${formatDateJst(ready.previous_day)}` : ''}</p>}{ready && !good && (ready.comparison === 'first' || ready.comparison === 'unavailable') && <InfoTip label="前回との比較"><p>{ready.comparison === 'first' ? '前回と比べられるのは明日のデータからです。' : '前回との比較を取得できないため、一覧で表示しています。'}</p></InfoTip>}</div><button className="jc-button" onClick={() => { setReload(n => n + 1); }}>再読み込み</button></header>
     {ready && !good && <p className="cr-scope" role="note"><label><input type="checkbox" checked={includeSingle} onChange={e => { updateJobCopyQuery({ risk_all: e.target.checked ? '1' : null }, 'replace'); }} /> タグが1つだけの案件も出す</label> <span>{includeSingle ? `タグが1つだけの案件 ${String(singles)}件を含めて ${String(shown.length)}件を出しています。` : `タグが2つ以上の案件 ${String(shown.length)}件を出しています（コンサルKPIの「今日」と同じ基準）。タグが1つだけの案件 ${String(singles)}件は出していません。`}</span></p>}
     {error && <p role="alert">{title}を読み込めませんでした。再読み込みしてください。</p>}{!error && (!data || data.status === 'preparing') && <p role="status">案件を集計しています…</p>}{data?.status === 'failed' && <p role="alert">案件を取得できませんでした。再読み込みしてください。</p>}
     {ready?.refresh_failed && <p>前に取得した担当と予定を表示しています。</p>}
-    {view && (good ? [{ title: 'いい案件の一覧', rows: view.rows }] : riskGroups(view)).map(group => <section key={group.title} aria-label={group.title}>{!good && <h2>{group.title} <small>{group.rows.length}件</small></h2>}<div className="cr-scroll"><table><thead><tr>{['案件・顧客', '担当', good ? '理由' : 'タグ・いつから', '満了まで', '最後の接触', '次の予定'].map(label => <th key={label}>{label}</th>)}<th className="cr-open-col"><span className="jc-visually-hidden">詳細</span></th></tr></thead><tbody>{group.rows.map(r => <tr key={r.deal_id} onClick={() => { updateJobCopyQuery({ risk_deal: r.deal_id }); }}><th scope="row"><button type="button" className="jc-row-name" onClick={e => { e.stopPropagation(); updateJobCopyQuery({ risk_deal: r.deal_id }); }}>{r.name}</button><small>{r.company ?? '顧客未登録'}</small></th><td>{r.consultant || '未登録'}</td><td><Flags flags={r.good_flags ?? r.risk_flags} good={good} unlinkedMtg={!!r.mtg_unlinked} />{good && r.flags.length > 0 && <small>危ないタグもあり（{r.flags.length}件）</small>}</td><td><ExpiryDays days={r.days_left} empty="未登録" /></td><td>{r.days_since_contact === null ? '記録なし' : `${String(r.days_since_contact)}日前`}</td><td>{formatDateJst(r.actionyotei, '予定なし')}<small>{r.actionnaiyou ?? '内容未登録'}</small></td><td className="cr-open-cell"><button type="button" className="jc-open" aria-label={`${r.name}の詳細を開く`} onClick={e => { e.stopPropagation(); updateJobCopyQuery({ risk_deal: r.deal_id }); }}>詳細 ▸</button></td></tr>)}{!group.rows.length && <tr><td colSpan={7}>該当する案件はありません。</td></tr>}</tbody></table></div></section>)}
-    {row && <RiskDetail key={row.deal_id} row={row} onClose={() => { updateJobCopyQuery({ risk_deal: null }); }} onSaved={() => { setReload(n => n + 1); }} />}
-  </main></div>;
+    {view && (good ? [{ title: 'いい案件の一覧', rows: view.rows }] : riskGroups(view)).map(group => <section key={group.title} aria-label={group.title}>{!good && <h2>{group.title} <small>{group.rows.length}件</small></h2>}<div className="cr-scroll"><table><thead><tr>{['案件・顧客', '担当', good ? '理由' : 'タグ・いつから', '満了まで', '最後の接触', '次の予定'].map(label => <th key={label}>{label}</th>)}<th className="cr-open-col"><span className="jc-visually-hidden">詳細</span></th></tr></thead><tbody>{group.rows.map(r => <tr key={r.deal_id} className={r.deal_id === selected ? 'cr-row-open' : undefined} onClick={() => { updateJobCopyQuery({ risk_deal: r.deal_id }); }}><th scope="row"><button type="button" className="jc-row-name" onClick={e => { e.stopPropagation(); updateJobCopyQuery({ risk_deal: r.deal_id }); }}>{r.name}</button><small>{r.company ?? '顧客未登録'}</small></th><td>{r.consultant || '未登録'}</td><td><Flags flags={r.good_flags ?? r.risk_flags} good={good} unlinkedMtg={!!r.mtg_unlinked} />{good && r.flags.length > 0 && <small>危ないタグもあり（{r.flags.length}件）</small>}</td><td><ExpiryDays days={r.days_left} empty="未登録" /></td><td>{r.days_since_contact === null ? '記録なし' : `${String(r.days_since_contact)}日前`}</td><td>{formatDateJst(r.actionyotei, '予定なし')}<small>{r.actionnaiyou ?? '内容未登録'}</small></td><td className="cr-open-cell"><button type="button" className="jc-open" aria-label={`${r.name}の詳細を開く`} onClick={e => { e.stopPropagation(); updateJobCopyQuery({ risk_deal: r.deal_id }); }}>詳細 ▸</button></td></tr>)}{!group.rows.length && <tr><td colSpan={7}>該当する案件はありません。</td></tr>}</tbody></table></div></section>)}
+  </main>{row && <RiskDetail key={`${row.deal_id}-${String(side)}`} side={side} row={row} onClose={() => { updateJobCopyQuery({ risk_deal: null }); }} onSaved={() => { setReload(n => n + 1); }} />}</div>;
 }
 
 export function detailRow(id: string, name: string, company: string | null = null): RiskRow {

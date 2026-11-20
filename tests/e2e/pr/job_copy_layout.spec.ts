@@ -248,7 +248,7 @@ await audit(page, `${prefix}-sort`);
     for (const id of ['jt-applications', 'jt-market']) expect((await getChartSeriesLengths(page, id)).some(n => n > 0)).toBe(true);
   }
   await audit(page, `${prefix}-タイムライン`);
-  for (const group of ['本文と画像', '変更の前後', 'ほかの求人と比べる', '応募者', '応募理由', 'メモ']) {
+  for (const group of ['本文と画像', 'ほかの求人と比べる', '応募者', '応募理由', 'メモ']) {
     await page.getByRole('tab', { name: group, exact: true }).click();
     await audit(page, `${prefix}-${group}`);
   }
