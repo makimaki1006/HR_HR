@@ -24,6 +24,7 @@ import { toE164Jp } from './smartEmbed';
 import { ApplicantEditor } from './ApplicantEditor';
 import { ApplicantCallHistory } from './ApplicantCallHistory';
 import { ApplicantReminderBand } from './ApplicantReminders';
+import { ApplicantCallback } from './ApplicantCallback';
 import { presenceText, useApplicantPresence, viewersOf } from './ApplicantPresence';
 import './crm.css';
 import './queue.css';
@@ -244,6 +245,7 @@ export function ApplicantsScreen({ fixture = new URLSearchParams(window.location
           <p className="applicant-job"><button type="button" disabled={!detail} onClick={() => { showRelated('deals'); }}>{headline?.deal.length ? headline.deal : '取引を確認'}</button> · <button type="button" disabled={!detail} onClick={() => { showRelated('listings'); }}>{headline?.job.length ? headline.job : '求人票を確認'}</button></p>
           <div className="wd-line wd-line-2"><PhoneRow label="応募者" raw={detail?.phone ?? headline?.phone ?? ''} zoom={dialZoom} compact blocked={!!detail?.stop_reason || busy || !detail} blockReason={!detail ? (detailError ? '詳細を確認できません' : '読み込み中…') : detail.stop_reason ?? (busy ? '通話中です' : null)} /></div>
           <p className="applicant-meta">{headline?.stage} · {headline?.media} · 応募日 {date(headline?.date ?? '')}</p>
+          {detail && <ApplicantCallback key={detail.row.id} row={detail.row} enabled={detail.callback_notify} fixture={fixture} />}
           {presenceHere && <p className="applicant-presence" role="status">{presenceHere}</p>}
           {detail?.stop_reason && <p role="alert">架電禁止・ブロック: {detail.stop_reason}</p>}{dialNotice && <p role="status">{dialNotice}</p>}
         </div></article>
@@ -273,7 +275,7 @@ export function ApplicantsScreen({ fixture = new URLSearchParams(window.location
   return <div className="crm-app cq-app applicants-app">
     <header className="applicants-head"><a href="/">HR_HR</a><strong>CRM</strong><CrmModeSwitch applicants /><FailedWritesBadge fixture={fixture} /><span>{fixture ? '架空サンプル' : 'HubSpot の応募'}</span>{!fixture && <button onClick={() => { setDrawerOpen(v => !v); }}>Zoom</button>}<button onClick={() => { setCursor(null); setDetail(null); setRefresh(v => v + 1); }}>最新にする</button></header>
     <div className="cq-filter-summary applicants-filter-summary"><span>{scope ? 'すべての応募' : '一次対応が必要な未完了'} · ステージ: {stages.length ? `${String(stages.length)}件選択` : 'すべて'} · 応募媒体: {media || 'すべて'}</span><button type="button" aria-expanded={filtersOpen} onClick={() => { setFiltersOpen(v => !v); }}>条件を変更</button></div>
-    <form className="applicants-search" role="search" onSubmit={e => { e.preventDefault(); applySearch(search); }}><label>検索対象<select value={target} onChange={e => { dispatch({ type: 'activate', panel: 'queue' }); setTarget(e.target.value); setCursor(null); setQueue(null); setLoading(true); }}><option value="applicant">応募者</option><option value="deal">取引</option><option value="listing">求人</option></select></label><label>応募を検索<input type="search" value={search} onChange={e => { setSearch(e.target.value); }} placeholder={target === 'deal' ? '取引名' : target === 'listing' ? '求人名' : '応募者名'} /></label></form>
+    <form className="applicants-search" role="search" onSubmit={e => { e.preventDefault(); applySearch(search); }}><label>検索対象<select value={target} onChange={e => { dispatch({ type: 'activate', panel: 'queue' }); setTarget(e.target.value); setCursor(null); setQueue(null); setLoading(true); }}><option value="applicant">応募者</option><option value="deal">取引</option><option value="listing">求人</option></select></label><label>応募を検索<input type="search" value={search} onChange={e => { setSearch(e.target.value); }} placeholder={target === 'deal' ? '取引名' : target === 'listing' ? '求人名' : '応募者名・電話番号（下4桁でも可）'} /></label>{target === 'applicant' && /^[0-9０-９]{4}$/.test(query) && <span className="applicants-search-note">下4桁は直近60日の応募から探します。それより前の応募は番号を全部入れてください。</span>}</form>
     {filtersOpen && <div className="applicants-toolbar">
       <label className={`cq-field cq-target-label${scope ? ' is-set' : ''}`}>範囲<select aria-label="範囲" value={scope ? 'all' : 'open'} onChange={e => { setScope(e.target.value === 'all'); filter([], media); }}><option value="open">一次対応が必要な未完了</option><option value="all">すべての応募</option></select></label>
       {queue && firstPipeline && <StageFilter all pipeline={{ ...firstPipeline, fallbackName: '', unknownStages: [], stages: firstPipeline.stages.map(s => ({ ...s, rule: 'all' })) }}

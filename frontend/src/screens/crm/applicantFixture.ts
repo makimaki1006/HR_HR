@@ -40,6 +40,7 @@ export function applicantDetailFixture(id: string, search = window.location.sear
     deals: [{ id: '70001', title: row.deal, deep_link: 'https://app.hubspot.com/contacts/0/record/0-3/70001/', jobcopy_url: null, current: true, fields: [{ label: '取引ステージ', value: '契約中' }, { label: '取引担当者', value: '架空 担当' }, { label: '契約開始日', value: '2026/10/01' }] },
       { id: '70002', title: 'サンプル物流の以前の契約', deep_link: 'https://app.hubspot.com/contacts/0/record/0-3/70002/', jobcopy_url: null, current: false, fields: [{ label: '取引ステージ', value: '解約済み' }] }],
     related_notice: null,
+    callback_notify: new URLSearchParams(search).get('callback') !== 'off',
     row, phone: row.phone, stop_reason: null, deep_link: `https://app.hubspot.com/contacts/0/record/0-421/${row.id}/`,
     jobs: [{ label: row.job, url: 'https://app.hubspot.com/contacts/0/record/0-420/80001/' }],
     sections: [

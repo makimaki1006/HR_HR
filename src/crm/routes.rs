@@ -325,6 +325,11 @@ fn router_full(
             get(super::applicants::calls),
         )
         .route(
+            "/api/crm/applicants/{id}/callback",
+            post(super::applicants::callback_notify)
+                .route_layer(axum::middleware::from_fn(super::write::csrf_guard)),
+        )
+        .route(
             "/api/crm/applicants/{id}",
             get(super::applicants::detail)
                 .patch(super::write::patch_applicant)
