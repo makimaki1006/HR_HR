@@ -7,6 +7,9 @@ mod phone;
 mod presence;
 pub(super) use presence::presence;
 pub use presence::{ApplicantPresence, ApplicantViewer};
+#[path = "applicant_callback.rs"]
+mod callback;
+pub(super) use callback::notify as callback_notify;
 #[path = "applicant_related.rs"]
 mod related;
 #[path = "applicant_sheet.rs"]
@@ -206,6 +209,9 @@ pub struct ApplicantDetail {
     pub jobcopy_url: Option<String>,
     pub sheet_url: Option<String>,
     pub sheet_embed: bool,
+    /// 折り返しの電話を Slack に知らせられるか (送り先のチャンネルと Bot のトークンが設定済み)
+    #[serde(default)]
+    pub callback_notify: bool,
 }
 
 pub(super) struct ApplicantsState {
@@ -1196,6 +1202,7 @@ pub(super) async fn detail(
             notes,
             sheet_embed: sheet_embeddable(sheet_url.as_deref()),
             sheet_url,
+            callback_notify: callback::configured(),
         })
     };
     match tokio::time::timeout(Duration::from_secs(20), work).await {

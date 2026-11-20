@@ -92,3 +92,12 @@
 .applicant-pages { display: flex; gap: 6px; padding: 4px 8px; border-bottom: 1px solid var(--cq-line); font-size: 12px; flex-wrap: wrap; }
 .applicant-pages button { padding: 2px 10px; border: 1px solid var(--cq-line); border-radius: 12px; background: white; cursor: pointer; }
 .applicant-pages button[aria-pressed="true"] { background: #e6efff; border-color: #6b8fd6; font-weight: 600; }
+/* 折り返しを Slack に知らせる。 */
+.applicant-callback { margin: 6px 0 0; font-size: 12px; }
+.applicant-callback > button, .applicant-callback-actions button { padding: 3px 10px; font-size: 12px; }
+.applicant-callback-note { margin-left: 8px; color: var(--cq-sub); }
+.applicant-callback label { display: grid; gap: 4px; }
+.applicant-callback textarea { width: 100%; box-sizing: border-box; padding: 4px 6px; border: 1px solid #cbd5e1; border-radius: 4px; font: inherit; }
+.applicant-callback-actions { display: flex; gap: 8px; margin-top: 6px; }
+.applicant-callback-actions button[type=submit] { background: #2563eb; color: white; border-radius: 5px; }
+.applicant-callback .wr-status { display: inline-block; margin: 6px 0 0; padding: 3px 8px; font-size: 12px; }
