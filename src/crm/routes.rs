@@ -321,6 +321,10 @@ fn router_full(
                 .route_layer(axum::middleware::from_fn(super::write::csrf_guard)),
         )
         .route(
+            "/api/crm/applicants/{id}/calls",
+            get(super::applicants::calls),
+        )
+        .route(
             "/api/crm/applicants/{id}/callback",
             post(super::applicants::callback_notify)
                 .route_layer(axum::middleware::from_fn(super::write::csrf_guard)),

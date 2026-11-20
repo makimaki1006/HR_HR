@@ -1,6 +1,10 @@
 //! 応募 (0-421) の読み取り・保存。正本と業務履歴は HubSpot。
 #[path = "applicant_write.rs"]
 mod editing;
+#[path = "applicant_calls.rs"]
+mod number_calls;
+pub(super) use number_calls::calls;
+pub use number_calls::{ApplicantCall, ApplicantCalls};
 #[path = "applicant_phone.rs"]
 mod phone;
 #[path = "applicant_presence.rs"]

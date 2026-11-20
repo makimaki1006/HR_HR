@@ -22,6 +22,18 @@
 .applicant-rules dd { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .applicant-rules-clamped { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
 .applicant-rules button { font-size: 11px; margin-top: 4px; }
+.applicant-calls { border-top: 1px solid var(--cq-line); padding: 8px 12px; }
+.applicant-calls h3 { font-size: 12px; margin: 0 0 5px; display: flex; gap: 8px; align-items: baseline; }
+.applicant-calls h3 span { font-weight: normal; color: var(--cq-sub); font-size: 11px; }
+.applicant-calls p { margin: 0; font-size: 12px; color: var(--cq-sub); }
+.applicant-calls p button, .applicant-calls summary { font-size: 11px; }
+.applicant-calls p button { margin-left: 8px; }
+.applicant-calls-list { list-style: none; margin: 0; padding: 0; font-size: 12px; }
+.applicant-calls-list li { display: grid; grid-template-columns: 9.5em minmax(0, 1fr) auto; gap: 8px; padding: 2px 0; }
+.applicant-calls-list li span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.applicant-calls-list li span:last-child { color: var(--cq-sub); }
+.applicant-calls-list li .applicant-calls-talked { color: inherit; font-weight: 600; }
+.applicant-calls details { margin-top: 2px; }
 .applicants-properties .crm-card { margin: 0 0 10px; padding: 10px; }
 .applicants-properties h3 { font-size: 13px; margin: 0 0 8px; }
 .applicants-properties dd { white-space: pre-wrap; overflow-wrap: anywhere; }

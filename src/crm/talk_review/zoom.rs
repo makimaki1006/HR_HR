@@ -512,6 +512,110 @@ impl ZoomClient {
     }
 }
 
+/// ある番号への発信 1 件 (応募の画面の「この番号への発信」)
+#[derive(Debug, Clone, PartialEq)]
+pub struct NumberDial {
+    /// 開始時刻 (RFC 3339)
+    pub start_time: String,
+    pub start_ms: i64,
+    /// かけた人の名前 (分からなければ空)
+    pub caller: String,
+    /// 相手が出たか (`answer_time` がある)
+    pub answered: bool,
+    pub seconds: u32,
+}
+
+/// `call_history` の 1 ページから、下 9 桁が `number9` の番号への発信だけを取り出す
+pub fn number_dials(v: &Value, number9: &str) -> Vec<NumberDial> {
+    let text = |e: &Value, k: &str| {
+        e.get(k)
+            .and_then(Value::as_str)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+    };
+    let Some(rows) = v.get("call_logs").and_then(Value::as_array) else {
+        return Vec::new();
+    };
+    rows.iter()
+        .filter_map(|e| {
+            if !text(e, "direction")?.eq_ignore_ascii_case("outbound") {
+                return None;
+            }
+            let to = text(e, "callee_did_number").or_else(|| text(e, "callee_number"))?;
+            if normalize_number(&to)? != number9 {
+                return None;
+            }
+            let start_time = text(e, "start_time")?;
+            let start_ms = DateTime::parse_from_rfc3339(&start_time)
+                .ok()?
+                .timestamp_millis();
+            let seconds = e
+                .get("duration")
+                .and_then(|d| d.as_u64().or_else(|| d.as_str()?.parse().ok()))
+                .unwrap_or(0);
+            Some(NumberDial {
+                start_time,
+                start_ms,
+                caller: text(e, "caller_name").unwrap_or_default(),
+                answered: text(e, "answer_time").is_some(),
+                seconds: u32::try_from(seconds).unwrap_or(u32::MAX),
+            })
+        })
+        .collect()
+}
+
+/// 番号で引くときの 1 ページの件数と、ページ数の上限 (1 つの番号への発信は多くても数十件)
+const NUMBER_DIAL_MAX_PAGES: usize = 3;
+
+impl ZoomClient {
+    /// `from`〜`to` (日付。Zoom は 1 回に 1 か月までで、それより長いと新しい側の 1 か月に切り詰める) の、
+    /// その番号への発信。`keyword` に番号を渡すと Zoom 側で絞られる (2026-11-21 本番で確認)
+    pub async fn dials_to_number(
+        &self,
+        number: &str,
+        from: NaiveDate,
+        to: NaiveDate,
+    ) -> Result<Vec<NumberDial>, ZoomError> {
+        let Some(number9) = normalize_number(number) else {
+            return Ok(Vec::new());
+        };
+        // 国内の形 (0 始まり) で探す。`+81…` でも `0…` でも同じ結果になる
+        let digits: String = number.chars().filter(char::is_ascii_digit).collect();
+        let keyword = match digits.strip_prefix("81") {
+            Some(rest) if number.trim_start().starts_with('+') => format!("0{rest}"),
+            _ => digits,
+        };
+        let (from, to) = (from.to_string(), to.to_string());
+        let mut out = Vec::new();
+        let mut token: Option<String> = None;
+        for _ in 0..NUMBER_DIAL_MAX_PAGES {
+            let mut q = vec![
+                ("from", from.as_str()),
+                ("to", to.as_str()),
+                ("page_size", "300"),
+                ("keyword", keyword.as_str()),
+            ];
+            if let Some(t) = token.as_deref() {
+                q.push(("next_page_token", t));
+            }
+            let url =
+                reqwest::Url::parse_with_params("https://api.zoom.us/v2/phone/call_history", &q)
+                    .map_err(|_| ZoomError::Transient("url".into()))?;
+            let v = self.get_json(url.as_str()).await?;
+            out.extend(number_dials(&v, &number9));
+            match v
+                .get("next_page_token")
+                .and_then(Value::as_str)
+                .filter(|s| !s.is_empty())
+            {
+                Some(t) => token = Some(t.to_string()),
+                None => break,
+            }
+        }
+        Ok(out)
+    }
+}
+
 impl TranscriptSource for ZoomClient {
     async fn find_caller(&self, to_number: &str, at_ms: i64) -> Result<Option<String>, ZoomError> {
         let (Some(n9), Some(at)) = (
