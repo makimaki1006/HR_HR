@@ -603,6 +603,7 @@ export function HoujinView() {
                     顧客の{deals.length}件のうち、この事業所の{siteDeals.length}件
                     {!query.get("houjin_site") && "（最新の契約がある事業所）"}
                   </p>
+                  <p>事業所は HubSpot の会社ごとにまとめています。同じ会社に事業所が複数あるときも 1 つにまとまります。</p>
                   <h3>契約の系列</h3>
                   {dealTable(siteDeals)}
                   <Figure
