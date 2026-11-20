@@ -4,6 +4,7 @@ import type { ApiResult } from '../../api/client';
 import type { CrmCatalogProperty } from '../../generated/CrmCatalogProperty';
 import type { CrmPropertyCatalogResponse } from '../../generated/CrmPropertyCatalogResponse';
 import { HUBSPOT_CARDS } from './hubspotCards';
+import fixtureExtra from './fixtureExtraDealProps.json';
 import { MOC_DEAL_PROPERTIES } from './mocProperties';
 import { FIXTURE_APPO_GROUPS } from './fixtureAppoFields';
 import { catalogIndex } from './propertyModel';
@@ -24,12 +25,14 @@ const moc = (name: string): CrmCatalogProperty => {
 /** 架空サンプルで日付として扱うカードの項目 (それ以外は文字) */
 const FIXTURE_DATE_PROPS = new Set(['risuto_kadennbi', 'risuto_saikadennbi', 'aposyutokubi', 'bpo_appo_date', 'recruit_media_first_observed_at', 'recruit_media_last_observed_at']);
 const FIXTURE_BASE_DEAL_PROPS = new Set(['dealname', 'hubspot_owner_id', 'bpo_13', 'bpo_14', 'bpo_20', 'bpo_10', 'bpo_32', 'bpo_21', 'bpo_22', 'bpo_50', 'bpo_3', 'bpo_4', 'amount']);
-/** HubSpot のカード (hubspotCards.ts) の項目を、架空の項目グループとして並べる (表示名はカードと同じ) */
+/** HubSpot のカード (hubspotCards.ts) の項目と、以前の既定にあった項目 (fixtureExtraDealProps.json) を、架空の項目グループとして並べる (表示名はカードと同じ) */
 function fixtureCardProps(): CrmCatalogProperty[] {
   const out: CrmCatalogProperty[] = [];
-  for (const c of HUBSPOT_CARDS) {
+  // アポ処理の項目 (FIXTURE_APPO_GROUPS) は型をそちらで決めているので、ここでは足さない (アポ獲得者 bpo_26 は担当者を選ぶ型)
+  const appo = new Set(FIXTURE_APPO_GROUPS.flatMap(g => g.properties.map(x => x.name)));
+  for (const c of [...HUBSPOT_CARDS, { items: fixtureExtra.items }]) {
     for (const it of c.items) {
-      if (FIXTURE_BASE_DEAL_PROPS.has(it.name) || out.some(x => x.name === it.name)) continue;
+      if (FIXTURE_BASE_DEAL_PROPS.has(it.name) || appo.has(it.name) || out.some(x => x.name === it.name)) continue;
       const typed = FIXTURE_TYPED_PROPS[it.name];
       out.push(typed ? { ...typed, label: it.label } : it.name === 'scheduled_business_meeting_date' ? p(it.name, it.label, 'datetime', 'date')
         : FIXTURE_DATE_PROPS.has(it.name) ? p(it.name, it.label, 'date', 'date') : p(it.name, it.label, 'string', 'text'));

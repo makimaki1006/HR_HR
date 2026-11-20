@@ -34,7 +34,7 @@ describe('job copy layout', () => {
     // タイムラインはページのライフラインと重なるのでタブから外した。URL で開くと、見出しと戻る操作だけを出す。
     const drawer = openOtherAnalysis('タイムライン');
     const primary = within(drawer).getByRole('tablist', { name: '求人管理の機能' });
-    expect(within(primary).getAllByRole('tab').map(tab => tab.textContent)).toEqual(['本文と画像', '変更の前後', 'ほかの求人と比べる', '応募者', '応募理由', 'メモ']);
+    expect(within(primary).getAllByRole('tab').map(tab => tab.textContent)).toEqual(['本文と画像', 'ほかの求人と比べる', '応募者', '応募理由', 'メモ']);
     expect(within(primary).queryByRole('tab', { name: 'タイムライン' })).toBeNull();
     expect(within(drawer).getAllByRole('heading', { name: 'タイムライン' }).length).toBeGreaterThan(0);
     expect(within(drawer).getByRole('region', { name: 'タイムライン' })).toBeTruthy();

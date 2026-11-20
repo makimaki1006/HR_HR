@@ -171,4 +171,9 @@ EXPOSE 9216
 
 ENV RUST_LOG=info
 
+# 解放したメモリが glibc のスレッドごとのキャッシュ (tcache) と arena に残って OS に返らないのを減らす。
+# 手元の Linux Docker の比較 (2026-11-05) で、重い読みの後の RSS が 1.95GB→0.16GB、軽い読み 250→65MB、速さはほぼ同じ。
+# 戻すときは Render の環境変数で GLIBC_TUNABLES を空にする (実行時は Render の値が優先される)。2026-11-20 ユーザー了承。
+ENV GLIBC_TUNABLES=glibc.malloc.tcache_count=0
+
 CMD ["./rust_dashboard"]

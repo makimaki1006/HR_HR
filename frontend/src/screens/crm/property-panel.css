@@ -35,7 +35,7 @@
 .pp-actions .pp-apply { background: var(--cq-accent); border-color: var(--cq-accent); color: #fff !important; font-weight: 700; }
 .pp-actions .pp-reset { margin-left: auto; }
 
-/* HubSpot のカード (リスト情報・BPOアポ情報)。見出しのボタンで開け閉め */
+/* HubSpot の「bpo用」のカード。見出しのボタンで開け閉め */
 .pp-section h4.pp-card-head { padding: 0; }
 .pp-card-toggle { width: 100%; text-align: left; background: transparent; border: 0; padding: 4px 0; font-size: 12px; font-weight: 700; color: var(--cq-text); cursor: pointer; }
 .pp-card-toggle small { margin-left: 4px; font-weight: 400; color: var(--cq-faint); }

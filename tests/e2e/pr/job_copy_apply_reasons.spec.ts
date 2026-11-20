@@ -3,7 +3,7 @@ import { login } from './helpers/login';
 import { applyReasonFixture } from '../../../frontend/src/screens/job-copy/applyReason.testFixtures';
 import { riskFixture, scopeFixture } from '../../../frontend/src/screens/job-copy/consultantRisk.testFixtures';
 
-test('応募理由の画面: メニューから開き、期間・地域・表の切り替えで値が変わる', async ({ page }) => {
+test('応募理由の画面: 求人のメニューから開き、期間・地域・表の切り替えで値が変わる', async ({ page }) => {
   const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
   await page.route('**/api/job-copy/consultant-scope?*', route => route.fulfill({ json: scopeFixture }));
   await page.route('**/api/job-copy/consultant-risk?*', route => route.fulfill({ json: riskFixture }));
@@ -11,9 +11,11 @@ test('応募理由の画面: メニューから開き、期間・地域・表の
   await login(page);
   await page.goto('/app/job-copy?view=risk&owner=11&owner_field=consultant');
   const menu = page.getByRole('navigation', { name: '案件管理のメニュー' });
-  await menu.getByRole('button', { name: '応募理由', exact: true }).click();
+  // 応募理由は「求人」のメニューの中の切り替えにある
+  await menu.getByRole('button', { name: '求人', exact: true }).click();
+  await page.getByRole('group', { name: '求人のメニュー' }).getByRole('button', { name: '応募理由（全社の集計）' }).click();
   await expect(page).toHaveURL(/view=reasons/);
-  await expect(menu.getByRole('button', { name: '応募理由', exact: true })).toHaveAttribute('aria-current', 'page');
+  await expect(menu.getByRole('button', { name: '求人', exact: true })).toHaveAttribute('aria-current', 'page');
   await expect(menu.getByRole('button', { name: '担当者で絞る' })).toHaveCount(0);
   await expect(page.getByRole('heading', { level: 2, name: '応募理由の地域・職種別' })).toBeVisible();
   await expect(page.getByText('応募動機を聞けた応募 6 件／全応募 13,454 件（0.0%）')).toBeVisible();

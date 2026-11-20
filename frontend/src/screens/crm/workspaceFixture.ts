@@ -21,7 +21,7 @@ export function fixtureDetail(dealId: string, props?: SelectedProps): WorkspaceR
     dealname: item.deal_name, hubspot_owner_id: item.owner_id, bpo_13: item.next_call_date, bpo_14: item.next_call_time,
     bpo_20: item.last_call_date, bpo_10: item.stop.unreachable_check, bpo_3: null, bpo_4: null, bpo_32: jobSearch, amount: '120000',
     bpo_50: '受付の方は親切。採用担当は午後在席(架空)',
-    // HubSpot のカード「リスト情報」「BPOアポ情報」の項目 (架空。無いものは未入力)
+    // プロパティ欄のカードの項目 (架空。無いものは未入力)
     risuto_kadennbi: item.last_call_date, risuto_saikadennbi: item.next_call_date,
     // 再架電時間は HubSpot では数値 (時)。激アツメモは 1 行のテキスト
     saikadenn_zikan: item.next_call_time ? String(Number(item.next_call_time.slice(0, 2))) : null,

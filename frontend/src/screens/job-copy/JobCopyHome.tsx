@@ -17,6 +17,7 @@ import { CountLine, OwnerFilter, OwnerScopeBanner, OwnerTodo, PendingOwnerFilter
 import { recheckSelfOwner, useSelfOwner } from './selfOwner';
 import { CardOpenCue, CloseListButton } from './Pressable';
 import { SortArrow } from './SharedTable';
+import { UnlinkedMtgLine } from './UnlinkedMtg';
 
 const failure = (error: Error) => error instanceof AuthRequiredError ? 'Googleでログインしてから再取得してください。' : isHubSpotBusy(error) ? HUBSPOT_BUSY_MESSAGE : '案件管理のホームを読み込めませんでした。時間を置いて再取得してください。';
 // 色: 橙＝注意、灰＝0件。応募・課金のカードに急ぐもの（赤）は無い。
@@ -111,7 +112,7 @@ export function JobCopyHome({ onOpenCompany, onOpenListing, onOpenDeal, cache }:
     {data?.status === 'ready' && data.work?.status === 'preparing' && <section className="jh-todo"><h2>やること</h2><p role="status">担当者とやることを集計しています…</p></section>}
     {data?.status === 'ready' && data.work?.status === 'failed' && <p role="alert">担当者とやることの情報を読み込めませんでした。再読み込みしてください。</p>}
     {ready && <>
-      {work && <><OwnerFilter work={work} /><OwnerTodo work={work} onOpenCompany={onOpenCompany} onOpenDeal={onOpenDeal} onShowList={() => { setReload(value => value + 1); }} /></>}
+      {work && <><OwnerFilter work={work} /><OwnerTodo work={work} onOpenCompany={onOpenCompany} onOpenDeal={onOpenDeal} onShowList={() => { setReload(value => value + 1); }} /><UnlinkedMtgLine /></>}
       <section aria-labelledby="jh-look"><div className="jh-section-head"><h2 id="jh-look">気になる求人</h2><InfoTip className="jc-infotip-aside" iconFirst label="数え方を見る"><p>応募・課金のカードは掲載中の求人だけを数えています。応募・課金は媒体の週ごとの実績で、実績のない求人は増減に入りません。直近4週とその前の4週を比べ、{ready.rules.trend_min_diff}件以上、または{ready.rules.trend_min_percent}%以上の差を増減として数えます。応募がゼロのまま・ゼロになった求人は分けて表示します。</p><p>求人の一覧を読み込んだ時刻：{formatDateTimeJst(ready.index_built_at, '日時不明')}。媒体の実績はこの時刻ではなく、週ごとに届いた分までです。</p><ul>{cards.map(item => <li key={item.key}>{item.title}：{item.rule}</li>)}<li>直近7日に変更：{recentChangesRule}</li></ul><p>色の意味：橙は注意、灰は0件です。</p></InfoTip></div>
         <p className="jh-note">掲載中の求人の応募・課金を、媒体（Indeed・AirWork）の週ごとの実績で数えています。<strong>媒体の実績：{ready.home.media_weeks?.length ? ready.home.media_weeks.map(week => mediaWeekText(week, day => formatDateJst(day).slice(5))).join(' ／ ') : '未取得'}</strong>。増減は並べて見るためのもので、原因とは限りません。</p>
         <div className="jh-cards">{mainCards.map(item => <button type="button" key={item.key} className={`jh-card ${cardToneClass(item.count, cardTone[item.key])}`} aria-pressed={open === item.key} onClick={() => { setOpen(open === item.key ? null : item.key); }}>

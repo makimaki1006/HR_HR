@@ -961,8 +961,8 @@ fn select_due(
     due.into_iter().take(limit).cloned().collect()
 }
 
-// ヒアリングは 2026-10-19 の電話から。付け直しでは、その月の初めから読む。
-const REHEARING_SINCE: &str = "2026-10-01T00:00:00Z";
+// 付け直しの読み始めは、取り込みの窓 (`since`) と同じ。10/01 からの付け直しは 11/13〜11/19 の起動で毎回 0 件だったので、
+// 起動時に古い行まで読むのをやめた (2026-11-20 ユーザー了承)
 
 /// 判定済みでヒアリングが付き、ヒアリングの項目のどれにも通話日の印が無い行
 fn rehearing_needed(row: &ReviewRow, checks: &Checks) -> bool {
@@ -1011,8 +1011,7 @@ impl JudgedScan {
     }
 }
 
-/// 起動時に 1 回: 判定済みの行を `min(since, REHEARING_SINCE)` から `page` 行ずつ読む。
-/// `since` より古い行は、ヒアリングの付け直しだけに使う。
+/// 起動時に 1 回: 判定済みの行を `since` から `page` 行ずつ読む。
 /// 全部の行を 1 回で全部の欄のまま読むと、一時的にも持ち続けても数百 MB になる (`store::ROWS_PAGE`)
 pub fn scan_judged(
     t: &TursoDb,
@@ -1022,8 +1021,7 @@ pub fn scan_judged(
     page: usize,
 ) -> Result<JudgedScan, String> {
     let mut scan = JudgedScan::default();
-    let read_since = since.min(REHEARING_SINCE);
-    store::for_each_judged_page(t, read_since, page, |rows| {
+    store::for_each_judged_page(t, since, page, |rows| {
         scan.add_page(rows, checks, now, since)
     })?;
     Ok(scan)
@@ -3429,7 +3427,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
-    async fn startup_scan_separates_rehearing_and_limits_old_rows_to_rehearing() {
+    async fn startup_scan_separates_rehearing_and_reads_only_the_window() {
         let (audit, conn, _) = start_sqlite_audit_with_queries().await;
         let main = main_items("今の項目", "done");
         let heard = [main.clone(), hearing_items("done")].concat();
@@ -3464,13 +3462,14 @@ mod tests {
                     ts("2026-11-08T00:00:00Z"),
                     page,
                 )?;
-                assert_eq!(scan.read, 7);
+                // 窓 (11/01〜) より古い行は読まない
+                assert_eq!(scan.read, 3);
                 assert_eq!(
                     scan.rehearing
                         .iter()
                         .map(|c| c.id.as_str())
                         .collect::<Vec<_>>(),
-                    ["recent", "old_foreign", "old"]
+                    ["recent"]
                 );
                 // 期間内の付け直す行も、アポの記録との突き合わせに残る
                 let mut keys: Vec<&str> = scan.hearing.keys().map(String::as_str).collect();
@@ -3484,7 +3483,7 @@ mod tests {
                     ["foreign"]
                 );
             }
-            // 従来の読み始めが 10/01 より早ければ、その期間は狭めない。
+            // 窓が古ければ、その分を読む
             let scan = scan_judged(t, "2026-09-01T00:00:00Z", &loaded().checks, Utc::now(), 2)?;
             assert!(scan.rehearing.iter().any(|c| c.id == "before_floor"));
             Ok(())

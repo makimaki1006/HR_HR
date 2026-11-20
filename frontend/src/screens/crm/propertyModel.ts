@@ -34,7 +34,7 @@ export type SelectedProps = Record<CatalogObject, string[]>;
 export const MAX_SELECTED_PER_OBJECT = 100;
 
 /**
- * 既定の項目: HubSpot の取引レコードの左サイドバーのカード「リスト情報」「BPOアポ情報」の項目 (hubspotCards.ts、カードの並び)。
+ * 既定の項目: HubSpot の取引レコードページ「bpo用」のカードの項目 (hubspotCards.ts、カードの並び)。
  * 担当者・会社の項目は既定では出さない (「表示する項目を選ぶ」で足せる)
  */
 export const DEFAULT_SELECTED: SelectedProps = {
@@ -230,6 +230,8 @@ export function viewValue(prop: CrmCatalogProperty | undefined, raw: string | nu
     case 'date': return { kind: 'text', text: formatDate(v) ?? v };
     case 'datetime': return { kind: 'text', text: formatTimestamp(v) ?? formatDate(v) ?? v };
     case 'number': {
+      // レコード ID は番号なので桁区切りにしない
+      if (prop.name === 'hs_object_id') return { kind: 'text', text: v };
       const n = Number(v);
       return { kind: 'text', text: Number.isFinite(n) && /^-?\d+(\.\d+)?$/.test(v) ? n.toLocaleString('ja-JP') : v };
     }

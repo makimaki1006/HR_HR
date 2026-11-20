@@ -498,8 +498,8 @@ export function HoujinView() {
                           <td>{r.deals ?? "—"}</td>
                           <td>{r.sites ?? "—"}</td>
                           <td>{r.kigyouzentaininzuu ?? "—"}</td>
-                          <td>{yen(r.monthly_amount_max)}</td>
-                          <td>{yen(r.ltv)}</td>
+                          <td className="hj-nowrap">{yen(r.monthly_amount_max)}</td>
+                          <td className="hj-nowrap">{yen(r.ltv)}</td>
                           <td>{r.max_renewal_no ?? "—"}</td>
                           <td>{r.oubo_total ?? "—"}</td>
                           <td>{r.mensetu_total ?? "—"}</td>
