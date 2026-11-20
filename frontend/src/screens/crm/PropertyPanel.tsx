@@ -208,7 +208,7 @@ export function PropertyPicker({ catalog, selection, onApply, onCancel, roleLayo
     <div className="pp-actions">
       <button type="button" className="pp-apply" disabled={!changed} onClick={() => { onApply(draft); }}>この項目で表示する</button>
       <button type="button" onClick={onCancel}>やめる</button>
-      <button type="button" className="pp-reset" disabled={sameSelected(draft, DEFAULT_SELECTED)} title="HubSpot のカード「リスト情報」「BPOアポ情報」の項目に戻します(適用するまで表示は変わりません)"
+      <button type="button" className="pp-reset" disabled={sameSelected(draft, DEFAULT_SELECTED)} title="HubSpot の「bpo用」のカードの項目に戻します(適用するまで表示は変わりません)"
         onClick={() => { setDraft(DEFAULT_SELECTED); }}>既定に戻す</button>
     </div>
   </div>;

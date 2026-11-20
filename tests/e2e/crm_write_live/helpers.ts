@@ -77,7 +77,8 @@ export async function openPropertyPanel(page: Page) {
   await expect(header).toBeVisible();
   if (!(await panel.getByText('架電先電話番号').isVisible())) await header.click();
   await expect(panel.getByText('架電先電話番号')).toBeVisible();
-  return panel;
+  // 募集職種（現在）(bpo_24) は「BPO用｜架電記録」にもあり、編集ボタンが 2 つになるので、架電後情報のカードの中で探す
+  return panel.getByTestId('pp-card-after_call');
 }
 
 /** 項目の「編集」を押し、値を入れて「保存」まで押す (結果の確認は呼び出し側) */

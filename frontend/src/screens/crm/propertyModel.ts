@@ -230,6 +230,8 @@ export function viewValue(prop: CrmCatalogProperty | undefined, raw: string | nu
     case 'date': return { kind: 'text', text: formatDate(v) ?? v };
     case 'datetime': return { kind: 'text', text: formatTimestamp(v) ?? formatDate(v) ?? v };
     case 'number': {
+      // レコード ID は番号なので桁区切りにしない
+      if (prop.name === 'hs_object_id') return { kind: 'text', text: v };
       const n = Number(v);
       return { kind: 'text', text: Number.isFinite(n) && /^-?\d+(\.\d+)?$/.test(v) ? n.toLocaleString('ja-JP') : v };
     }

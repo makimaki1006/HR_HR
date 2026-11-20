@@ -127,10 +127,19 @@ describe('HubSpot bpo用 cards (hubspotCards.json, copied from the HubSpot deal 
       ['タスク設定', true, 7], ['検索用', true, 4], ['管理情報', false, 5], ['リスト情報', true, 12], ['架電後情報', false, 22],
       ['BPO用｜メモ', true, 1], ['BPO用｜架電記録', true, 5], ['BPO用｜タスク設定', true, 4], ['BPO用｜リスト情報 🚨編集不可', false, 8],
     ]);
-    expect(HUBSPOT_CARDS[0]?.items.map(i => i.name)).toEqual(["risuto_kadennbi", "bpo_13", "bpo_14", "bpo_16", "bpo_17", "closed_lost_reason", "closed_lost_reason_detail"]);
-    expect(HUBSPOT_CARDS[1]?.items.map(i => i.name)).toEqual(["website_url", "bpo_32", "bpo_39", "ai__"]);
+    expect(HUBSPOT_CARDS.map(c => c.items.map(i => i.name))).toEqual([
+      ['risuto_kadennbi', 'bpo_13', 'bpo_14', 'bpo_16', 'bpo_17', 'closed_lost_reason', 'closed_lost_reason_detail'],
+      ['website_url', 'bpo_32', 'bpo_39', 'ai__'],
+      ['hs_object_id', 'bpo_appo_date', 'bpo_transactio_id', 'hubspot_owner_id', 'bpo_hsurl'],
+      ['hs_object_id', 'hubspot_owner_id', 'name_sub', 'dennwa', 'rikulogi_syuugyoubasyo', 'bpo_20252', 'risuto_bikou', 'bpo_13', 'bpo_3', 'bpo_4', 'jimumenbahaifu', 'hs_lastmodifieddate'],
+      ['bpo_23', 'bpo__', 'bpo_33', 'bpo_24', 'risuto_ninnzuu', 'bpo_34', 'recruitment_period', 'recruitment_method', 'bpo_25', 'bpo_35', 'remarks_after_calling', 'bpo_21', 'bpo_22', 'risuto_tanntouyakusyoku', 'charge_impression', 'bpo_29', 'risuto_adoresu', 'bpo_26', 'nkadainofukasa', 'tjikanjiku', 'ckyougoujoukyou', 'ahkessaifuro'],
+      ['bpo_16'],
+      ['bpo_51', 'nitteigiri', 'bpo_53', 'recruitment_method', 'bpo_24'],
+      ['bpo_13', 'bpo_14', 'bpo_17', 'mail_'],
+      ['syokusyu_risuto', 'risuto_tanntouyakusyoku', 'rikulogi_jigyounaiyou', 'rikulogi_syuugyoubasyo', 'syugyoubasyo', 'risuto_ninnzuu', 'bosyuriyu', 'rikulogi_1'],
+    ]);
     // 接触・日程切りは中央の「架電記録」
-    expect(HUBSPOT_CARDS[6]?.items.map(i => i.name)).toEqual(["bpo_51", "nitteigiri", "bpo_53", "recruitment_method", "bpo_24"]);
+    expect(HUBSPOT_CARDS[6]?.items.slice(0, 2).map(i => i.name)).toEqual(['bpo_51', 'nitteigiri']);
     // FS 側の項目でなく BPO 用の項目 (商談方法（bpo用）・担当者名（漢字）など)
     expect(HUBSPOT_CARDS[4]?.items.map(i => i.name)).toEqual(expect.arrayContaining(['bpo_33', 'bpo_35', 'bpo_21', 'bpo_22', 'bpo_26']));
     expect(cardPropertyNames()).not.toEqual(expect.arrayContaining(['bpo_20251', 'bpo_20253', 'tanntousya']));

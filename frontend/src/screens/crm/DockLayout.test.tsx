@@ -402,20 +402,21 @@ describe('selected properties are read in the same detail request', () => {
     expect([taskToggle.getAttribute('aria-expanded'), adminToggle.getAttribute('aria-expanded')]).toEqual(['true', 'false']);
     expect([...task.querySelectorAll('dt')].map(d => d.textContent)).toEqual(['架電日', '次回架電日', '次回架電時間', 'タスクメモ', 'タスク優先度', '失注の理由', '失注の理由（詳細）']);
     const value = (label: string) => [...task.querySelectorAll('dt')].find(d => d.textContent === label)?.nextElementSibling?.textContent;
-    expect(value('架電日')).toMatch(/^\d{4}\/\d{2}\/\d{2}$|^未入力$/u);
+    expect(value('架電日')).toBe('2026/09/25');
     expect(value('失注の理由')).toBe('未入力');
     // 接触・日程切りは中央の「架電記録」で、開いている
     const log = within(panel).getByRole('region', { name: 'BPO用｜架電記録' });
     expect([...log.querySelectorAll('dt')].map(d => d.textContent).slice(0, 2)).toEqual(['接触', '日程切り']);
     // URL はリンク (検索用の URL_求人検索)
     const search = within(panel).getByRole('region', { name: '検索用' });
-    expect(within(search).getAllByRole('link').length).toBeGreaterThan(0);
+    expect(within(search).getAllByRole('link').map(a => a.getAttribute('href'))).toEqual([expect.stringMatching(/^https:\/\/www\.google\.com\/search\?q=/u)]);
     // 管理情報は閉じている。開くと HubSpot の並びで出る
     expect(admin.querySelectorAll('dt')).toHaveLength(0);
     fireEvent.click(adminToggle);
-    expect([...admin.querySelectorAll('dt')].map(d => d.textContent).slice(0, 2)).toEqual(['レコードID', 'BPOアポ取得日']);
-    // 内部名は画面に出さない
-    expect(panel.textContent).not.toMatch(/risuto_|bpo_|nitteigiri/u);
+    expect([...admin.querySelectorAll('dt')].map(d => d.textContent)).toEqual(['レコードID', 'BPOアポ取得日', 'BPO_取引ID', '案件担当者', 'BPO_HSURL']);
+    expect(within(admin).getByRole('link', { name: 'https://app.hubspot.com/contacts/0/record/0-3/1' })).toBeTruthy();
+    // 内部名は画面に出さない (カードの全項目の内部名)
+    for (const n of HUBSPOT_CARDS.flatMap(c => c.items.map(i => i.name))) expect(panel.textContent).not.toContain(n);
     // カードに無い項目は無いので「そのほかの項目」は出さない
     expect(within(panel).queryByRole('region', { name: '案件(そのほかの項目)' })).toBeNull();
   });
