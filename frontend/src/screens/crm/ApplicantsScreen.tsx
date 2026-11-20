@@ -22,6 +22,7 @@ import { useZoomPhone } from './useZoomPhone';
 import type { FixedLink } from './centerLinks';
 import { toE164Jp } from './smartEmbed';
 import { ApplicantEditor } from './ApplicantEditor';
+import { ApplicantCallHistory } from './ApplicantCallHistory';
 import { ApplicantReminderBand } from './ApplicantReminders';
 import { presenceText, useApplicantPresence, viewersOf } from './ApplicantPresence';
 import './crm.css';
@@ -248,6 +249,7 @@ export function ApplicantsScreen({ fixture = new URLSearchParams(window.location
         </div></article>
         {detailError && <p role="alert">{detailError}<button onClick={() => { setRefresh(v => v + 1); }}>再試行</button></p>}
         {!detail && !detailError && <p role="status">詳細を読み込み中…</p>}
+        {detail?.phone && <ApplicantCallHistory key={`calls-${detail.row.id}`} applicantId={detail.row.id} fixture={fixture} />}
         {detail && <ApplicantRules key={detail.row.id} section={detail.sections[1]} />}
       </>}
     </main>,
