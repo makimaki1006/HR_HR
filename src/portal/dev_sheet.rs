@@ -10,10 +10,34 @@ pub struct DevSheet;
 pub const DEV_SPREADSHEET: &str = "dev-spreadsheet-000000000000";
 pub const TAB_NOW: &str = "応募者情報管理";
 pub const TAB_PAST: &str = "2025年度";
+/// 応募の通知の送り先のタブ (架空のアドレス。形がばらばらでも拾えることの確認用)
+pub const TAB_NOTIFY: &str = "通知の送り先";
 const TAB_NOW_ID: i64 = 0;
 const TAB_PAST_ID: i64 = 2;
-/// Drive の最終更新時刻 (架空。変わらない)
+const TAB_NOTIFY_ID: i64 = 3;
+/// Drive の最終更新時刻 (架空)。起動して少したつと、今年のタブに架空の応募者が 1 人増えて時刻が変わる
+/// (応募の通知の確認用)
 const MODIFIED: &str = "2026-10-26T00:00:00.000Z";
+const MODIFIED_AFTER: &str = "2026-10-26T00:05:00.000Z";
+/// 架空の応募者が増えるまで
+const ARRIVE_AFTER: std::time::Duration = std::time::Duration::from_secs(45);
+
+static STARTED: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+
+fn arrived() -> bool {
+    STARTED.get_or_init(std::time::Instant::now).elapsed() >= ARRIVE_AFTER
+}
+
+fn notify_tab() -> Vec<Vec<String>> {
+    vec![
+        row(&["応募の通知の送り先"]),
+        row(&["部署", "担当", "メールアドレス"]),
+        row(&["採用", "採用の担当", "saiyo@example.com"]),
+        row(&["店舗", "店長", "tenpo@example.com, tenpo-sub@example.com"]),
+        row(&["", "", "SAIYO@example.com（同じ宛先）"]),
+        row(&["メモ", "", "古い宛先 old@ は使わない"]),
+    ]
+}
 
 const HEADERS: [&str; 12] = [
     "応募発生日",
@@ -308,6 +332,12 @@ pub fn dev_registrations(
             disabled: false,
             created_at: now,
             updated_at: now,
+            notify_tab: if id == "dev-sheet-now" {
+                TAB_NOTIFY.into()
+            } else {
+                String::new()
+            },
+            notify_tab_id: (id == "dev-sheet-now").then_some(TAB_NOTIFY_ID),
         };
         // (見出し, 画面での名前, 見せる, 一覧に出す, 複数行, 種類, まとまり)
         let cols: [(&str, &str, bool, bool, bool, ColumnKind, ColumnGroup); 12] = [
@@ -459,6 +489,10 @@ impl SheetsApi for DevSheet {
                     title: TAB_PAST.into(),
                 },
                 TabInfo {
+                    sheet_id: TAB_NOTIFY_ID,
+                    title: TAB_NOTIFY.into(),
+                },
+                TabInfo {
                     sheet_id: 1_234_567,
                     title: "集計（社内用）".into(),
                 },
@@ -478,7 +512,23 @@ impl SheetsApi for DevSheet {
                 .iter()
                 .map(|r| match tab_of(r).as_str() {
                     TAB_PAST => grid(&PAST_PEOPLE, 101),
-                    TAB_NOW => grid(&NOW_PEOPLE, 1),
+                    TAB_NOW => {
+                        let mut g = grid(&NOW_PEOPLE, 1);
+                        if arrived() {
+                            g.push(row(&[
+                                "2026/10/26",
+                                "indeed",
+                                "新規 応募者",
+                                "シンキ オウボシャ",
+                                "090-0000-0099",
+                                "sample99@example.com",
+                                "ドライバー",
+                                "未連絡",
+                            ]));
+                        }
+                        g
+                    }
+                    TAB_NOTIFY => notify_tab(),
                     _ => vec![row(&["合計"])],
                 })
                 .collect())
@@ -500,6 +550,6 @@ impl SheetsApi for DevSheet {
         Box::pin(async { Ok(()) })
     }
     fn modified_time<'a>(&'a self, _s: &'a str) -> ApiFuture<'a, String> {
-        Box::pin(async { Ok(MODIFIED.to_string()) })
+        Box::pin(async { Ok(if arrived() { MODIFIED_AFTER } else { MODIFIED }.to_string()) })
     }
 }

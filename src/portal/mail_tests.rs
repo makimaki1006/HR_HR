@@ -355,6 +355,7 @@ async fn 許可が無いとコードを送らないが_ログイン済みと覚�
         mailer: Some(m as Arc<dyn Mailer>),
         reader: None,
         store_spreadsheet: None,
+        notify: None,
     };
     let app = router_parts(parts, CrmAccess::from_list(""), None).with_state(test_state());
     let login = json!({"email": "hanako@customer.example", "password": PW});
@@ -804,6 +805,7 @@ async fn admin_app(
         mailer: Some(m as Arc<dyn Mailer>),
         reader: None,
         store_spreadsheet: None,
+        notify: None,
     };
     let app = Router::new()
         .merge(router_parts(parts, access, None))

@@ -997,6 +997,15 @@ fn ログインは最後のログインの日時だけを変えて管理者の�
             self.inner.update_account(a).unwrap();
             self.inner.insert_session(s)
         }
+        fn notified(&self, id: &str) -> Vec<store::NotifiedRow> {
+            self.inner.notified(id)
+        }
+        fn put_notified(&self, rows: Vec<store::NotifiedRow>) {
+            self.inner.put_notified(rows)
+        }
+        fn purge_notified(&self, before: DateTime<Utc>) -> usize {
+            self.inner.purge_notified(before)
+        }
         fn session(&self, h: &str) -> Option<store::Session> {
             self.inner.session(h)
         }
