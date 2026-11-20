@@ -214,11 +214,24 @@ async fn 自分の顧客のシートだけが一覧に出て_見せる項目だ�
     assert_eq!(v["columns"][3]["kind"], "phone");
     // 記入例の行と、見せる項目がどれも空の行 (4 行目) は出さない。行番号はシートの行番号
     assert_eq!(
-        v["applicants"],
+        v["applicants"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|a| {
+                assert_eq!(a["revision"].as_str().unwrap().len(), 128);
+                let mut a = a.clone();
+                a.as_object_mut().unwrap().remove("revision");
+                a
+            })
+            .collect::<Vec<_>>(),
         serde_json::json!([
             { "row": 3, "cells": [APPLICANT, "面接調整中", "2026/10/20", "090-0000-0001"] },
             { "row": 5, "cells": ["架空 次郎", "", "2026/10/21", "090-0000-0002"] },
         ])
+        .as_array()
+        .unwrap()
+        .clone()
     );
     assert_eq!(v["stale"], false);
     let text = v.to_string();
@@ -583,3 +596,6 @@ async fn 止めたシートの登録は404() {
     let (_, v) = get(&h, &h.a, "/api/portal/sheets").await;
     assert_eq!(v["sheets"], serde_json::json!([]));
 }
+
+#[path = "edit_tests.rs"]
+mod edit_tests;

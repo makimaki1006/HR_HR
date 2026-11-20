@@ -230,7 +230,7 @@ function RowDetail({ sheet, rowNumber, fallback, order, onClose, onNavigate }: {
   const statusValue = statusHeader ? (values[statusHeader] ?? '') : '';
   const titleCol = layout.title;
   const isContactOnly = (c: ColumnConfig) => (c === phoneCol || c === mailCol) && !c.writable;
-  const refDay = rowRefDay(sheet, live);
+  const refDay = rowRefDay(sheet, live, rows);
   const dateStyles = useMemo(() => {
     const m: Record<string, DateStyle> = {};
     for (const c of sheet.columns) {
@@ -246,7 +246,7 @@ function RowDetail({ sheet, rowNumber, fallback, order, onClose, onNavigate }: {
   const interviewDay = interviewRaw !== '' ? parseLooseDay(interviewRaw, refDay) : null;
   const interviewMin = interviewRaw !== '' ? parseTimeOfDay(interviewTimeRaw ?? interviewRaw.replace(/^(\d{4}\s*[年/.-]\s*)?\d{1,2}\s*[月/.-]\s*\d{1,2}\s*日?/, '')) : null;
   const interviewPast = interviewDay !== null && interviewDay < TODAY_NUM;
-  const interviewMs = interviewAt(sheet, live);
+  const interviewMs = interviewAt(sheet, live, rows);
   const stageNow = statusHeader ? stageOf(sheet, statusValue) : undefined;
   /** カレンダーに足せるのは、これからの面接で、辞退・不採用になっていないときだけ。 */
   const canAddCalendar = interviewMs !== null && interviewMs > Date.parse(NOW) && stageNow !== 'rejected' && stageNow !== 'declined';

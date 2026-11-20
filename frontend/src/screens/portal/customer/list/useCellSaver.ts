@@ -1,7 +1,6 @@
 // 1 マスの保存と、その状態（保存中・保存済み・先に変更されていた・保存できなかった）、元に戻す。
-// 表とスマホのカードで同じものを使う。書き込みは必ず actions.saveCell を通す（記録が残る）。
+// 表とスマホのカードで同じものを使う。書き込みは呼び出し側から渡す保存関数を通す。試作のストアは読み込まない。
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { actions } from '../../data';
 import type { CellSaveResult } from '../../types';
 import { omit } from './model';
 
@@ -53,7 +52,9 @@ export interface CellSaver {
 
 let toastSeq = 0;
 
-export function useCellSaver(sheetId: string): CellSaver {
+export type SaveCell = (sheetId: string, row: number, column: string, base: string, next: string) => Promise<CellSaveResult>;
+
+export function useCellSaver(sheetId: string, saveCell: SaveCell): CellSaver {
   const [cells, setCells] = useState<Record<string, CellState>>({});
   const [undoStack, setUndoStack] = useState<UndoEntry[]>([]);
   const [toast, setToast] = useState<Toast | null>(null);
@@ -83,7 +84,7 @@ export function useCellSaver(sheetId: string): CellSaver {
   const run = useCallback(async (rowNumber: number, column: string, base: string, next: string, label: string, mode: 'edit' | 'undo', message?: string) => {
     const key = cellKey(rowNumber, column);
     setCell(key, { kind: 'saving', value: next });
-    const r: CellSaveResult = await actions.saveCell(sheetId, rowNumber, column, base, next);
+    const r: CellSaveResult = await saveCell(sheetId, rowNumber, column, base, next);
     if (r.kind === 'saved') {
       setCell(key, { kind: 'saved' });
       setTimeout(() => { setCells((prev) => (prev[key]?.kind === 'saved' ? omit(prev, key) : prev)); }, 1800);
@@ -100,7 +101,7 @@ export function useCellSaver(sheetId: string): CellSaver {
       setCell(key, { kind: 'failed', base, value: next });
       setBubble(key);
     }
-  }, [sheetId, setCell, notify]);
+  }, [sheetId, saveCell, setCell, notify]);
 
   const save = useCallback((rowNumber: number, column: string, base: string, next: string, label: string, message?: string) => {
     if (base === next) return;

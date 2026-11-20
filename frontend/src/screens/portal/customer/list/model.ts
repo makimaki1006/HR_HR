@@ -1,8 +1,7 @@
 // 一覧の並べ替え・絞り込み・書き出し。表とスマホのカードで同じ決まりを使う。
 import { TODAY_NUM, dateSearchText, dayNum, formatDateTimeJa, formatDayJa, kindOf, labelOf, parseLooseDay, parseTimeOfDay, sortByDate } from '../../columns';
-import { getData, stageOf } from '../../data';
 import type { ApplicantRow, ColumnConfig, FunnelStage, ListFilter, ListSort, SheetConfig } from '../../types';
-import { NOW } from '../../fixtures';
+import { portalNow, portalYear } from '../../clock';
 
 export type ColumnFilter = ListFilter;
 export type SortSpec = ListSort;
@@ -37,18 +36,15 @@ export function matchesFilters(row: ApplicantRow, filters: Record<string, Column
 
 // ---- シートの基準の年 ----
 
-const baseCache = new WeakMap<ApplicantRow[], number | null>();
-const THIS_YEAR = new Date(TODAY_NUM * 86400000).getUTCFullYear();
+const baseCache = new WeakMap<ApplicantRow[], { year: number; value: number | null }>();
 
 /**
  * シートの基準の年の 1 月 1 日の通し番号。年付きの日付の値（「2025/10/19」「2025年10月19日」）で一番多い年。
  * 今年なら null（年の無い値は今まで通り今年として読む）。過去の年度のシートで「10月19日」を今年と取り違えないために使う。
  */
-export function sheetBaseRef(sheet: Pick<SheetConfig, 'id' | 'columns'>): number | null {
-  const rows = getData().rows[sheet.id];
-  if (!rows) return null;
+export function sheetBaseRef(sheet: Pick<SheetConfig, 'id' | 'columns'>, rows: ApplicantRow[] = []): number | null {
   const hit = baseCache.get(rows);
-  if (hit !== undefined) return hit;
+  if (hit?.year === portalYear()) return hit.value;
   const count = new Map<number, number>();
   const dateCols = sheet.columns.filter((c) => { const k = kindOf(c); return k === 'date' || k === 'datetime'; });
   for (const r of rows) {
@@ -60,15 +56,15 @@ export function sheetBaseRef(sheet: Pick<SheetConfig, 'id' | 'columns'>): number
   let best: number | null = null;
   let bestN = 0;
   for (const [y, n] of count) if (n > bestN) { best = y; bestN = n; }
-  const out = best === null || best === THIS_YEAR ? null : dayNum(best, 1, 1);
-  baseCache.set(rows, out);
+  const out = best === null || best === portalYear() ? null : dayNum(best, 1, 1);
+  baseCache.set(rows, { year: portalYear(), value: out });
   return out;
 }
 
 /** 行の応募日の通し番号（年の無い値の年を当てる基準）。応募日の列が無い・読めなければ null。 */
-export function rowRefDay(sheet: Pick<SheetConfig, 'id' | 'columns' | 'sortColumn'>, row: ApplicantRow): number | null {
+export function rowRefDay(sheet: Pick<SheetConfig, 'id' | 'columns' | 'sortColumn'>, row: ApplicantRow, rows: ApplicantRow[] = [row]): number | null {
   if (!sheet.sortColumn) return null;
-  return parseLooseDay(row.values[sheet.sortColumn], sheetBaseRef(sheet)) ?? sheetBaseRef(sheet);
+  return parseLooseDay(row.values[sheet.sortColumn], sheetBaseRef(sheet, rows)) ?? sheetBaseRef(sheet, rows);
 }
 
 const numeric = (v: string): number | null => (/^\d+(\.\d+)?$/.test(v) ? Number(v) : null);
@@ -90,9 +86,9 @@ export function dayOffset(v: string, ref?: number | null): number | null {
 }
 
 /** 行の面接の日時（ミリ秒）。面接の列と、別の列の時刻、応募日からの年の補いを使う。 */
-export function interviewAt(sheet: Pick<SheetConfig, 'id' | 'columns' | 'interviewColumn' | 'interviewTimeColumn' | 'sortColumn'>, row: ApplicantRow): number | null {
+export function interviewAt(sheet: Pick<SheetConfig, 'id' | 'columns' | 'interviewColumn' | 'interviewTimeColumn' | 'sortColumn'>, row: ApplicantRow, rows: ApplicantRow[] = [row]): number | null {
   if (!sheet.interviewColumn) return null;
-  const ref = rowRefDay(sheet, row);
+  const ref = rowRefDay(sheet, row, rows);
   return parseDateTime(row.values[sheet.interviewColumn] ?? '', sheet.interviewTimeColumn ? (row.values[sheet.interviewTimeColumn] ?? '') : undefined, ref);
 }
 
@@ -103,7 +99,7 @@ export function sortRows(rows: ApplicantRow[], sort: SortSpec | null, fallbackHe
     return sortByDate(rows, fallbackHeader).sort((a, b) => rank(a) - rank(b));
   }
   if (sort.mode === 'near') {
-    const now = Date.parse(NOW);
+    const now = portalNow();
     return [...rows].sort((a, b) => {
       const at = (r: ApplicantRow): number | null => parseDateTime(r.values[sort.column] ?? '', timeHeader ? (r.values[timeHeader] ?? '') : undefined, fallbackHeader ? parseLooseDay(r.values[fallbackHeader]) : null);
       const ta = at(a);
@@ -155,7 +151,7 @@ export function stageDot(stage: FunnelStage | undefined): string {
 }
 
 export function statusDot(sheet: SheetConfig, value: string): string {
-  return stageDot(stageOf(sheet, value));
+  return stageDot(sheet.stageMap?.[value]);
 }
 
 const csvCell = (v: string): string => (/[",\n\r]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);

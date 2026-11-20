@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import type { PortalColumn } from '../../../../generated/PortalColumn';
+import type { EditableColumn } from './editing';
 import { isGone, listLayout, mailHref, matches, newestFirst, readUrl, telHref, urlFor } from './model';
 
-const col = (label: string, kind: string, in_list: boolean, group = 'summary'): PortalColumn => ({ label, kind, group, in_list, multiline: false });
+const col = (label: string, kind: string, in_list: boolean, group = 'summary'): EditableColumn => ({ id: label, label, kind, group, in_list, multiline: false, writable: false, options: null });
 
 describe('listLayout', () => {
   it('一覧に出す項目から名前・状況・2 行目を決める', () => {

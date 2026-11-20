@@ -3,9 +3,13 @@
 // 同じオリジンの /api/portal-test/* から読み書きする（既定で ON、?live=0 で試作のサンプルだけ）。
 // portal.css だけを読み、社内画面の app.css は読まない。
 import { StrictMode } from 'react';
+import { setPortalPreviewClock } from '../screens/portal/clock';
+import { NOW } from '../screens/portal/now';
 import { createRoot } from 'react-dom/client';
 import { PortalPreview } from '../screens/portal/PortalPreview';
 import '../screens/portal/portal.css';
+
+setPortalPreviewClock(NOW);
 
 const root = document.getElementById('app-root');
 if (root) createRoot(root).render(<StrictMode><PortalPreview /></StrictMode>);

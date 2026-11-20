@@ -1,5 +1,7 @@
 // 列の設定から、一覧と詳細の見せ方を決める。顧客の画面と、社内の「列の設定」のプレビューが同じ決まりを使う。
-import { NOW } from './fixtures';
+import { portalYear } from './clock';
+import { TODAY_NUM } from './clock';
+export { TODAY_NUM } from './clock';
 import type { ApplicantRow, ColumnConfig, ColumnGroup, ColumnKind, SheetConfig } from './types';
 
 /** カードの副題に出す値の数（日付の列を含む）。 */
@@ -77,9 +79,7 @@ export function searchColumns(src: LayoutSource): ColumnConfig[] {
 
 export const dayNum = (y: number, m: number, d: number): number => Math.floor(Date.UTC(y, m - 1, d) / 86400000);
 
-const NOW_YEAR = Number(NOW.slice(0, 4));
-/** 試作の「今日」の通し番号。 */
-export const TODAY_NUM = dayNum(NOW_YEAR, Number(NOW.slice(5, 7)), Number(NOW.slice(8, 10)));
+
 
 /** 「記載なし」「なし」「－」などは空と同じ扱い。 */
 export function isBlankValue(v: string | undefined): boolean {
@@ -107,7 +107,7 @@ export function parseLooseDay(v: string | undefined, ref?: number | null): numbe
   if (!short) return null;
   const m = Number(short[1]);
   const d = Number(short[2]);
-  if (ref === undefined || ref === null) return validDay(NOW_YEAR, m, d);
+  if (ref === undefined || ref === null) return validDay(portalYear(), m, d);
   const refYear = new Date(ref * 86400000).getUTCFullYear();
   const a = validDay(refYear, m, d);
   if (a === null) return null;
@@ -157,7 +157,7 @@ export function dayLabel(n: number): string {
   const y = d.getUTCFullYear();
   const md = `${String(d.getUTCMonth() + 1)}/${String(d.getUTCDate())}`;
   const w = WEEKDAY[d.getUTCDay()] ?? '';
-  return `${y === NOW_YEAR ? md : `${String(y)}/${md}`}（${w}）`;
+  return `${y === portalYear() ? md : `${String(y)}/${md}`}（${w}）`;
 }
 
 /** 0 時からの分を「11:00」にする。 */
@@ -220,6 +220,6 @@ export function writeDate(isoDate: string, style: DateStyle): string {
   const [, y = '', mo = '', d = ''] = m;
   if (style === 'kanji') return `${y}年${String(Number(mo))}月${String(Number(d))}日`;
   // 年の無い書き方は、今年でない日だけ年を付ける（読み直したときに別の年にならないように）。
-  if (style === 'md') return `${Number(y) === NOW_YEAR ? '' : `${y}年`}${String(Number(mo))}月${String(Number(d))}日`;
+  if (style === 'md') return `${Number(y) === portalYear() ? '' : `${y}年`}${String(Number(mo))}月${String(Number(d))}日`;
   return `${y}/${mo}/${d}`;
 }

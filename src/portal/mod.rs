@@ -12,6 +12,7 @@ pub mod admin;
 pub mod auth;
 #[cfg(debug_assertions)]
 mod dev_sheet;
+pub mod edit;
 pub mod live;
 pub mod mail;
 pub mod mail_grant;
@@ -86,6 +87,7 @@ struct Ctx {
     /// 顧客のシートの読み取りの共有 (reader があるときだけ)
     live: Option<Arc<live::LiveSheets>>,
     views: view::ViewLog,
+    edits: edit::EditState,
     /// 確認コードの送信の回数の上限 (アカウントごと・全体)
     limits: mail::SendLimits,
     access: CrmAccess,
@@ -275,7 +277,7 @@ fn dev_parts(reader: Option<Arc<dyn SheetsApi>>) -> Parts {
                 let _ = store::PortalStore::insert_sheet(store.as_ref(), reg);
                 store::PortalStore::replace_columns(store.as_ref(), &id, cols);
             }
-            Arc::new(dev_sheet::DevSheet) as Arc<dyn SheetsApi>
+            Arc::new(dev_sheet::DevSheet::default()) as Arc<dyn SheetsApi>
         }
     };
     let auth = Arc::new(PortalAuth::new(store, cfg));
@@ -327,6 +329,7 @@ fn router_parts(
         reader: parts.reader,
         live,
         views: view::ViewLog::default(),
+        edits: edit::EditState::default(),
         limits: mail::SendLimits::default(),
         store_spreadsheet: parts.store_spreadsheet,
         access,
@@ -344,6 +347,7 @@ fn router_parts(
         .route("/api/portal/invite/check", post(invite_check))
         .route("/api/portal/invite/accept", post(invite_accept))
         .merge(view::routes())
+        .merge(edit::routes())
         .merge(admin::routes())
         .merge(mail_grant::routes())
         .route_layer(middleware::from_fn(csrf_guard));

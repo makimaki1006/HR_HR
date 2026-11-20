@@ -5,7 +5,7 @@ export type ApiResult<T> =
 
 export const NETWORK = 'network';
 
-export async function call<T>(method: 'GET' | 'POST', path: string, body?: unknown): Promise<ApiResult<T>> {
+export async function call<T>(method: 'GET' | 'POST' | 'PATCH', path: string, body?: unknown): Promise<ApiResult<T>> {
   let res: Response;
   try {
     const init: RequestInit = {

@@ -1,9 +1,13 @@
-import { describe, expect, it } from 'vitest';
+import { setPortalPreviewClock } from '../../clock';
+import { NOW } from '../../now';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { formatDayJa } from '../../columns';
 import { getData } from '../../data';
 import type { ApplicantRow, ColumnConfig, SheetConfig } from '../../types';
 import { columnWidths, matchesQuery, norm, rowRefDay, sheetBaseRef } from './model';
 import { suggestedStatuses } from './StatusSheet';
+
+beforeEach(() => { setPortalPreviewClock(NOW); });
 
 const sheetOf = (id: string): SheetConfig => {
   const s = getData().sheets.find((x) => x.id === id);
@@ -38,15 +42,15 @@ describe('suggestedStatuses（次によく使う）', () => {
 describe('シートの基準の年', () => {
   it('2025年度のシートでは年の無い応募日を 2025 年として出す', () => {
     const s2 = sheetOf('s2');
-    expect(sheetBaseRef(s2)).not.toBeNull();
+    expect(sheetBaseRef(s2, getData().rows.s2 ?? [])).not.toBeNull();
     const rows = getData().rows.s2 ?? [];
     const row = rows.find((r) => /^\d{1,2}月\d{1,2}日$/.test(r.values[s2.sortColumn ?? ''] ?? ''));
     if (!row) return;
-    const text = formatDayJa(row.values[s2.sortColumn ?? ''] ?? '', rowRefDay(s2, row))?.text ?? '';
+    const text = formatDayJa(row.values[s2.sortColumn ?? ''] ?? '', rowRefDay(s2, row, rows))?.text ?? '';
     expect(text.startsWith('2025/')).toBe(true);
   });
   it('今年のシートは null', () => {
-    expect(sheetBaseRef(sheetOf('s1'))).toBeNull();
+    expect(sheetBaseRef(sheetOf('s1'), getData().rows.s1 ?? [])).toBeNull();
   });
 });
 
