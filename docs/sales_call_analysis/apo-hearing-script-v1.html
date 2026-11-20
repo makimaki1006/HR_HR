@@ -1,0 +1,356 @@
+<!doctype html>
+<html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>アポ後ヒアリング</title><style>
+:root{color-scheme:light;--ink:#1c1c1a;--sub:#66625b;--rule:#d9d4ca;--acc:#a8432a;--paper:#fbfaf7}
+*{box-sizing:border-box}html,body{overflow-x:hidden}
+body{margin:0;background:var(--paper);color:var(--ink);font-family:"Hiragino Sans","Noto Sans JP","Yu Gothic",sans-serif;font-size:15.5px;line-height:1.85}
+main{max-width:860px;margin:0 auto;padding:48px 20px 96px;overflow-wrap:anywhere}
+h1,h2,h3,.sn,.big{font-family:"Hiragino Mincho ProN","Noto Serif JP","Yu Mincho",serif}
+.eyebrow{font-size:12.5px;letter-spacing:.12em;color:var(--sub);margin:0}
+h1{font-size:34px;line-height:1.35;margin:6px 0 10px;font-weight:600}
+.lead{color:var(--sub);margin:0 0 28px;max-width:46em}
+hr{border:0;border-top:1px solid var(--ink);margin:0}
+h2{font-size:23px;font-weight:600;margin:64px 0 6px;padding-top:14px;border-top:1px solid var(--ink)}
+h2 small{display:block;font-family:"Hiragino Sans","Noto Sans JP",sans-serif;font-size:12.5px;letter-spacing:.1em;color:var(--sub);font-weight:400}
+h3{font-size:18px;margin:0 0 2px;font-weight:600}
+p{margin:8px 0}a{color:var(--acc)}
+.sum{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(150px,45%),1fr));border-top:1px solid var(--rule);border-bottom:1px solid var(--rule);margin:22px 0}
+.sum div{padding:14px 14px 12px 0}
+.big{font-size:34px;line-height:1.1}.sum .l{font-size:12.5px;color:var(--sub)}
+.big.a{color:var(--acc)}
+.fig{margin:22px 0 8px;overflow-x:auto}.fig svg{width:100%;min-width:540px;height:auto;display:block}
+.cap{font-size:12.5px;color:var(--sub);margin:4px 0 0}
+.cap b{color:var(--ink)}
+svg text{font-family:"Hiragino Sans","Noto Sans JP",sans-serif}
+.lb{font-size:13px;fill:#1c1c1a}.vl{font-size:13px;fill:#1c1c1a;font-weight:600}.vw{font-size:13px;fill:#fff;font-weight:600}.ax{font-size:11.5px;fill:#66625b}.ac{font-size:12px;fill:#a8432a;font-weight:600}
+table{border-collapse:collapse;width:100%;font-size:14.5px;margin:12px 0}
+th{text-align:left;font-weight:600;border-bottom:1.5px solid var(--ink);padding:8px 10px 6px 0;vertical-align:bottom}
+td{border-bottom:1px solid var(--rule);padding:9px 10px 9px 0;vertical-align:top}
+td.num{font-variant-numeric:tabular-nums;white-space:nowrap}
+td.hi{color:var(--acc);font-weight:600}
+.tbl{overflow-x:auto}
+.mt th,.mt td{font-size:13px;padding-right:12px}.mt td{min-width:92px}
+.mb{position:relative;height:6px;background:#eeeae2;margin:5px 0 4px}.mb i{position:absolute;left:0;top:0;bottom:0;background:#3b3a37}.mb em{position:absolute;top:0;bottom:0;background:#a8432a}
+b.acc{color:var(--acc)}
+
+.note{font-size:13px;color:var(--sub)}
+.aside{border-left:3px solid var(--acc);padding:2px 0 2px 14px;margin:16px 0;font-size:14px}
+.aside ul{margin:4px 0;padding-left:18px}
+.rules{counter-reset:r;list-style:none;padding:0;margin:18px 0}
+.rules li{display:grid;grid-template-columns:44px 1fr;gap:6px;padding:12px 0;border-bottom:1px solid var(--rule)}
+.rules li:before{counter-increment:r;content:counter(r);font-family:"Hiragino Mincho ProN","Noto Serif JP",serif;font-size:28px;line-height:1;color:var(--acc)}
+.rules b{font-size:16.5px}.rules span{display:block;color:var(--sub);font-size:14px}
+.mflow{display:grid;grid-template-columns:repeat(3,1fr);row-gap:14px;gap:0;margin:22px 0 6px}
+.ms{position:relative;padding:10px 14px 10px 10px;border-top:3px solid #3b3a37;margin-right:12px}
+.ms:after{content:"";position:absolute;right:-12px;top:-9px;border:7.5px solid transparent;border-left:9px solid #3b3a37}
+.ms.last{border-top-color:var(--acc)}.ms.last:after{display:none}
+.mh{font-weight:700;font-size:15px}.ms.last .mh{color:var(--acc)}
+.md{font-size:12.5px;color:var(--sub);line-height:1.6}
+@media (max-width:720px){.mflow{grid-template-columns:1fr}.ms:after{display:none}}
+.step{display:grid;grid-template-columns:64px 1fr;gap:4px;padding:22px 0;border-bottom:1px solid var(--rule)}
+.sn{font-size:30px;line-height:1;color:var(--sub)}
+.meta{font-size:12.5px;color:var(--sub);margin:0 0 6px}
+.k{font-size:12.5px;font-weight:700;letter-spacing:.06em;margin:10px 0 0}.k.x{color:var(--acc)}
+.step ul{margin:2px 0;padding-left:18px}.xl li{color:#5a3328}
+.mean{margin-top:12px;font-weight:600}.mean span{display:inline-block;font-size:11.5px;font-weight:700;border:1px solid var(--ink);padding:0 6px;margin-right:8px;letter-spacing:.06em}
+@media (max-width:560px){.step{grid-template-columns:1fr}h1{font-size:27px}.big{font-size:28px}}
+.toc{columns:2;column-gap:28px;font-size:14px;margin:18px 0;padding:0;list-style:none;counter-reset:t}
+.toc li{break-inside:avoid;padding:3px 0;border-bottom:1px dotted var(--rule)}.toc li:before{counter-increment:t;content:counter(t) ". ";color:var(--sub)}
+.toc a{color:var(--ink);text-decoration:none}
+@media (max-width:560px){.toc{columns:1}}
+footer{margin-top:56px;padding-top:10px;border-top:1px solid var(--ink);font-size:12.5px;color:var(--sub)}
+
+
+.part{margin:72px 0 0;padding:10px 0;border-top:3px double var(--ink);border-bottom:1px solid var(--rule);font-family:"Hiragino Mincho ProN","Noto Serif JP",serif;font-size:20px;letter-spacing:.12em;color:var(--acc)}
+.toc-g{font-size:12.5px;letter-spacing:.1em;color:var(--sub);margin:16px 0 0}
+.toc+.toc-g{margin-top:6px}
+.flow{display:flex;flex-direction:column;align-items:center;margin:22px 0 6px}
+.node{background:#fff;border:1px solid var(--ink);padding:10px 14px;max-width:560px;width:100%;text-align:center}
+.node small{display:block;color:var(--sub);font-size:13px;line-height:1.6}
+.node.key{border:2px solid var(--acc)}.node.key b{color:var(--acc)}
+.node.go{border-top:3px solid #3b3a37}.node.stop{border-style:dashed;color:var(--sub)}
+.arrow{width:1px;height:22px;background:var(--ink);position:relative;margin:2px 0 8px}
+.arrow:after{content:"";position:absolute;left:-5px;bottom:-6px;border:5px solid transparent;border-top:6px solid var(--ink)}
+.branch{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;width:100%}
+.branch .col{display:flex;flex-direction:column;align-items:center}
+.lab{font-size:12.5px;font-weight:700;margin-bottom:6px;letter-spacing:.04em}
+.lab.g{color:var(--ink)}.lab.w{color:var(--acc)}.lab.b{color:var(--sub)}
+@media (max-width:640px){.branch{grid-template-columns:1fr}}
+.pair{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:10px 0}
+@media (max-width:640px){.pair{grid-template-columns:1fr}}
+.ex{padding:4px 0 4px 14px;font-size:15px}
+.ex.good{border-left:3px solid #3b3a37}.ex.bad{border-left:3px solid var(--acc)}
+.ex .h{font-size:12.5px;font-weight:700;letter-spacing:.08em}.ex.bad .h{color:var(--acc)}
+.ex p{margin:4px 0}
+.why{font-size:14px;color:var(--sub);margin:8px 0 18px}
+#detail~h3,#script~h3{margin-top:26px}
+.script{border-top:1px solid var(--ink);border-bottom:1px solid var(--ink);margin:10px 0}
+.line{display:grid;grid-template-columns:52px 1fr;gap:8px;padding:7px 0;border-bottom:1px dotted var(--rule)}
+.line:last-child{border-bottom:none}
+.who{font-size:12.5px;font-weight:700;color:var(--sub);padding-top:2px}.who.me{color:var(--acc)}
+.tip{font-size:14px;margin:8px 0 6px;padding-left:14px;border-left:3px solid var(--rule)}
+.tag{display:inline-block;font-size:11.5px;font-weight:700;padding:0 6px;border:1px solid var(--ink);white-space:nowrap}
+.tag.l{border-style:dashed;color:var(--sub);border-color:var(--sub)}
+.ph th{white-space:nowrap}
+td.up{font-weight:600;white-space:nowrap}td.dn{color:var(--acc);font-weight:600;white-space:nowrap}
+@media print{body{background:#fff}.step,.fig,.script,.pair,.flow{break-inside:avoid}.part{break-before:page}}
+</style></head>
+<body><main>
+<p class="eyebrow">営業通話分析 ｜ 2026年11月 ｜ 案（現場への配布前）</p>
+<h1>アポ後ヒアリングのトークスクリプト</h1>
+<p class="lead">日程が決まった後に、先方の状況を聞くためのトークです。聞いた答えから、そのアポのランク（S・A・B・C）が自動で付きます。第1部は現場で使う質問と受け方、第2部はその根拠と、まだ決まっていないことです。</p>
+<hr>
+<div class="sum">
+<div><div class="big a">3つ</div><div class="l">ランクに使う答え（予算・入社時期・判断する人）</div></div>
+<div><div class="big">18.4%</div><div class="l">3つそろった先の成約率（商談前アンケート 49件中9件）</div></div>
+<div><div class="big">2.1%</div><div class="l">1つもそろわない先の成約率（188件中4件）</div></div>
+<div><div class="big">513本</div><div class="l">いまの電話598本のうち、予算が分からないまま終わった本数</div></div>
+</div>
+<p class="toc-g">第1部 現場で使う</p><ol class="toc"><li><a href="#use">このトークを使う電話</a></li><li><a href="#rank">ランクの付き方</a></li><li><a href="#rules">まず覚える4つ</a></li><li><a href="#flow">ヒアリングの流れ</a></li><li><a href="#q1">職種・人数</a></li><li><a href="#q2">入社時期</a></li><li><a href="#q3">募集の理由・課題</a></li><li><a href="#q4">予算</a></li><li><a href="#q5">判断する人・同席</a></li><li><a href="#react">ヒアリングそのものへの反応</a></li><li><a href="#close">締め</a></li></ol><p class="toc-g">第2部 根拠</p><ol class="toc" start="12" style="counter-reset:t 11"><li><a href="#now">いまの電話の答え</a></li><li><a href="#basis">ランクの決め方の根拠</a></li><li><a href="#form">聞き方と答えの形</a></li><li><a href="#diff">前の台本（v1.3）から変わったこと</a></li><li><a href="#open">決めてほしいこと・まだ分かっていないこと</a></li></ol>
+
+<p class="part">第1部 現場で使う</p>
+
+<h2 id="use"><small>01</small>このトークを使う電話</h2>
+<p>新規のアポで、日時が決まった直後に使います。BPO・社内の新規営業のどちらも同じです。</p>
+<ul>
+<li>使わない電話: すでに決まっていた日程の確認、時刻の変更、お礼の電話。これらはヒアリングの対象から外していて、ランクも付きません。</li>
+<li>「今は募集していない」と答えた先は、そもそもアポにしません。</li>
+</ul>
+
+<h2 id="rank"><small>02</small>ランクの付き方</h2>
+<p>電話の文字起こしから、6つの項目それぞれについて先方の答えが自動で読み取られます。このうち3つの答えで、ランクが決まります。</p>
+<div class="tbl"><table>
+<tr><th>項目</th><th>読み取られる答え</th><th>ランクに使う答え</th></tr>
+<tr><td>予算</td><td>具体額 ／ 無い ／ 都度確保 ／ 未定 ／ 不明</td><td class="hi">具体額</td></tr>
+<tr><td>入社時期</td><td>3か月以内 ／ 4か月以上 ／ 未定 ／ 不明</td><td class="hi">3か月以内</td></tr>
+<tr><td>判断する人</td><td>本人が判断者 ／ 本人以外が判断者 ／ 不明</td><td class="hi">本人が判断者</td></tr>
+<tr><td>募集の職種</td><td>現場系 ／ それ以外 ／ 不明</td><td>使わない</td></tr>
+<tr><td>募集の理由</td><td>欠員 ／ 若返り ／ 増員 ／ その他 ／ 不明</td><td>使わない</td></tr>
+<tr><td>判断する人の同席</td><td>同席する ／ 同席しない ／ 不明</td><td>使わない</td></tr>
+</table></div>
+<p>3つとも当てはまれば <b>S</b>、2つなら <b>A</b>、1つなら <b>B</b>、0なら <b>C</b>。聞けなかった答え（不明）は当てはまらないとして数えます。だから、<b class="acc">聞かなかった項目はそのままランクを下げます</b>。</p>
+<ul>
+<li>予算の「具体額」には、今回の採用にかける額だけでなく、いま他の媒体や紹介に払っている額も入ります（例「求人広告に月20万」）。見ているのは予算をかけられる力です。</li>
+<li>先方が、こちらが示した月額を受け入れた場合（「それなら出せる」など）も具体額になります。</li>
+<li>入社時期は電話をした日から数えます。11月の電話で「3月まで」は4か月以上です。月の数え方は気にせず、先方が言った月をそのまま聞き取れば十分です。</li>
+</ul>
+
+<h2 id="rules"><small>03</small>まず覚える4つ</h2>
+<ol class="rules">
+<li><div><b>答えを数字と名前でもらう</b><span>予算は「月いくら」、入社時期は「何月」、判断する人は「どなた」で聞く。「ご予算はありますか」「3か月以内ですか」「社長様ですか」のように、はい・いいえで終わる聞き方をしない。はい・いいえの答えでは、ランクに使う答えにならないことが多い。</span></div></li>
+<li><div><b>答えを復唱する</b><span>「月20万ですね」「4月までですね」と、数字と名前を入れて返す。確認になるうえ、文字起こしに答えがはっきり残る。</span></div></li>
+<li><div><b>出た答えは聞き直さない</b><span>前の会話で分かった項目は飛ばす。項目は7つあるが、7問聞くわけではない。</span></div></li>
+<li><div><b>言えないと言われたら引く</b><span>言い換えは1回まで。「言えない」「分からない」はそのまま受けて次へ進む。追及して日程を崩さない。</span></div></li>
+</ol>
+
+<h2 id="flow"><small>04</small>ヒアリングの流れ</h2>
+<div class="flow">
+<div class="node go"><b>日時が決まる</b><small>前置き「当日のお話を御社に合わせたいので、あと少しだけ状況を伺ってもよろしいでしょうか。」</small></div>
+<div class="arrow"></div>
+<div class="node"><b>① 職種・人数</b><small>今回の募集の中身。話しやすい質問から入る</small></div>
+<div class="arrow"></div>
+<div class="node key"><b>② 入社時期</b><small>ランクに使う。「何月」でもらう</small></div>
+<div class="arrow"></div>
+<div class="node"><b>③ 募集の理由・課題</b><small>欠員か増員か。困りごとは1問だけ</small></div>
+<div class="arrow"></div>
+<div class="node key"><b>④ 予算</b><small>ランクに使う。「月いくら」でもらう</small></div>
+<div class="arrow"></div>
+<div class="node key"><b>⑤ 判断する人</b><small>ランクに使う。「どなた」で聞く。本人以外なら同席も</small></div>
+<div class="arrow"></div>
+<div class="node go"><b>締め</b><small>聞いた内容を一言入れて終える</small></div>
+</div>
+<p class="cap">先方が急いでいるときは、⑤の判断する人だけを聞いて締める（<a href="#react">10</a>の「今は時間がない」）。</p>
+
+<h2 id="q1"><small>05</small>① 職種・人数</h2>
+<div class="script">
+<div class="line"><span class="who me">営業</span><span>「今回お話しするのは、どの職種の募集ですか。」</span></div>
+<div class="line"><span class="who me">営業</span><span>人数がまだ出ていなければ「何名くらいのご予定ですか。」</span></div>
+</div>
+<div class="tbl"><table>
+<tr><th>先方の返答</th><th>受け方</th></tr>
+<tr><td>職種と人数を言い切る</td><td>「〇〇を△名ですね。」と復唱して②へ。</td></tr>
+<tr><td>幅のある数（「1〜2名」「若干名」）</td><td>聞き直さず「1〜2名ですね。」と幅のまま受ける。</td></tr>
+<tr><td>上限なし（「いればいるほど」）</td><td>「良い方がいれば、という形ですね。」人数は聞き直さない。</td></tr>
+<tr><td>職種が漠然（「いろいろある」）</td><td>「特に急ぎなのはどの職種ですか。」（1回だけ）</td></tr>
+<tr><td>本人では分からない</td><td>「承知しました。当日、分かる範囲で大丈夫です。」誰が分かるかは⑤で確かめる。</td></tr>
+</table></div>
+
+<h2 id="q2"><small>06</small>② 入社時期</h2>
+<div class="script">
+<div class="line"><span class="who me">営業</span><span>「採用できた方には、いつ頃までに入社してほしいですか。」</span></div>
+</div>
+<div class="tbl"><table>
+<tr><th>先方の返答</th><th>受け方</th></tr>
+<tr><td>月で答える（「4月まで」「年内」）</td><td>「4月までですね。」と月を入れて復唱し、③へ。</td></tr>
+<tr><td>「すぐ」「早ければ早いほど」</td><td>「たとえば何月ごろが目安ですか。」（1回だけ）</td></tr>
+<tr><td>時期を決めていない（「いい人がいれば」「欠員が出たら」）</td><td>「欠員が出たら、という形ですね。」と相手の言葉で復唱。時期を詰めない。</td></tr>
+<tr><td>季節・年度で答える（「春ごろ」「来年度」）</td><td>「春ごろ、4月あたりですね。」と月を添えて確かめる。違えば先方の言い方で受ける。</td></tr>
+<tr><td>本人では分からない</td><td>「承知しました。」聞き直さない。</td></tr>
+</table></div>
+<p class="tip">「3か月以内のご予定ですか」と区切りで聞かない。「はい」だけの答えになり、先方が本当にいつを考えているかが残らない。</p>
+
+<h2 id="q3"><small>07</small>③ 募集の理由・課題</h2>
+<div class="script">
+<div class="line"><span class="who me">営業</span><span>「今回の募集は、欠員の補充ですか、それとも増員ですか。」</span></div>
+<div class="line"><span class="who me">営業</span><span>「先ほどの〇〇の募集で、何かお困りの点はありますか。」</span></div>
+</div>
+<p>理由はランクには使いませんが、当日の話の組み立てに使います。①の途中で理由・困りごとが出ていれば、この2問は飛ばします。</p>
+<div class="tbl"><table>
+<tr><th>先方の返答</th><th>受け方</th></tr>
+<tr><td>欠員・増員・若返りと答える</td><td>「増員ですね。」と復唱。</td></tr>
+<tr><td>困りごとを言う（応募が少ない・合う人が来ない・すぐ辞める・条件で負ける など）</td><td>「応募はあるものの、経験者が少ない、ということですね。」と相手の言葉で復唱。相手が言っていない影響や期限を足さない。</td></tr>
+<tr><td>「特にない」で終わる</td><td>「承知しました。順調なんですね。」で止める。課題を探す質問を重ねない。</td></tr>
+<tr><td>「特にないけど、強いて言えば…」</td><td>続きを最後まで聞き、続きを復唱する。</td></tr>
+<tr><td>「全部」「どれもある」</td><td>「中でも一番困っているのはどれですか。」（1回だけ）</td></tr>
+</table></div>
+<p class="tip">「早く解決したいですか」「現場への影響は」とは聞かない。誰でも「はい」と答えるので、見分けに使えない。</p>
+
+<h2 id="q4"><small>08</small>④ 予算</h2>
+<div class="script">
+<div class="line"><span class="who me">営業</span><span>「いま、求人広告や紹介など、採用にはひと月どのくらいかけていらっしゃいますか。」</span></div>
+<div class="line"><span class="who me">営業</span><span>いま費用をかけていなければ「今回の採用には、ひと月どのくらいまでならかけられそうですか。」</span></div>
+</div>
+<p>「ご予算はありますか」とは聞きません。有無の答えだけでは金額が残らず、ランクの「具体額」になりません。</p>
+<div class="tbl"><table>
+<tr><th>先方の返答</th><th>受け方</th></tr>
+<tr><td>金額を言う（「月10万くらい」「年間で120万」）</td><td>「月10万くらいですね。ありがとうございます。」と金額を入れて復唱。それ以上詰めない。</td></tr>
+<tr><td>媒体ごとに言う（「Indeedで月5万、あとは無料」）</td><td>「Indeedで月5万ですね。」とそのまま復唱。合計を出させない。</td></tr>
+<tr><td>手数料率・時給など、月の額でない数字（「紹介は35%」「時給1,200円」）</td><td>「ひと月にすると、どのくらいになりますか。」（1回だけ）。出なければそのまま受ける。</td></tr>
+<tr><td>いま費用をかけていない・無料の媒体だけ</td><td>2問目の「今回の採用には、ひと月どのくらいまで」へ。無料の媒体だけを理由に「予算なし」と決めない。</td></tr>
+<tr><td>その都度出す（「良ければ出す」「案件次第」）</td><td>「良いものがあればその都度、という形ですね。」</td></tr>
+<tr><td>今はない（「予算は取っていない」）</td><td>「承知しました。」で受ける。悪い先と決めない。</td></tr>
+<tr><td>言えない・分からない・上と相談</td><td>「承知しました。大丈夫です。」言い方を変えて聞き直さない。</td></tr>
+<tr><td>費用はかけない方針（「有料は使わない」「ハローワークで足りる」）</td><td>理由がまだなら「ご検討が難しいのは、どのような点でしょうか。」（1回だけ）。方針か、今の実態か、相手の推測かをそのまま受ける。</td></tr>
+<tr><td>こちらの金額を聞かれる（「いくらなの？」）</td><td>「募集の内容でプランが変わりますので、当日、御社に合わせた金額をお持ちします。」（電話で目安の額を言うかは<a href="#open">16</a>で決める）</td></tr>
+<tr><td>月額定額が分からない（「成果報酬じゃないの？」）</td><td>「採用できた人数で費用が変わる形ではなく、毎月決まった金額でご支援する形です。」（1回だけ）</td></tr>
+</table></div>
+
+<h2 id="q5"><small>09</small>⑤ 判断する人・同席</h2>
+<div class="script">
+<div class="line"><span class="who me">営業</span><span>「最終的にご判断されるのはどなたですか。」</span></div>
+<div class="line"><span class="who me">営業</span><span>本人以外なら「当日は、その方にもご同席いただけますか。」</span></div>
+</div>
+<div class="tbl"><table>
+<tr><th>先方の返答</th><th>受け方</th></tr>
+<tr><td>本人が決める（「私が決めます」）</td><td>「ありがとうございます。」同席は聞かずに締めへ。</td></tr>
+<tr><td>上の人・別の人が決める（「社長」「本社」）</td><td>「社長がお決めになるんですね。」と復唱し、同席の質問へ。</td></tr>
+<tr><td>本人が窓口で上に上げる（「私が見て、良ければ社長に」）</td><td>「〇〇さんがご覧になって、良ければ上げていただく流れですね。」同席の質問へ。</td></tr>
+<tr><td>会議で決める（「役員会で」「現場と相談して」）</td><td>「会議で決められるんですね。」同席の質問へ。1人に絞らせない。</td></tr>
+<tr><td>聞き返す（「なんで？」）</td><td>「当日、どなたにお話しすると話が早いかを伺っています。」（1回だけ）</td></tr>
+<tr><td>分からない・決まっていない</td><td>「承知しました。」同席は聞かない。</td></tr>
+</table></div>
+<div class="tbl"><table>
+<tr><th>同席への返答</th><th>受け方</th></tr>
+<tr><td>同席できる</td><td>「ありがとうございます。お名前を伺ってもよろしいですか。」（案内を送るため）</td></tr>
+<tr><td>確認してみる</td><td>「ご案内のメールに当日の内容を書いておきますので、そのままお渡しいただければ。」</td></tr>
+<tr><td>難しい・まず本人が聞く</td><td>「承知しました。まず〇〇さんにご判断いただける内容をお持ちします。」</td></tr>
+</table></div>
+<p class="tip">「社長様がお決めですか」と当てて聞かない。「はい」だけが返り、本当に誰が決めるのかが残らないことがある。</p>
+
+<h2 id="react"><small>10</small>ヒアリングそのものへの反応</h2>
+<p>どの質問の途中でも起きる反応です。項目の表より先にこちらを当てはめます。</p>
+<div class="tbl"><table>
+<tr><th>反応</th><th>受け方</th></tr>
+<tr><td>今は時間がない（「手短に」）</td><td>「では一点だけ。最終的にご判断されるのはどなたですか。」それも難しければ「当日伺います。」</td></tr>
+<tr><td>なぜ聞くのか（「営業の材料？」）</td><td>「当日、関係のない話で時間をいただかないように、御社の状況に合わせて準備したいためです。」（1回だけ）</td></tr>
+<tr><td>当日話す（「それは当日でいい」）</td><td>「承知しました。では当日伺います。」残りは聞かずに締めへ。</td></tr>
+<tr><td>話を聞くだけなら（「情報収集だけ」）</td><td>「はい、情報収集として聞いていただければ大丈夫です。」</td></tr>
+<tr><td>取りやめたい（「やっぱりいいです」）</td><td>「当日は情報を見ていただくだけでも構いませんが、いかがでしょうか。」（1回だけ）。それでもなら「承知しました。お時間いただきありがとうございました。」</td></tr>
+<tr><td>来客などで中断</td><td>待てるなら待つ。切れそうなら「お忙しいところすみません。当日伺います。」</td></tr>
+</table></div>
+
+<h2 id="close"><small>11</small>締め</h2>
+<div class="script">
+<div class="line"><span class="who me">営業</span><span>「ありがとうございます。伺った〇〇を踏まえて、当日ご説明します。」</span></div>
+</div>
+<p>〇〇には、確認できた募集の中身や時期を入れます。聞けなかったときは「では当日、詳しく伺います。」で締めます。相手が言っていない課題を入れません。</p>
+
+<p class="part">第2部 根拠</p>
+
+<h2 id="now"><small>12</small>いまの電話の答え</h2>
+<p>ヒアリングの判定を始めた10月19日から11月7日までに、日程が決まってアポの取引に結び付いた電話598本の答えです（BPO・社内の新規営業）。</p>
+<div class="fig"><svg viewBox="0 0 720 196" role="img" aria-label="ランクに使う3項目の答えの内訳">
+<text class="ax" x="110" y="16">0本</text><text class="ax" x="630" y="16" text-anchor="end">598本</text>
+<text class="lb" x="0" y="48">予算</text>
+<rect x="110" y="32" width="34.8" height="24" fill="#a8432a"/>
+<rect x="144.8" y="32" width="39.1" height="24" fill="#3b3a37"/>
+<rect x="183.9" y="32" width="446.1" height="24" fill="#d9d4ca"/>
+<text class="vl" x="640" y="48">不明 513</text>
+<text class="lb" x="0" y="96">入社時期</text>
+<rect x="110" y="80" width="54.8" height="24" fill="#a8432a"/>
+<rect x="164.8" y="80" width="93.9" height="24" fill="#3b3a37"/>
+<rect x="258.7" y="80" width="371.3" height="24" fill="#d9d4ca"/>
+<text class="vl" x="640" y="96">不明 427</text>
+<text class="lb" x="0" y="144">判断する人</text>
+<rect x="110" y="128" width="47.0" height="24" fill="#a8432a"/>
+<rect x="157.0" y="128" width="155.7" height="24" fill="#3b3a37"/>
+<rect x="312.7" y="128" width="317.4" height="24" fill="#d9d4ca"/>
+<text class="vl" x="640" y="144">不明 365</text>
+<rect x="110" y="176" width="12" height="12" fill="#a8432a"/><text class="ax" x="127" y="186">ランクに使う答え</text>
+<rect x="250" y="176" width="12" height="12" fill="#3b3a37"/><text class="ax" x="267" y="186">それ以外の答え（無い・未定・4か月以上・本人以外など）</text>
+<rect x="620" y="176" width="12" height="12" fill="#d9d4ca"/><text class="ax" x="637" y="186">不明</text>
+</svg></div>
+<p class="cap"><b>3項目とも「不明」が一番多く、予算は598本中513本が分からないまま終わっている。</b>多くの電話で、答えが出る形の質問がされていないためです。このためランクは C が460本、S は0本でした。</p>
+<div class="tbl"><table>
+<tr><th>項目</th><th>ランクに使う答え</th><th>それ以外の答え</th><th>不明</th></tr>
+<tr><td>予算</td><td class="num">具体額 40</td><td class="num">無い 18・都度確保 8・未定 19</td><td class="num">513</td></tr>
+<tr><td>入社時期</td><td class="num">3か月以内 63</td><td class="num">4か月以上 29・未定 79</td><td class="num">427</td></tr>
+<tr><td>判断する人</td><td class="num">本人 54</td><td class="num">本人以外 179</td><td class="num">365</td></tr>
+</table></div>
+<p class="note">不明には、答えの欄が空だった電話（予算2本・入社時期1本）を含めました。入社時期は、電話の日から数える直しを入れる前の判定です。直した判定に付け直している途中で、終わったら数え直します。</p>
+
+<h2 id="basis"><small>13</small>ランクの決め方の根拠</h2>
+<p>同じ3項目を、商談前のアンケートの答えで当てはめると、ランクの順に成約率が並びました（8〜9月の商談748件、成約36件）。取引を半分に分けた両方で同じ順でした。</p>
+<div class="tbl"><table class="mt">
+<tr><th>ランク</th><th>そろった数</th><th>成約率</th><th>件数</th></tr>
+<tr><td>S</td><td>3つ</td><td class="num hi">18.4%</td><td class="num">49件中9件</td></tr>
+<tr><td>A</td><td>2つ</td><td class="num">6.3%</td><td class="num">222件中14件</td></tr>
+<tr><td>B</td><td>1つ</td><td class="num">3.1%</td><td class="num">289件中9件</td></tr>
+<tr><td>C</td><td>0</td><td class="num">2.1%</td><td class="num">188件中4件</td></tr>
+</table></div>
+<p>電話で付けたランクでも同じ順に並ぶかは、まだ確かめ切れていません。上の598本では、成約率が A 5.3%（19件中1件）、B 2.5%（119件中3件）、C 0.7%（460件中3件）でした。順は同じですが、成約が全部で7件しかなく、260件はまだ商談前です。不明が多いままでは、ランクの多くが「聞いたかどうか」で決まってしまいます。このトークは、その不明を減らすためのものです。</p>
+
+<h2 id="form"><small>14</small>聞き方と答えの形</h2>
+<p>4〜9月に日程が決まった電話の文字起こし3,304本で、営業が予算やお金のことを聞いた質問を言葉で抜き出し、直後の先方の答えに金額が出たかを数えました。</p>
+<div class="tbl"><table>
+<tr><th>聞き方</th><th>質問の数</th><th>答えに金額が出た</th></tr>
+<tr><td>有無を聞く（「ご予算はありますか」「取っていますか」）</td><td class="num">49</td><td class="num">0（0%）</td></tr>
+<tr><td>いまかけている額を聞く（「今は月どのくらい使われていますか」）</td><td class="num">199</td><td class="num">12（6%）</td></tr>
+<tr><td>金額を聞く（「月額どのくらいの予算で」「費用感で言うと」）</td><td class="num">173</td><td class="num">20（12%）</td></tr>
+</table></div>
+<p class="cap"><b>有無で聞いた質問からは、金額は1件も出なかった。</b>金額が出たのは、額を聞いた質問だけです。</p>
+<ul class="note">
+<li>この時期は予算を商談前のアンケートで聞いていたため、電話で予算を聞いた例自体が少ない。</li>
+<li>言葉で抜き出したので、営業が自分の料金を説明した話も一部混ざる。数は目安です。</li>
+<li>どの聞き方なら成約率が上がるかは確かめていません。比べたのは、答えがランクに使える形で残るかどうかだけです。</li>
+</ul>
+<p>判断する人は、前の台本づくりで250本を読んだとき、営業が「社長様ですか」と当てて聞き、先方が「はい」とだけ答えた例が169件中19件ありました。誰が決めるのかが本当に分かったかは、この答えからは読めません。</p>
+
+<h2 id="diff"><small>15</small>前の台本（v1.3）から変わったこと</h2>
+<div class="tbl"><table>
+<tr><th>変わったこと</th><th>v1.3</th><th>このトーク</th><th>理由</th></tr>
+<tr><td>予算</td><td>有無だけを聞き、金額は聞かない</td><td>月いくらかを聞く。いまかけている額でもよい</td><td>ランクが「具体額」で決まるようになった（11月6日決定）。いまの支払額も具体額に入れる（11月8日決定）</td></tr>
+<tr><td>入社時期</td><td>「3か月以内で採用が必要な職種」を聞く</td><td>「いつ頃までに入社してほしいか」を月で聞く</td><td>ランクが入社時期で決まる。区切りで聞くと「はい」だけが残る</td></tr>
+<tr><td>募集の理由</td><td>先方が話したときだけ残す</td><td>欠員か増員かを1問で聞く</td><td>判定の項目に入っている</td></tr>
+<tr><td>判断する人</td><td>同じ</td><td>同じ（「どなた」で聞く、当てて聞かない）</td><td>—</td></tr>
+<tr><td>急いでいる相手</td><td>①と④を優先</td><td>判断する人だけ聞く</td><td>一番答えが返りやすく、ランクに使う</td></tr>
+<tr><td>記録シート</td><td>あり</td><td>なし</td><td>答えは文字起こしから自動で読み取られる。代わりに復唱する</td></tr>
+</table></div>
+
+<h2 id="open"><small>16</small>決めてほしいこと・まだ分かっていないこと</h2>
+<h3>決めてほしいこと</h3>
+<ol>
+<li><b>電話で目安の金額を言うか。</b>判定では、こちらが示した月額を先方が受け入れれば「具体額」になります。言えば具体額が増える見込みがあり、言わなければ金額の話で日程が崩れる心配がありません。いまは「当日お持ちします」にしています。</li>
+<li><b>手数料率・時給・手当の額を、予算の答えとして数えるか。</b>いまの判定では、これらが「具体額」に入っている電話があります。このトークでは、月の額に直してもらう質問を1回だけ入れました。</li>
+<li><b>③の課題の質問を残すか。</b>ランクにも判定の項目にも使いません。当日の準備のために残しました。外せば質問が1つ減ります。</li>
+<li><b>取りやめたいと言われたときに、1回だけ引き止めるか。</b>そのまま受けるほうがよければ消します。</li>
+</ol>
+<h3>まだ分かっていないこと</h3>
+<ul>
+<li>このトークで聞いたとき、不明がどれだけ減るか。配った後に、同じ598本の数え方で比べます。</li>
+<li>電話で付けたランクが、アンケートと同じように成約率の順に並ぶか。成約がそろうまでは、価値合意（C以上）の率で途中の確認をします。</li>
+<li>金額を聞くことで、日程の取りやめが増えないか。</li>
+</ul>
+
+<footer>対象データ: ヒアリング判定 2026年10月19日〜11月7日の電話598本（取引に結び付いたもの）、日程が決まった電話の文字起こし 2026年4〜9月 3,304本、商談前アンケート 8〜9月の商談748件。電話の中身・会社名・人名は載せていません。</footer>
+</main></body></html>
