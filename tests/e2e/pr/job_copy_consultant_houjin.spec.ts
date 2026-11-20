@@ -219,7 +219,7 @@ test("顧客の値と図・採用単価の並び・4メニューの担当引き�
     page.getByRole("link", { name: "案件のページを開く" }),
   ).toBeVisible();
   await page.getByRole("button", { name: "閉じる", exact: true }).click();
-  await page.getByRole("button", { name: "案件一覧", exact: true }).click();
+  await page.getByRole("navigation", { name: "案件管理のメニュー" }).getByRole("button", { name: "案件", exact: true }).click();
   // 既定の列は 8 つ（採用単価は「詳しい数字」の中）。並べ替えは応募（直近4週）で確かめる。
   const applicationsSort = page.getByRole("button", { name: "応募（直近4週）", exact: true });
   await applicationsSort.click();

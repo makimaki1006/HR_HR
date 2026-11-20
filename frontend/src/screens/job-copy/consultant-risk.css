@@ -70,3 +70,8 @@
 /* 一覧の右端の「詳細 ▸」。行全体を押しても同じ小窓が開く。 */
 .cr-main th.cr-open-col { width: 76px; }
 .cr-main td.cr-open-cell { text-align: right; vertical-align: middle; }
+/* 案件の詳細を一覧の右に並べる（PC 幅）。一覧は残り、行を選ぶたびに右が入れ替わる。 */
+.cr-split { display: flex; align-items: flex-start; }
+.cr-split > main { flex: 1 1 0; min-width: 0; margin-top: 0; margin-bottom: 0; }
+.cr-detail.cr-side { position: sticky; top: 56px; flex: 0 0 440px; width: 440px; max-width: 440px; max-height: calc(100dvh - 72px); margin: 16px 16px 0 0; padding: 20px; box-sizing: border-box; background: #fff; color: inherit; }
+.cr-main tbody tr.cr-row-open, .db-table tbody tr.cr-row-open { background: #e3f1f4; box-shadow: inset 4px 0 #007c91; }

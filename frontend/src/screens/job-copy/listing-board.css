@@ -1,0 +1,10 @@
+/* 「求人」のメニュー。表は職種の指定（occupation-bulk.css）と同じ形を使う。 */
+.lb-tabs { max-width: 1392px; margin: 0 auto; padding: 12px 24px 0; box-sizing: border-box; }
+.lb-screen .lb-tabs { padding: 0; margin: 0; }
+.lb-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding-top: 16px; }
+.lb-head h1 { font-size: 24px; margin: 0; }
+.lb-head h1 small { font-size: 13px; font-weight: normal; margin-left: 8px; color: #52697a; }
+.lb-table tbody tr { cursor: pointer; }
+.lb-table tbody tr:hover { background: #f6fafb; }
+.lb-table th[scope=row] { padding: 10px 8px 10px 16px; text-align: left; font-weight: normal; border-bottom: 1px solid #f1f5f9; }
+.lb-screen .ob-paging span { margin: 0 8px 0 auto; }

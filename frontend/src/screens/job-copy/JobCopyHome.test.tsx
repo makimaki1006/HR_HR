@@ -11,7 +11,7 @@ import type { HomeCard, HomeCustomer, HomeResponse } from './homeModel';
 
 const api = vi.hoisted(() => vi.fn());
 const recentApi = vi.hoisted(() => vi.fn());
-vi.mock('../../api/client', async original => ({ ...await original<typeof import('../../api/client')>(), apiGet: (path: string, options: unknown) => path.startsWith('/api/job-copy/recent-changes') ? recentApi(path, options) as Promise<unknown> : api(path, options) as Promise<unknown> }));
+vi.mock('../../api/client', async original => ({ ...await original<typeof import('../../api/client')>(), apiGet: (path: string, options: unknown) => path.startsWith('/api/job-copy/unlinked-mtg') ? Promise.resolve({ ok: true, data: { status: 'ready', rows: [] } }) : path.startsWith('/api/job-copy/recent-changes') ? recentApi(path, options) as Promise<unknown> : api(path, options) as Promise<unknown> }));
 beforeEach(() => { sessionStorage.clear(); window.history.replaceState(null, '', '/app/job-copy'); recentApi.mockResolvedValue({ ok: true, data: { status: 'ready', report: { count: 0, listings: [] }, refresh_failed: false } }); });
 afterEach(() => { cleanup(); vi.resetAllMocks(); vi.restoreAllMocks(); });
 

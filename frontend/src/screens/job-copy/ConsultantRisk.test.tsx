@@ -35,7 +35,7 @@ it('メニューの往復・再読込相当でも担当をURLに保持する', a
   const owner = await screen.findByRole('combobox', { name: '担当者' });
   fireEvent.change(owner, { target: { value: '架空の担当B' } });
   fireEvent.change(screen.getByRole('combobox', { name: '担当の種類' }), { target: { value: 'hubspot_owner_id' } });
-  fireEvent.click(screen.getByRole('button', { name: '案件一覧' }));
+  fireEvent.click(screen.getByRole('button', { name: '案件' }));
   expect(new URLSearchParams(window.location.search).get('owner')).toBe('22');
   expect(new URLSearchParams(window.location.search).get('view')).toBe('deals');
   expect(new URLSearchParams(window.location.search).get('owner_field')).toBe('hubspot_owner_id');
