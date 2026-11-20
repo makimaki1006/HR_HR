@@ -333,7 +333,7 @@ function Body({ d, go }: { d: DetailResponse; go: (r: Partial<Route>) => void })
           <span>{deal.is_active === true ? '稼働中' : '稼働中ではない'}{deal.right_censored === true ? '（結果は未確定）' : ''}</span>
         </p>
         <p className="cv2-attr">
-          注意 {deal.flags === null || deal.flags === undefined ? <span className="cv2-dim">稼働中の案件にだけ付けています</span> : <FlagChips flags={deal.flags} max={6} />}
+          注意 {deal.flags === null || deal.flags === undefined ? <span className="cv2-dim">稼働中の案件にだけ付けています</span> : <FlagChips flags={deal.flags} max={6} unlinkedMtg={deal.mtg_unlinked} />}
         </p>
         <p className="cv2-links">
           <CaseLink dealId={deal.deal_id} />

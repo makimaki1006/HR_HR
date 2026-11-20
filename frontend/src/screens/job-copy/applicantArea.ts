@@ -7,13 +7,14 @@ import type { JointDemographics } from './reverseSearchModel';
  * 応募者の住所は「都道府県 + 市区町村」までに丸めて表示する。
  * 番地・建物名・部屋番号などの元の文字列は、どの経路でも画面に出さない。
  * サーバー（src/geo/applicant_area.rs）も JSON を返す前に同じ規則で丸める。ここでも丸め直す（念のため）。
+ * 応募の少ない地域を「その他」にまとめるのは顧客に渡す報告だけ（mergeSmallAreas）。社内の画面ではまとめない。
  * 市区町村はマスタ（src/geo/master_city.csv）にある名前だけを採用し、
  * 読み取れないときは推測せず「（市区町村不明）」にする。
  */
 export const AREA_OTHER = 'その他';
 export const AREA_UNKNOWN = '不明';
-/** 応募がこの件数未満の地域は「その他」にまとめる。 */
-export const MINIMUM_AREA_COUNT = 3;
+/** 顧客に渡す報告では、応募がこの件数未満の地域を「その他」にまとめる。 */
+const MINIMUM_AREA_COUNT = 3;
 
 const normalize = (value: string) => value.normalize('NFKC').replace(/\s+/gu, '').replace(/ヶ/gu, 'ケ').replace(/ヵ/gu, 'カ');
 
@@ -117,31 +118,33 @@ export function roundAreaLabel(dimension: 'prefecture' | 'municipality', label: 
   return municipalityLabel(parseApplicantArea(fallbackPrefecture ?? null, trimmed));
 }
 
-/** 応募の件数が MINIMUM_AREA_COUNT 未満の地域名を「その他」に置き換える（「不明」はそのまま）。 */
-function smallAreas(counts: Map<string, number>): Set<string> {
-  return new Set([...counts].filter(([label, count]) => !reserved(label) && count < MINIMUM_AREA_COUNT).map(([label]) => label));
-}
-
 function orderAreas<T extends { category: string }>(rows: T[]): T[] {
   const rank = (label: string) => label === AREA_OTHER ? 1 : label === AREA_UNKNOWN ? 2 : 0;
   return [...rows].sort((left, right) => rank(left.category) - rank(right.category));
 }
 
-/** 地域の分布を丸め、件数の少ない地域を「その他」にまとめる。合計件数は変えない。 */
+function distributionOf(counts: Map<string, number>, total: number): ApplicantDistribution {
+  return { total, categories: orderAreas([...counts].map(([category, count]) => ({ category, count, percentage: total ? count / total * 100 : null }))) };
+}
+
+/** 地域の分布のラベルを丸める。件数の少ない地域もそのまま出す。合計件数は変えない。 */
 export function roundAreaDistribution(distribution: ApplicantDistribution, dimension: 'prefecture' | 'municipality'): ApplicantDistribution {
   const rounded = new Map<string, number>();
   for (const row of distribution.categories) {
     const label = roundAreaLabel(dimension, row.category);
     rounded.set(label, (rounded.get(label) ?? 0) + row.count);
   }
-  const small = smallAreas(rounded);
+  return distributionOf(rounded, distribution.total);
+}
+
+/** 顧客に渡す報告用。応募が 3 件未満の地域を「その他」にまとめる（「不明」はそのまま）。合計件数は変えない。 */
+export function mergeSmallAreas(distribution: ApplicantDistribution): ApplicantDistribution {
   const merged = new Map<string, number>();
-  for (const [label, count] of rounded) {
-    const target = small.has(label) ? AREA_OTHER : label;
-    merged.set(target, (merged.get(target) ?? 0) + count);
+  for (const row of distribution.categories) {
+    const target = !reserved(row.category) && row.count < MINIMUM_AREA_COUNT ? AREA_OTHER : row.category;
+    merged.set(target, (merged.get(target) ?? 0) + row.count);
   }
-  const total = distribution.total;
-  return { total, categories: orderAreas([...merged].map(([category, count]) => ({ category, count, percentage: total ? count / total * 100 : null }))) };
+  return distributionOf(merged, distribution.total);
 }
 
 /** 件数の表（ラベル → 件数）を丸める。HubSpot 読み取り結果の表示用。 */
@@ -163,31 +166,15 @@ function mergeCells(cells: readonly JointCell[]): JointCell[] {
 }
 
 /**
- * 複合条件（性別 × 年代 × 地域）の集計を丸める。合計は変えない。サーバー（applicant_area.rs の
- * protect_joint_cells）と同じ規則。
- * 1. 地域を都道府県 + 市区町村に丸める。市区町村が分かれば、都道府県はその市区町村から決め直す。
- * 2. 求人内の応募が 3 件未満の都道府県・市区町村は「その他」にする。
- * 3. それでも 3 件未満のセルは市区町村を「その他」にし、まだ 3 件未満なら都道府県も「その他」にする
- *    （「女性・60代・由布市 = 1件」のように、組み合わせで 1 件の応募を特定できる地域を出さない）。
- * 地域ごとの合計は、このセルから数え直したものだけを出す（roundApplicantAreasInRecord）。
+ * 複合条件（性別 × 年代 × 地域）の集計の地域を、都道府県 + 市区町村に丸める。合計は変えない。
+ * 市区町村が分かれば、都道府県はその市区町村から決め直す。件数の少ない地域もそのまま出す。
  */
 export function roundJointDemographics(joint: JointDemographics): JointDemographics {
-  const rounded = joint.cells.map(cell => {
+  const cells = mergeCells(joint.cells.map(cell => {
     const prefecture = roundAreaLabel('prefecture', cell.prefecture);
     const municipality = roundAreaLabel('municipality', cell.municipality, prefecture === AREA_UNKNOWN ? null : prefecture);
     return { ...cell, prefecture: reserved(municipality) ? prefecture : roundAreaLabel('prefecture', municipality), municipality };
-  });
-  const prefectureCounts = new Map<string, number>();
-  const municipalityCounts = new Map<string, number>();
-  for (const cell of rounded) {
-    prefectureCounts.set(cell.prefecture, (prefectureCounts.get(cell.prefecture) ?? 0) + cell.count);
-    municipalityCounts.set(cell.municipality, (municipalityCounts.get(cell.municipality) ?? 0) + cell.count);
-  }
-  const smallPrefectures = smallAreas(prefectureCounts);
-  const smallMunicipalities = smallAreas(municipalityCounts);
-  const byArea = mergeCells(rounded.map(cell => ({ ...cell, prefecture: smallPrefectures.has(cell.prefecture) ? AREA_OTHER : cell.prefecture, municipality: smallMunicipalities.has(cell.municipality) ? AREA_OTHER : cell.municipality })));
-  const withoutCity = mergeCells(byArea.map(cell => cell.count < MINIMUM_AREA_COUNT && !reserved(cell.municipality) ? { ...cell, municipality: AREA_OTHER } : cell));
-  const cells = mergeCells(withoutCity.map(cell => cell.count < MINIMUM_AREA_COUNT && !reserved(cell.prefecture) ? { ...cell, prefecture: AREA_OTHER } : cell));
+  }));
   return { total: joint.total, cells };
 }
 
@@ -200,27 +187,19 @@ function roundDistributions<T extends Distributions>(distributions: T): T {
 }
 
 /**
- * 求人全体の地域の分布を、丸めた複合条件のセルから数え直す（サーバーと同じ）。地域ごとの合計を元の地域で数えると、
- * 名前の出ているセルを引き算して「その他」にしたセルの地域が分かってしまうため。セルの合計が分布の合計と違うときは、
- * どの地域の名前も出さない。
+ * 求人全体の地域の分布を、丸めた複合条件のセルから数え直す（サーバーと同じ）。分布とセルで同じ地域名になる。
+ * セルの合計が分布の合計と違うときは、分布をそのまま使う。
  */
 function areasFromCells(distributions: Distributions, joint: JointDemographics | undefined): Distributions {
   const next = { ...distributions };
+  if (!joint) return next;
+  const cellTotal = joint.cells.reduce((sum, cell) => sum + cell.count, 0);
   for (const dimension of ['prefecture', 'municipality'] as const) {
     const distribution = next[dimension];
-    if (!distribution) continue;
+    if (distribution?.total !== cellTotal) continue;
     const counts = new Map<string, number>();
-    const cellTotal = joint?.cells.reduce((sum, cell) => sum + cell.count, 0);
-    if (joint && cellTotal === distribution.total) {
-      for (const cell of joint.cells) counts.set(cell[dimension], (counts.get(cell[dimension]) ?? 0) + cell.count);
-    } else {
-      for (const row of distribution.categories) {
-        const label = reserved(row.category) ? row.category : AREA_OTHER;
-        counts.set(label, (counts.get(label) ?? 0) + row.count);
-      }
-    }
-    const total = distribution.total;
-    next[dimension] = roundAreaDistribution({ total, categories: [...counts].map(([category, count]) => ({ category, count, percentage: total ? count / total * 100 : null })) }, dimension);
+    for (const cell of joint.cells) counts.set(cell[dimension], (counts.get(cell[dimension]) ?? 0) + cell.count);
+    next[dimension] = distributionOf(counts, distribution.total);
   }
   return next;
 }

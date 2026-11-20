@@ -665,13 +665,14 @@ pub fn build_deal_detail(
     let pos = chain.iter().position(|x| x.id == id);
 
     // ---- 名札（案件そのものと同じ。稼働中だけ）----
-    let flags = if d.is_active {
+    let (flags, mtg_unlinked) = if d.is_active {
         let (rows, _) = super::routes::deal_rows(sheets, today);
         rows.into_iter()
             .find(|r| r["deal_id"] == id)
-            .map(|r| r["flags"].clone())
+            .map(|r| (r["flags"].clone(), r["mtg_unlinked"] == true))
+            .unzip()
     } else {
-        None
+        (None, None)
     };
 
     // ---- パンくず（法人 ＞ 拠点 ＞ この案件）の行き先。画面の「顧客」を法人・拠点の鍵で開くため ----
@@ -700,6 +701,7 @@ pub fn build_deal_detail(
             "amount": d.amount, "renewal_no": d.renewal_no,
             "is_active": d.is_active, "right_censored": d.right_censored,
             "flags": flags,
+            "mtg_unlinked": mtg_unlinked,
             // 顧客の画面（#deal/customer?houjin=&site=）の鍵。site_key は顧客の応答の deals[].site と同じ値（kyoten_key）
             "houjin": nonempty(&d.houjin_resolved),
             "houjin_name": houjin_name,

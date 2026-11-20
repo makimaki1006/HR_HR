@@ -130,13 +130,13 @@ it('loads selected values and full attribute distributions from the same applica
   expect(screen.getByLabelText('求人全体の市区町村').textContent).toContain('大分市6件 (100.0%)');
 });
 
-it('retains the existing small-area protection when counting the full applicant attributes', async () => {
+it('names every area when counting the full applicant attributes', async () => {
   const job = selectedJob();
   const rows = job.applicationRows ?? [];
   at(rows, 0).gender = '男性';
   at(rows, 0).age = '48';
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ listing_id: '10', total: 6, missing_date: 1, fetched_at: job.overallApplications?.fetchedAt, by_date: job.overallApplications?.byDate, applications: rows }), { headers: { 'Content-Type': 'application/json' } })));
   const loaded = await loadApplicationDates('10');
-  expect(loaded?.overall.distributions.municipality?.categories.map(row => [row.category, row.count])).toEqual([['その他', 1], ['大分県大分市', 5]]);
-  expect(loaded?.overall.distributions.prefecture?.categories.map(row => [row.category, row.count])).toEqual([['その他', 1], ['大分県', 5]]);
+  expect(loaded?.overall.distributions.municipality?.categories.map(row => [row.category, row.count])).toEqual([['大分県大分市', 6]]);
+  expect(loaded?.overall.distributions.prefecture?.categories.map(row => [row.category, row.count])).toEqual([['大分県', 6]]);
 });

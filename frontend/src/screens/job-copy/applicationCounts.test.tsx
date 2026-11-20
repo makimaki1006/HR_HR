@@ -38,7 +38,7 @@ describe('one application denominator across panels', () => {
     expect(screen.getByText(/どの本文への応募か不明: 34件/u)).toBeDefined();
     expect(screen.getAllByText('この本文に結びつく応募はまだありません（求人全体では34件）。割合は算出できません。')).toHaveLength(4);
     const municipality = within(overall).getByRole('region', { name: '求人全体の市区町村' });
-    expect([...municipality.querySelectorAll('.ac-chart-row')].map(row => row.textContent)).toEqual(['東京都新宿区31件 (91.2%)', 'その他3件 (8.8%)']);
+    expect([...municipality.querySelectorAll('.ac-chart-row')].map(row => row.textContent)).toEqual(['東京都新宿区31件 (91.2%)', '東京都港区1件 (2.9%)', '大分県大分市2件 (5.9%)']);
     expect(screen.getByRole('region', { name: '取り込んだ内容の内訳' }).textContent).toContain('34');
     // 元の住所は画面のどこにも出ない（閉じた逆検索の選択肢も含む）
     expect(container.innerHTML).not.toMatch(/西新宿|○○ビル|芝公園|府内町/u);

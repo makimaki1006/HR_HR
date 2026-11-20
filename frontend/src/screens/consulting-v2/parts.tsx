@@ -40,7 +40,7 @@ export function Kpi({
   );
 }
 
-export function FlagChips({ flags, max = 2 }: { flags: string[] | null | undefined; max?: number }) {
+export function FlagChips({ flags, max = 2, unlinkedMtg = false }: { flags: string[] | null | undefined; max?: number; unlinkedMtg?: boolean | null | undefined }) {
   if (!flags || flags.length === 0) return <span className="cv2-dim">—</span>;
   const shown = flags.slice(0, max);
   const rest = flags.length - shown.length;
@@ -58,6 +58,11 @@ export function FlagChips({ flags, max = 2 }: { flags: string[] | null | undefin
         <span className="cv2-flag cv2-flag-more" title={flags.join(' ／ ')}>
           他{rest}
         </span>
+      )}
+      {unlinkedMtg === true && (
+        <a className="cv2-case-link" href="/app/job-copy?view=unlinked" target="_blank" rel="noopener noreferrer" title="同じ会社に、案件へ結び付いていないMTG録画があります">
+          未連携のMTGあり<span aria-hidden="true"> ↗</span>
+        </a>
       )}
     </span>
   );

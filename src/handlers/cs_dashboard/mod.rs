@@ -1884,6 +1884,52 @@ pub(crate) fn last_recorded_mtg_by_deal(
     by
 }
 
+/// 未連携のMTG（シート「CS_MTG結び付け待ち」の録画）がある会社の取引。MTGが途絶えている案件に
+/// 「未連携のMTGあり」を添えるのに使う（2026-11-20 決定）。結び付けは人が行い、ここでは何も結び付けない。
+///
+/// 同じ会社かどうかは名前で比べない（録画の件名は表記ゆれ・聞き間違いがある）。
+/// 1. 夜の更新が録画ごとに出した「候補の取引」の取引ID
+/// 2. その取引と法人番号（`CS_取引` の `houjin_resolved`）が同じ取引
+///
+/// 候補の無い録画はどの会社のものか決められないので、どの取引にも添えない。
+pub fn unlinked_mtg_deals(pending: Option<&SheetData>, deal: &SheetData) -> HashSet<String> {
+    let Some(pending) = pending.filter(|s| s.header == routes::PENDING_RECORDING_HEADER) else {
+        return HashSet::new();
+    };
+    let mut ids: HashSet<String> = HashSet::new();
+    for row in &pending.rows {
+        if pending.get(row, "録画UUID").trim().is_empty() {
+            continue;
+        }
+        // 「deal_id: 取引名 / deal_id: 取引名 / ほかN件」
+        for seg in pending.get(row, "候補の取引").split(" / ") {
+            if let Some((id, _)) = seg.split_once(':') {
+                let id = id.trim();
+                if !id.is_empty() && id.bytes().all(|b| b.is_ascii_digit()) {
+                    ids.insert(id.to_string());
+                }
+            }
+        }
+    }
+    if ids.is_empty() {
+        return ids;
+    }
+    let houjin_of = |row| deal.get(row, "houjin_resolved").trim();
+    let houjin: HashSet<&str> = deal
+        .rows
+        .iter()
+        .filter(|row| ids.contains(deal.get(row, "deal_id").trim()))
+        .map(|row| houjin_of(row))
+        .filter(|h| !h.is_empty())
+        .collect();
+    for row in &deal.rows {
+        if houjin.contains(houjin_of(row)) {
+            ids.insert(deal.get(row, "deal_id").trim().to_string());
+        }
+    }
+    ids
+}
+
 /// 取引1件の MTG途絶の帯。重大は 60 日（2026-10-21 ユーザー決定。GAS の重大 90 日とは違う）。
 ///
 /// 順番は GAS と合わせてある:

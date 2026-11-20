@@ -29,6 +29,8 @@ export interface DealRow {
   amount?: number | null;
   focus?: boolean;
   flags?: string[];
+  /** MTGが60日以上空いていて、同じ会社に案件へ結び付いていないMTG録画がある */
+  mtg_unlinked?: boolean;
   n_flags?: number;
   phase?: number | null;
   phase_key?: string | null;
@@ -263,6 +265,7 @@ export interface DetailResponse {
     is_active?: boolean;
     right_censored?: boolean;
     flags?: string[] | null;
+    mtg_unlinked?: boolean | null;
     houjin_name?: string | null;
   };
   chain?: { rows?: ChainRow[] };
@@ -291,6 +294,7 @@ export interface PipeRow {
   amount?: number | null;
   consultant?: string | null;
   flags?: string[];
+  mtg_unlinked?: boolean | null;
 }
 
 export interface RenewalPipeResponse {

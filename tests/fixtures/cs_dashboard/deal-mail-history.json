@@ -25,6 +25,7 @@
     "is_active": true,
     "right_censored": false,
     "flags": [],
+    "mtg_unlinked": false,
     "houjin": null,
     "houjin_name": null,
     "site_key": "fictional-site"
