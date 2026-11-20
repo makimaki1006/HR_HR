@@ -56,7 +56,7 @@ describe('求人の画面（案3-2）', () => {
     expect(cards.map(card => card.querySelector('strong')?.textContent)).toEqual(['文面を手直しする', 'リクロジ向けの案を作る', '電話ヒアリングを見る', 'くわしい分析を開く']);
     expect(cards[0]?.textContent).toContain('今の本文を基に直し、確認待ちの案として保存します');
     expect(cards[1]?.textContent).toContain('AirWork と重ならない文章を作ります（数分）');
-    expect(cards[3]?.textContent).toContain('本文と画像・変更の前後・応募者など');
+    expect(cards[3]?.textContent).toContain('本文と画像・応募者・応募理由など');
     // 操作デモの求人は HubSpot の求人と結び付いていないので、手直し・リクロジ向けの案は押せず、理由を出す。
     expect((cards[0] as HTMLButtonElement).disabled).toBe(true);
     expect(cards[0]?.textContent).toContain('HubSpot の求人と結び付いた求人だけで使えます');
@@ -120,6 +120,6 @@ describe('求人の画面（案3-2）', () => {
     const tasks = within(screen.getByRole('region', { name: 'この求人でやること' }));
     fireEvent.click(tasks.getByRole('button', { name: /^くわしい分析を開く/ }));
     expect(screen.getByRole('dialog', { name: 'くわしい分析' })).toBeTruthy();
-    expect(within(screen.getByRole('tablist', { name: '求人管理の機能' })).getAllByRole('tab').map(tab => tab.textContent)).toEqual(['本文と画像', '変更の前後', 'ほかの求人と比べる', '応募者', '応募理由', 'メモ']);
+    expect(within(screen.getByRole('tablist', { name: '求人管理の機能' })).getAllByRole('tab').map(tab => tab.textContent)).toEqual(['本文と画像', 'ほかの求人と比べる', '応募者', '応募理由', 'メモ']);
   });
 });

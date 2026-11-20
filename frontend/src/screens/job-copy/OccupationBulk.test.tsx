@@ -173,14 +173,15 @@ describe('OccupationBulk', () => {
     window.history.replaceState(null, '', '/');
   });
 
-  it('案件管理のメニューに「職種の指定」があり、押すと一括指定の画面へ移る', () => {
-    window.history.replaceState(null, '', '/app/job-copy?view=deals&deal=55&owner=11');
+  it('職種の指定は「求人」のメニューの中にあり、開いている間は「求人」を選んだ表示にする', () => {
+    window.history.replaceState(null, '', '/app/job-copy?view=occupations&owner=11');
     get.mockImplementation(() => new Promise(() => undefined));
     render(<ConsultantMenu><p>画面</p></ConsultantMenu>);
-    fireEvent.click(screen.getByRole('button', { name: '職種の指定' }));
+    expect(screen.queryByRole('button', { name: '職種の指定' })).toBeNull();
+    expect(screen.getByRole('button', { name: '求人' }).getAttribute('aria-current')).toBe('page');
+    fireEvent.click(screen.getByRole('button', { name: '求人' }));
     const query = new URLSearchParams(window.location.search);
-    expect([query.get('view'), query.get('deal'), query.get('owner')]).toEqual(['occupations', null, '11']);
-    expect(screen.getByRole('button', { name: '職種の指定' }).getAttribute('aria-current')).toBe('page');
+    expect([query.get('view'), query.get('deal'), query.get('owner')]).toEqual(['listings', null, '11']);
     window.history.replaceState(null, '', '/');
   });
 

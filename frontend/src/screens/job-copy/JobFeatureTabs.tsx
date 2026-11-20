@@ -7,11 +7,12 @@ interface Feature { id: JobFeature; label: string; description: string }
  */
 export const jobFeatureGroups: { id: string; label: string; hidden?: boolean; features: Feature[] }[] = [
   { id: 'content', label: '本文と画像', features: [{ id: 'body', label: '本文と画像', description: '日時を選び、求人本文と掲載画像を確認します。' }] },
-  { id: 'diff', label: '変更の前後', features: [{ id: 'diff', label: '変更の前後', description: '同じ求人の本文・画像の変化を比較します。' }] },
   { id: 'ab', label: 'ほかの求人と比べる', features: [{ id: 'ab', label: 'ほかの求人と比べる', description: '同じ顧客の求人や、ほかの顧客で応募が多い求人と、内容と成果を比べます。' }] },
   { id: 'applicants', label: '応募者', features: [{ id: 'applicants', label: '応募者', description: '性別・年代・地域の構成と、本文ごとの違いを確認します。' }] },
   { id: 'reasons', label: '応募理由', features: [{ id: 'reasons', label: '応募理由', description: '応募理由・応募動機の記録を出典別に確認します。' }] },
   { id: 'factors', label: 'メモ', features: [{ id: 'factors', label: 'メモ', description: '応募の増減について気づいたことや、次に確かめることを書いておけます。' }] },
+  // 「変更の前後」は 2026-11-20 にタブから外した。比べる入口は「全文を比べる」に一本化し、この画面は案の確認（採用・見送り）のときに開く。
+  { id: 'diff', label: '変更の前後', hidden: true, features: [{ id: 'diff', label: '変更の前後', description: '確認待ちの案を今の本文と比べて、採用か見送りかを決めます。' }] },
   // 次の 7 つはタブに並べない。画面の URL（feature=…）で直接開ける。開いたときは見出しと「くわしい分析に戻る」だけを出す。
   // タイムラインは求人のページのライフラインと重なるため、2026-11-16 にタブから外した。
   { id: 'timeline', label: 'タイムライン', hidden: true, features: [{ id: 'timeline', label: 'タイムライン', description: '掲載期間・給与・本文・画像・課金・応募・市場を同じ日付の軸に並べて確認します。' }] },
@@ -22,7 +23,7 @@ export const jobFeatureGroups: { id: string; label: string; hidden?: boolean; fe
   { id: 'report', label: '検証記録', hidden: true, features: [{ id: 'report', label: '検証記録', description: '仮説・評価基準・結果と根拠・次に試すことを社内のメモとして残します。' }] },
   { id: 'import', label: '外部文面を確認', hidden: true, features: [{ id: 'receive', label: '外部文面を確認', description: '外部から届いた本文を現在の本文と照合します。' }] },
 ];
-/** 「くわしい分析」に出す 6 つ。タブの並びと、ページ内の入口のボタンで同じ。 */
+/** 「くわしい分析」に出す 5 つ。タブの並びと、ページ内の入口のボタンで同じ。 */
 export const jobFeatureMenu = jobFeatureGroups.filter(group => !group.hidden).flatMap(group => group.features);
 
 function keyboardSelection(event: KeyboardEvent<HTMLButtonElement>, ids: string[], current: string, select: (id: string) => void, prefix: string) {

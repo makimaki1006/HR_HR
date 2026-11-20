@@ -124,7 +124,7 @@ describe('HubSpot listing history', () => {
     await waitFor(() => { expect(container.querySelectorAll('.jc-fixed-list .jc-job')).toHaveLength(1); });
     const main = within(openOtherAnalysis('本文と画像'));
     expect(main.getByText('合成の新本文', { exact: true })).toBeTruthy();
-    fireEvent.click(main.getByRole('tab', { name: '変更の前後' }));
+    openOtherAnalysis('変更の前後');
     expect(container.querySelector('[id$="-panel-diff"]')?.textContent).toContain('合成の旧本文');
     expect(container.querySelector('[id$="-panel-diff"]')?.textContent).toContain('合成の新本文');
     pressMoreItem('固定一覧を表示');
