@@ -178,6 +178,9 @@ fn summary_json(sh: &SheetData, row: usize) -> Value {
         "n_utterances": opt_num(g("n_utterances")).map(|v| v as i64),
         "model": text(g("model")),
         "generated_at": text(g("generated_at")),
+        // 要約を作れなかった通話だけ、文字起こし全文が入る（画面は折りたたんで出す）。
+        // 古いシートには列が無いので、読めなければ null（`get` は列が無ければ空を返す）
+        "transcript": text(g("transcript")),
     })
 }
 
@@ -590,7 +593,8 @@ pub fn build_deal_detail(
         if transcript {
             n_tr += 1;
         }
-        if !sj.is_null() {
+        // 要約を作れなかった通話（文字起こしだけの行）は「要約できた」に数えない
+        if sj["summary"].as_str().is_some() {
             n_sum += 1;
         }
         count_attach(&attach, &mut n_moved_in, &mut n_outside);
