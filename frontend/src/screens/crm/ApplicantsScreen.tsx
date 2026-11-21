@@ -52,6 +52,13 @@ function Fields({ section, collapse = true }: { section: ApplicantSection; colla
     {safeHttpUrl(f.value) ? <PropLink url={f.value} /> : collapse && f.value.length > 200 ? <details><summary>内容を表示</summary><p>{f.value}</p></details> : f.value}
   </dd></div>)}</dl>;
 }
+/** 番号の一部として探す入力か (区切りを除いた数字が 4〜9 桁。サーバの applicant_phone::parse と同じ) */
+function isPhonePart(q: string): boolean {
+  const t = q.trim();
+  if (!/^[0-9０-９\s\-‐‑–—−－ー()（）.]+$/.test(t)) return false;
+  const n = t.replace(/[^0-9０-９]/g, '').length;
+  return n >= 4 && n <= 9;
+}
 export function ApplicantSheet({ detail }: { detail: ApplicantDetail | null }) {
   const url = detail?.sheet_url;
   if (!detail) return <p>応募を選択してください。</p>;
@@ -275,7 +282,7 @@ export function ApplicantsScreen({ fixture = new URLSearchParams(window.location
   return <div className="crm-app cq-app applicants-app">
     <header className="applicants-head"><a href="/">HR_HR</a><strong>CRM</strong><CrmModeSwitch applicants /><FailedWritesBadge fixture={fixture} /><span>{fixture ? '架空サンプル' : 'HubSpot の応募'}</span>{!fixture && <button onClick={() => { setDrawerOpen(v => !v); }}>Zoom</button>}<button onClick={() => { setCursor(null); setDetail(null); setRefresh(v => v + 1); }}>最新にする</button></header>
     <div className="cq-filter-summary applicants-filter-summary"><span>{scope ? 'すべての応募' : '一次対応が必要な未完了'} · ステージ: {stages.length ? `${String(stages.length)}件選択` : 'すべて'} · 応募媒体: {media || 'すべて'}</span><button type="button" aria-expanded={filtersOpen} onClick={() => { setFiltersOpen(v => !v); }}>条件を変更</button></div>
-    <form className="applicants-search" role="search" onSubmit={e => { e.preventDefault(); applySearch(search); }}><label>検索対象<select value={target} onChange={e => { dispatch({ type: 'activate', panel: 'queue' }); setTarget(e.target.value); setCursor(null); setQueue(null); setLoading(true); }}><option value="applicant">応募者</option><option value="deal">取引</option><option value="listing">求人</option></select></label><label>応募を検索<input type="search" value={search} onChange={e => { setSearch(e.target.value); }} placeholder={target === 'deal' ? '取引名' : target === 'listing' ? '求人名' : '応募者名・電話番号（下4桁でも可）'} /></label>{target === 'applicant' && /^[0-9０-９]{4}$/.test(query) && <span className="applicants-search-note">下4桁は直近60日の応募から探します。それより前の応募は番号を全部入れてください。</span>}</form>
+    <form className="applicants-search" role="search" onSubmit={e => { e.preventDefault(); applySearch(search); }}><label>検索対象<select value={target} onChange={e => { dispatch({ type: 'activate', panel: 'queue' }); setTarget(e.target.value); setCursor(null); setQueue(null); setLoading(true); }}><option value="applicant">応募者</option><option value="deal">取引</option><option value="listing">求人</option></select></label><label>応募を検索<input type="search" value={search} onChange={e => { setSearch(e.target.value); }} placeholder={target === 'deal' ? '取引名' : target === 'listing' ? '求人名' : '応募者名・電話番号（一部でも可）'} /></label>{target === 'applicant' && isPhonePart(query) && <span className="applicants-search-note">番号の一部は直近60日の応募から探します。それより前の応募は番号を全部入れてください。</span>}{target === 'applicant' && queue?.phone_more && <span className="applicants-search-note">一致する番号が多いため、一部の応募だけを出しています。数字を足すと絞り込めます。</span>}</form>
     {filtersOpen && <div className="applicants-toolbar">
       <label className={`cq-field cq-target-label${scope ? ' is-set' : ''}`}>範囲<select aria-label="範囲" value={scope ? 'all' : 'open'} onChange={e => { setScope(e.target.value === 'all'); filter([], media); }}><option value="open">一次対応が必要な未完了</option><option value="all">すべての応募</option></select></label>
       {queue && firstPipeline && <StageFilter all pipeline={{ ...firstPipeline, fallbackName: '', unknownStages: [], stages: firstPipeline.stages.map(s => ({ ...s, rule: 'all' })) }}

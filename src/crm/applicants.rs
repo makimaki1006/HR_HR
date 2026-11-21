@@ -162,6 +162,8 @@ pub struct ApplicantQueue {
     pub next_cursor: Option<String>,
     pub pipelines: Vec<ApplicantPipeline>,
     pub media_options: Vec<ApplicantStage>,
+    /// 番号の一部で探したとき、一致が 50 件を超え、末尾の一致・新しい順の 50 件だけで探した
+    pub phone_more: bool,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct ApplicantReminders {
@@ -572,6 +574,7 @@ pub(super) async fn queue(
             .await
             .map_err(|_| applicant_error(&HubSpotError::Busy))?
             .map_err(|_| applicant_error(&HubSpotError::Busy))?;
+        let mut phone_more = false;
         let defs = ctx
             .applicants
             .definitions(&client)
@@ -649,6 +652,7 @@ pub(super) async fn queue(
                     next_cursor: None,
                     pipelines: available,
                     media_options: options(&defs),
+                    phone_more,
                 });
             }
         }
@@ -657,10 +661,12 @@ pub(super) async fn queue(
                 filters
                     .push(json!({"propertyName":"denwabangou","operator":"IN","values":numbers}));
             }
-            Some(phone::PhoneQuery::Last4(digits)) => {
-                let ids = ctx.applicants.phones.lookup(&client, digits).await.map_err(|_| {
-                    (StatusCode::SERVICE_UNAVAILABLE, Json(json!({"error_kind":"phone_index_loading","message":"下4桁の検索を準備しています。1分ほど待ってから、もう一度検索してください。"}))).into_response()
+            Some(phone::PhoneQuery::Part(digits)) => {
+                let found = ctx.applicants.phones.lookup(&client, digits).await.map_err(|_| {
+                    (StatusCode::SERVICE_UNAVAILABLE, Json(json!({"error_kind":"phone_index_loading","message":"番号の一部での検索を準備しています。1分ほど待ってから、もう一度検索してください。"}))).into_response()
                 })?;
+                phone_more = found.more;
+                let ids = found.ids;
                 if ids.is_empty() {
                     return Ok(ApplicantQueue {
                         items: vec![],
@@ -668,6 +674,7 @@ pub(super) async fn queue(
                         next_cursor: None,
                         pipelines: available,
                         media_options: options(&defs),
+                        phone_more,
                     });
                 }
                 filters.push(json!({"propertyName":"hs_object_id","operator":"IN","values":ids}));
@@ -738,6 +745,7 @@ pub(super) async fn queue(
                 next_cursor,
                 pipelines: available,
                 media_options: options(&defs),
+                phone_more,
             });
         }
         let total = client
@@ -817,6 +825,7 @@ pub(super) async fn queue(
             next_cursor,
             pipelines: available,
             media_options: options(&defs),
+            phone_more,
         })
     };
     match tokio::time::timeout(Duration::from_secs(20), work).await {

@@ -12,6 +12,7 @@ export const applicantQueueFixture: ApplicantQueue = {
   items, total: 2, next_cursor: null,
   pipelines: [{ id: 'fixture', label: '一次対応_BPO', stages: [{ id: '1431574804', label: '朝連絡' }, { id: '1343099551', label: '応募受付' }, { id: 'fixture-filter-grace', label: '足切り猶予期間' }, { id: 'fixture-filter-docs', label: '選考書類待ち' }, { id: 'fixture-filter-call', label: '約束あり連絡' }] }],
   media_options: [{ id: '架空求人サイト', label: '架空求人サイト' }, { id: '架空採用ページ', label: '架空採用ページ' }],
+  phone_more: false,
 };
 const outside: ApplicantRow = { ...first, id: '90003', name: '架空 そら', deal: 'サンプル商店株式会社', stage: '採用済み', stage_id: 'fixture-other-done', appointment: '', date: '2026-10-19' };
 export const applicantAllQueueFixture: ApplicantQueue = {
