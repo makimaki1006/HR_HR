@@ -15,9 +15,17 @@ checked_at: string,
  */
 total_listings: number, 
 /**
- * 指摘が 1 つ以上ある求人の数。
+ * 指摘が 1 つ以上ある求人の数（掲載が終わっていた求人は除く）。
  */
 flagged_listings: number, 
+/**
+ * 指摘があったが、HRハッカーのページが無くなっていた（掲載が終わっていた）ため一覧から除いた求人の数。
+ */
+ended_listings: number, 
+/**
+ * 指摘があり一覧に出しているが、HRハッカーのページを開けず掲載中かを確かめられなかった求人の数。
+ */
+unconfirmed_listings: number, 
 /**
  * 最低賃金の出典。
  */
