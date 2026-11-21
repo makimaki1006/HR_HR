@@ -3,4 +3,8 @@ import type { ApplicantPipeline } from "./ApplicantPipeline";
 import type { ApplicantRow } from "./ApplicantRow";
 import type { ApplicantStage } from "./ApplicantStage";
 
-export type ApplicantQueue = { items: Array<ApplicantRow>, total: number, next_cursor: string | null, pipelines: Array<ApplicantPipeline>, media_options: Array<ApplicantStage>, };
+export type ApplicantQueue = { items: Array<ApplicantRow>, total: number, next_cursor: string | null, pipelines: Array<ApplicantPipeline>, media_options: Array<ApplicantStage>, 
+/**
+ * 番号の一部で探したとき、一致が 50 件を超え、末尾の一致・新しい順の 50 件だけで探した
+ */
+phone_more: boolean, };
