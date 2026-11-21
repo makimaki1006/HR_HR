@@ -49,6 +49,7 @@ mod owner_todo;
 pub mod phone_hearing;
 mod rikurozi;
 mod rikurozi_listing;
+pub mod salary_check;
 mod saved_notes;
 mod todo_signals;
 mod unlinked_mtg;
@@ -2261,6 +2262,8 @@ fn router_with_index(state: Option<&Arc<AppState>>) -> Router<Arc<AppState>> {
             "/api/job-copy/deals/{id}/refresh",
             get(listings::refresh_deal),
         )
+        // 求人の給与チェック（/app/listing-check）。認可は案件管理と同じ。
+        .route("/api/listing-check/salary", get(salary_check::read))
         .merge(drafts::router(state, access.clone()))
         .merge(saved_notes::router())
         .layer(Extension(access))

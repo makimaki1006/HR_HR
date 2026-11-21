@@ -341,6 +341,18 @@ pub const NAV_DEFS: &[NavDef] = &[
         requires: None,
         hidden: None,
     },
+    // 求人の給与チェック (React 画面 /app/listing-check)。データ (`/api/listing-check/salary`) は案件管理と同じく
+    // 会社ドメインの Google ログインの人にだけ返す。
+    NavDef {
+        id: "listing-check",
+        label: "求人の給与チェック",
+        title: Some("HRハッカーに掲載中の求人の、給与の入力の誤りと最低賃金"),
+        kind: NavKind::App,
+        target: "/app/listing-check",
+        group: None,
+        requires: None,
+        hidden: None,
+    },
     // ---- 非表示 (削除しない。hidden を None にすれば旧新両方のナビに戻る) ----
     // 2026-05-15 に UI から外した 8 タブ (旧 dashboard_inline.html:122-127 のコメント)
     NavDef {
@@ -825,6 +837,7 @@ mod tests {
                 ("consulting", "/consulting", None),
                 ("consulting-v2", "/app/consulting-v2", None),
                 ("job-copy", "/app/job-copy", None),
+                ("listing-check", "/app/listing-check", None),
             ]
         );
         let survey = &items[0];
@@ -1354,6 +1367,8 @@ mod tests {
                     .filter(|e| e.2 != "競合調査")
                     // Exclude only the separately validated new link from the old golden.
                     .filter(|e| !e.1.contains(&("href".into(), "/app/job-copy".into())))
+                    // 求人の給与チェックも、旧テンプレートより後に足したリンク。
+                    .filter(|e| !e.1.contains(&("href".into(), "/app/listing-check".into())))
                     .collect::<Vec<_>>(),
                 elements(&old_top(kw, jg)),
                 "top (keywords={kw}, jobgen={jg})\n--- 生成 ---\n{}",

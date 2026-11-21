@@ -223,8 +223,14 @@ async fn api_navはログイン済みなら定義どおりのjsonを返す() {
         .collect();
     assert_eq!(visible.first(), Some(&"survey"));
     assert_eq!(
-        &visible[visible.len() - 4..],
-        &["sales-kpi", "consulting", "consulting-v2", "job-copy"]
+        &visible[visible.len() - 5..],
+        &[
+            "sales-kpi",
+            "consulting",
+            "consulting-v2",
+            "job-copy",
+            "listing-check"
+        ]
     );
 }
 
