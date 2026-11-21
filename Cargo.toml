@@ -27,6 +27,8 @@ futures = { version = "0.3", default-features = false, features = ["std"] }
 # React 画面向けレスポンス型を TypeScript に書き出す (Phase 0-4, 2026-09-29)。
 # derive(TS) のため通常依存。出力は cargo test 時のみ (src/handlers/app_api.rs の export_ts_bindings)。
 ts-rs = "12.0.1"
+# 求人の給与チェック (src/listing_salary_check.rs) の本文の読み取り。regex-automata / regex-syntax は既に依存に入っている。
+regex = "1"
 
 # Database
 rusqlite = { version = "0.32", features = ["bundled"] }

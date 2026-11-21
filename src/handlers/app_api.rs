@@ -98,6 +98,8 @@ mod tests {
         let cfg = ts_rs::Config::new().with_out_dir(&out_dir);
         crate::handlers::job_copy_live::phone_hearing::PhoneHearing::export_all(&cfg)
             .expect("PhoneHearing");
+        crate::handlers::job_copy_live::salary_check::SalaryCheckResponse::export_all(&cfg)
+            .expect("SalaryCheckResponse");
         AppPingResponse::export_all(&cfg).expect("AppPingResponse の TS 型を書き出せない");
         crate::handlers::crm_metadata::CrmMetadataResponse::export_all(&cfg)
             .expect("CrmMetadataResponse の TS 型を書き出せない");
