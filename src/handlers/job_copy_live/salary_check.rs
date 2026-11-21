@@ -1,6 +1,7 @@
 //! 求人の給与チェック。HRハッカーに掲載中の求人票 (HubSpot 0-420) を読み、給与の入力の誤りを一覧にする。
 //! 判定は `crate::listing_salary_check`（純粋な関数）。ここは HubSpot の読み取り・60 分の保持・応答だけ。
 //! 読み取りのみで、HubSpot には何も書かない。
+//! 指摘のあった求人は HRハッカーの求人ページを開いて確かめ、掲載が終わっていたものは一覧から除く。
 use super::*;
 use crate::listing_salary_check::{self as judge, Category};
 use ts_rs::TS;
@@ -33,8 +34,12 @@ pub struct SalaryCheckResponse {
     pub checked_at: String,
     /// 対象にした求人の数（HRハッカーで公開中の求人票）。
     pub total_listings: u32,
-    /// 指摘が 1 つ以上ある求人の数。
+    /// 指摘が 1 つ以上ある求人の数（掲載が終わっていた求人は除く）。
     pub flagged_listings: u32,
+    /// 指摘があったが、HRハッカーのページが無くなっていた（掲載が終わっていた）ため一覧から除いた求人の数。
+    pub ended_listings: u32,
+    /// 指摘があり一覧に出しているが、HRハッカーのページを開けず掲載中かを確かめられなかった求人の数。
+    pub unconfirmed_listings: u32,
     /// 最低賃金の出典。
     pub min_wage_source: String,
     /// 区分ごとの指摘の数（0 件の区分は入れない）。
@@ -130,10 +135,27 @@ fn build(listings: &[Listing], portal_id: &str, checked_at: String) -> SalaryChe
     }
     // 強い指摘を先に。同じ区分の中は読んだ順のまま。
     findings.sort_by_key(|(category, _)| (category.severity(), *category));
-    let counts = Category::ALL
+    let findings: Vec<SalaryCheckFinding> = findings.into_iter().map(|(_, f)| f).collect();
+    SalaryCheckResponse {
+        checked_at,
+        total_listings: listings.len() as u32,
+        flagged_listings: flagged,
+        ended_listings: 0,
+        unconfirmed_listings: 0,
+        min_wage_source: judge::MIN_WAGE_SOURCE.to_string(),
+        counts: counts(&findings),
+        findings,
+    }
+}
+
+fn counts(findings: &[SalaryCheckFinding]) -> Vec<SalaryCheckCount> {
+    Category::ALL
         .iter()
         .filter_map(|category| {
-            let count = findings.iter().filter(|(c, _)| c == category).count();
+            let count = findings
+                .iter()
+                .filter(|f| f.category == category.key())
+                .count();
             (count > 0).then(|| SalaryCheckCount {
                 category: category.key().to_string(),
                 label: category.label().to_string(),
@@ -141,15 +163,77 @@ fn build(listings: &[Listing], portal_id: &str, checked_at: String) -> SalaryChe
                 count: count as u32,
             })
         })
-        .collect();
-    SalaryCheckResponse {
-        checked_at,
-        total_listings: listings.len() as u32,
-        flagged_listings: flagged,
-        min_wage_source: judge::MIN_WAGE_SOURCE.to_string(),
-        counts,
-        findings: findings.into_iter().map(|(_, f)| f).collect(),
+        .collect()
+}
+
+/// HRハッカーの求人ページの状態。
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Page {
+    /// ページが開ける（掲載中）。
+    Live,
+    /// ページが無い（掲載が終わっている）。
+    Ended,
+    /// 開けず、どちらか分からない。
+    Unknown,
+}
+
+/// 求人ページを開く先はこのサイトだけ（HubSpot の項目の値をそのまま開かない）。
+const HRH_ORIGIN: &str = "https://hr-hacker.com/";
+/// 同時に開くページの数。指摘のあった求人（数十件）だけを開く。
+const PAGE_CONCURRENCY: usize = 4;
+const PAGE_TIMEOUT: Duration = Duration::from_secs(20);
+
+async fn page_state(http: &reqwest::Client, url: Option<&str>) -> Page {
+    let Some(url) = url.filter(|u| u.starts_with(HRH_ORIGIN)) else {
+        return Page::Unknown;
+    };
+    match http.get(url).send().await {
+        Ok(res) if res.status().is_success() => Page::Live,
+        Ok(res) if matches!(res.status().as_u16(), 404 | 410) => Page::Ended,
+        _ => Page::Unknown,
     }
+}
+
+/// 指摘のあった求人のページを開き、掲載が終わっていた求人を一覧から除く。
+/// HubSpot の「公開」は同期の時点の値で、掲載が終わったあとも残ることがあるため。
+async fn keep_live_only(data: &mut SalaryCheckResponse) {
+    use futures::StreamExt;
+    let mut targets: Vec<(String, Option<String>)> = Vec::new();
+    for f in &data.findings {
+        if !targets.iter().any(|(id, _)| *id == f.listing_id) {
+            targets.push((f.listing_id.clone(), f.hrh_url.clone()));
+        }
+    }
+    let Ok(http) = reqwest::Client::builder()
+        .timeout(PAGE_TIMEOUT)
+        .user_agent("Mozilla/5.0 (compatible; listing-check)")
+        .build()
+    else {
+        data.unconfirmed_listings = targets.len() as u32;
+        return;
+    };
+    let states: Vec<(String, Page)> = futures::stream::iter(targets)
+        .map(|(id, url)| {
+            let http = http.clone();
+            async move {
+                let state = page_state(&http, url.as_deref()).await;
+                (id, state)
+            }
+        })
+        .buffer_unordered(PAGE_CONCURRENCY)
+        .collect()
+        .await;
+    let ended: BTreeSet<&str> = states
+        .iter()
+        .filter(|(_, s)| *s == Page::Ended)
+        .map(|(id, _)| id.as_str())
+        .collect();
+    data.findings
+        .retain(|f| !ended.contains(f.listing_id.as_str()));
+    data.ended_listings = ended.len() as u32;
+    data.unconfirmed_listings = states.iter().filter(|(_, s)| *s == Page::Unknown).count() as u32;
+    data.flagged_listings = data.flagged_listings.saturating_sub(data.ended_listings);
+    data.counts = counts(&data.findings);
 }
 
 /// HRハッカーの求人ID があり、HRハッカーで公開中の求人票をすべて読む（背景の優先度）。
@@ -224,11 +308,13 @@ pub(super) async fn read(
         }
     }
     let listings = load(service).await?;
-    let data = Arc::new(build(
+    let mut data = build(
         &listings,
         &crate::hubspot::deep_link::hubspot_portal_id(),
         chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
-    ));
+    );
+    keep_live_only(&mut data).await;
+    let data = Arc::new(data);
     *held = Some((Instant::now(), data.clone()));
     Ok(([(header::CACHE_CONTROL, "no-store")], Json(data)))
 }
