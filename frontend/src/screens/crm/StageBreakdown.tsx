@@ -153,23 +153,23 @@ function NowRow({ s, total }: { s: StageBreakdownStage; total: number }) {
 
 function UnconsumedChart({ days, values, totals }: { days: string[]; values: number[]; totals: number[] }) {
   const max = Math.max(1, ...values);
-  const W = 640, H = 140, pad = 24;
+  const W = 640, H = 70, pad = 24, top = 14;
   const bw = (W - pad) / Math.max(1, values.length);
   const step = Math.ceil(days.length / 10);
   return <figure className="sb-chart">
-    <svg viewBox={`0 0 ${String(W)} ${String(H + 18)}`} role="img" aria-label="未済の件数の推移">
+    <svg viewBox={`0 0 ${String(W)} ${String(top + H + 18)}`} role="img" aria-label="未済の件数の推移">
       {values.map((v, i) => {
         const h = (v / max) * H;
         return <g key={days[i]}>
-          <rect x={pad + i * bw + 1} y={H - h} width={Math.max(1, bw - 2)} height={h} className="sb-chart-bar">
+          <rect x={pad + i * bw + 1} y={top + H - h} width={Math.max(1, bw - 2)} height={h} className="sb-chart-bar">
             <title>{`${shortDay(days[i] ?? '')}: 未済 ${num(v)} 件（${pct(v, totals[i] ?? 0)}）`}</title>
           </rect>
-          {i % step === 0 && <text x={pad + i * bw + bw / 2} y={H + 14} textAnchor="middle" className="sb-chart-x">{shortDay(days[i] ?? '')}</text>}
+          {(i === 0 || i === values.length - 1) && <text x={pad + i * bw + bw / 2} y={top + H - h - 3} textAnchor="middle" className="sb-chart-v">{num(v)}</text>}
+          {i % step === 0 && <text x={pad + i * bw + bw / 2} y={top + H + 14} textAnchor="middle" className="sb-chart-x">{shortDay(days[i] ?? '')}</text>}
         </g>;
       })}
-      <text x={0} y={10} className="sb-chart-x">{num(max)}</text>
-      <line x1={pad} x2={W} y1={H} y2={H} className="sb-chart-axis" />
+      <line x1={pad} x2={W} y1={top + H} y2={top + H} className="sb-chart-axis" />
     </svg>
-    <figcaption>棒が低くなるほど、未済が消化されています。</figcaption>
+    <figcaption>棒の高さは未済の件数（0 件が下の線）。棒が低くなるほど、未済が消化されています。</figcaption>
   </figure>;
 }
