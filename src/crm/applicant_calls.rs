@@ -1,14 +1,13 @@
 //! 応募者の電話番号への、社内からの発信 (Zoom Phone の通話履歴。読み取りだけ)。
 //!
-//! CS の通話は HubSpot の応募には付かないので、番号で Zoom を引く。Zoom は 1 回に 1 か月までしか
-//! 返さないため、30 日ずつ 2 回に分けて直近 60 日を読む。結果は番号ごとにプロセス内に 3 分持つ。
+//! CS の通話は HubSpot の応募には付かないので、番号で Zoom を引く。Zoom は 1 回に暦の 1 か月
+//! (月末は丸める。`from` が `to` の 1 か月前より古いと 1 か月前まで削る) までしか返さないため、
+//! 1 か月ずつ 2 回に分けて直近 2 か月を読む。日付は Zoom と同じ UTC で数える。
+//! 結果は番号ごとにプロセス内に 3 分持つ。
 use super::*;
 use crate::crm::talk_review::zoom::{normalize_number, NumberDial, ZoomClient};
 use std::sync::{LazyLock, OnceLock};
 
-/// さかのぼる日数 (30 日の窓 2 つ)
-const WINDOW_DAYS: i64 = 30;
-const WINDOWS: i64 = 2;
 const CALLS_TTL: Duration = Duration::from_secs(180);
 const ZOOM_DEADLINE: Duration = Duration::from_secs(15);
 
@@ -51,6 +50,22 @@ async fn phone_of(ctx: &CrmCtx, client: &HubSpotClient, id: &str) -> Result<Stri
     Ok(text(&v["properties"], "denwabangou"))
 }
 
+/// 読む 2 つの窓 (新しい方, 古い方)。どちらも Zoom が削らない暦の 1 か月で、すき間なくつながる
+fn windows(
+    today: chrono::NaiveDate,
+) -> (
+    (chrono::NaiveDate, chrono::NaiveDate),
+    (chrono::NaiveDate, chrono::NaiveDate),
+) {
+    let month_before = |d: chrono::NaiveDate| {
+        d.checked_sub_months(chrono::Months::new(1))
+            .unwrap_or(d - chrono::Duration::days(28))
+    };
+    let from1 = month_before(today);
+    let to2 = from1 - chrono::Duration::days(1);
+    ((from1, today), (month_before(to2), to2))
+}
+
 fn merge(mut dials: Vec<NumberDial>) -> Vec<ApplicantCall> {
     dials.sort_by(|a, b| b.start_ms.cmp(&a.start_ms));
     dials.dedup_by(|a, b| a.start_ms == b.start_ms && a.caller == b.caller);
@@ -84,7 +99,10 @@ pub(in crate::crm) async fn calls(
         Ok(p) => p,
         Err(e) => return hubspot_error_response(&e),
     };
-    let days = (WINDOW_DAYS * WINDOWS) as u32;
+    // Zoom の日付は UTC。`to` は UTC の今日で止まるので、今日も UTC で数える
+    let today = chrono::Utc::now().date_naive();
+    let ((from1, to1), (from2, to2)) = windows(today);
+    let days = ((today - from2).num_days() + 1) as u32;
     let Some(number9) = normalize_number(&phone) else {
         return Json(ApplicantCalls {
             days,
@@ -98,12 +116,10 @@ pub(in crate::crm) async fn calls(
     let Some(zoom) = ZOOM.get_or_init(ZoomClient::from_env).clone() else {
         return error_json(StatusCode::SERVICE_UNAVAILABLE, "calls_unavailable");
     };
-    let today = crate::crm::caller_metrics::jst_day(chrono::Utc::now()).0;
-    let back = |n: i64| today - chrono::Duration::days(n);
     let read = async {
         tokio::try_join!(
-            zoom.dials_to_number(&phone, back(WINDOW_DAYS), today),
-            zoom.dials_to_number(&phone, back(WINDOW_DAYS * 2), back(WINDOW_DAYS + 1)),
+            zoom.dials_to_number(&phone, from1, to1),
+            zoom.dials_to_number(&phone, from2, to2),
         )
     };
     match tokio::time::timeout(ZOOM_DEADLINE, read).await {

@@ -581,7 +581,11 @@ impl ZoomClient {
         };
         // 国内の形 (0 始まり) で探す。`+81…` でも `0…` でも同じ結果になる
         let digits: String = number.chars().filter(char::is_ascii_digit).collect();
+        // `+810…` (国番号のあとに頭の 0 が残った形) は 0 を重ねない
         let keyword = match digits.strip_prefix("81") {
+            Some(rest) if number.trim_start().starts_with('+') && rest.starts_with('0') => {
+                rest.to_string()
+            }
             Some(rest) if number.trim_start().starts_with('+') => format!("0{rest}"),
             _ => digits,
         };
