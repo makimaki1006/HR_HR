@@ -15,6 +15,7 @@ pub mod indeed;
 pub mod job_copy_date;
 pub mod job_gen;
 pub mod listing_salary_check;
+pub mod listing_text_check;
 pub mod media_engine;
 pub mod mem_watch;
 pub mod minimum_wage;

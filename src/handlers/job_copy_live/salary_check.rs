@@ -1,5 +1,5 @@
-//! 求人の給与チェック。HRハッカーに掲載中の求人票 (HubSpot 0-420) を読み、給与の入力の誤りを一覧にする。
-//! 判定は `crate::listing_salary_check`（純粋な関数）。ここは HubSpot の読み取り・60 分の保持・応答だけ。
+//! 求人のチェック。HRハッカーに掲載中の求人票 (HubSpot 0-420) を読み、給与の入力の誤りと記載の誤りを一覧にする。
+//! 判定は `crate::listing_salary_check`（給与）と `crate::listing_text_check`（記載）。どちらも純粋な関数。ここは HubSpot の読み取り・60 分の保持・応答だけ。
 //! 読み取りのみで、HubSpot には何も書かない。
 //! 指摘のあった求人は HRハッカーの求人ページを開いて確かめ、掲載が終わっていたものは一覧から除く。
 use super::*;
@@ -105,10 +105,9 @@ fn build(listings: &[Listing], portal_id: &str, checked_at: String) -> SalaryChe
                 .unwrap_or("")
         };
         let prefecture = prop("todoufuken");
-        let found = judge::check(
-            Some(prefecture).filter(|p| !p.is_empty()),
-            prop("hrh_kyuujinhyou_honbun"),
-        );
+        let body = prop("hrh_kyuujinhyou_honbun");
+        let mut found = judge::check(Some(prefecture).filter(|p| !p.is_empty()), body);
+        found.extend(crate::listing_text_check::check(body));
         if !found.is_empty() {
             flagged += 1;
         }

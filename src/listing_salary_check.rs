@@ -97,6 +97,19 @@ pub enum Category {
     FixedOtExcluded,
     /// 本給の欄に試用期間の額が入っている。
     TrialAmount,
+    // ---- 記載の誤り（`crate::listing_text_check`）----
+    /// 「確認中」「要確認」など、書きかけの語が残っている。
+    Placeholder,
+    /// 日本語の文字の間に「?」などがあり、文字化けしている。
+    Mojibake,
+    /// 金額の書き方の誤り（1 億円以上・カンマの位置・単位の抜け）。
+    AmountTypo,
+    /// 必要な欄が空。
+    EmptyFields,
+    /// 案件名・キャッチコピーに書いた額が、入力した給与と合わない。
+    HeadlineAmount,
+    /// 本文の中で年間休日の日数が食い違う。
+    HolidayMismatch,
     /// 働く時間が分からず、最低賃金と比べられない。
     UnknownHours,
     /// 都道府県が分からず、最低賃金と比べられない。
@@ -109,11 +122,13 @@ pub enum Severity {
     Strong,
     Medium,
     Weak,
+    /// 記載の誤り。
+    Text,
     Unknown,
 }
 
 impl Category {
-    pub const ALL: [Category; 9] = [
+    pub const ALL: [Category; 15] = [
         Category::BelowMinWage,
         Category::TypeBand,
         Category::TextDigits,
@@ -121,6 +136,12 @@ impl Category {
         Category::TextAmount,
         Category::FixedOtExcluded,
         Category::TrialAmount,
+        Category::Placeholder,
+        Category::Mojibake,
+        Category::AmountTypo,
+        Category::EmptyFields,
+        Category::HeadlineAmount,
+        Category::HolidayMismatch,
         Category::UnknownHours,
         Category::UnknownPrefecture,
     ];
@@ -133,6 +154,12 @@ impl Category {
             Category::TextAmount => "text_amount",
             Category::FixedOtExcluded => "fixed_overtime_excluded",
             Category::TrialAmount => "trial_amount",
+            Category::Placeholder => "placeholder",
+            Category::Mojibake => "mojibake",
+            Category::AmountTypo => "amount_typo",
+            Category::EmptyFields => "empty_fields",
+            Category::HeadlineAmount => "headline_amount",
+            Category::HolidayMismatch => "holiday_mismatch",
             Category::UnknownHours => "unknown_hours",
             Category::UnknownPrefecture => "unknown_prefecture",
         }
@@ -146,6 +173,12 @@ impl Category {
             Category::TextAmount => "本文と額が違う",
             Category::FixedOtExcluded => "本給に固定残業代が入っていない",
             Category::TrialAmount => "試用期間の額が入っている",
+            Category::Placeholder => "書きかけの語",
+            Category::Mojibake => "文字化け",
+            Category::AmountTypo => "金額の書き間違い",
+            Category::EmptyFields => "必要な欄が空",
+            Category::HeadlineAmount => "題名・キャッチコピーの額",
+            Category::HolidayMismatch => "年間休日の食い違い",
             Category::UnknownHours => "判断できない（時間）",
             Category::UnknownPrefecture => "判断できない（都道府県）",
         }
@@ -158,6 +191,12 @@ impl Category {
             | Category::AnnualDigits => Severity::Strong,
             Category::TextAmount | Category::FixedOtExcluded => Severity::Medium,
             Category::TrialAmount => Severity::Weak,
+            Category::Placeholder
+            | Category::Mojibake
+            | Category::AmountTypo
+            | Category::EmptyFields
+            | Category::HeadlineAmount
+            | Category::HolidayMismatch => Severity::Text,
             Category::UnknownHours | Category::UnknownPrefecture => Severity::Unknown,
         }
     }
@@ -169,6 +208,7 @@ impl Severity {
             Severity::Strong => "strong",
             Severity::Medium => "medium",
             Severity::Weak => "weak",
+            Severity::Text => "text",
             Severity::Unknown => "unknown",
         }
     }
@@ -180,7 +220,7 @@ pub struct Finding {
     pub detail: String,
 }
 
-fn finding(category: Category, detail: String) -> Finding {
+pub(crate) fn finding(category: Category, detail: String) -> Finding {
     Finding { category, detail }
 }
 
@@ -189,7 +229,7 @@ fn re(cell: &'static OnceLock<Regex>, pattern: &str) -> &'static Regex {
 }
 
 /// 全角の数字と記号を半角にそろえる。
-fn half(s: &str) -> String {
+pub(crate) fn half(s: &str) -> String {
     s.chars()
         .map(|c| match c {
             '０'..='９' => char::from(b'0' + (c as u32 - '０' as u32) as u8),
@@ -413,7 +453,7 @@ fn annual_holidays(body: &str) -> Option<i64> {
 }
 
 /// 3 桁ごとのカンマ。
-fn yen(v: i64) -> String {
+pub(crate) fn yen(v: i64) -> String {
     let digits = v.unsigned_abs().to_string();
     let mut out = String::new();
     for (i, ch) in digits.chars().enumerate() {
