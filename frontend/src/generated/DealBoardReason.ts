@@ -2,6 +2,6 @@
 
 export type DealBoardReason = { kind: 'expiration' | 'expired' | 'contact' | 'stalled' | 'first_contract' | 'nps' | 'target' | 'cpa' | 'mtg' | 'mtg_gap', text: string, strong?: boolean, 
 /**
- * 「MTGが途絶えている」で、同じ会社に案件へ結び付いていないMTG録画があるときだけ true。
+ * 「MTGが60日以上空いている」で、同じ会社に案件へ結び付いていないMTG録画があるときだけ true。
  */
 unlinked_mtg?: boolean, };

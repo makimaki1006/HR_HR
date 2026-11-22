@@ -106,9 +106,10 @@ export function DealContract({ dealId, onSaved, onQueued, onDetail }: { dealId: 
         const editable = editing && canEdit && writable.some(item => item.name === name);
         const value = draft[name] ?? '';
         const change = (next: string) => { setDraft(prev => ({ ...prev, [name]: next })); write.dismiss(key); };
-        return <div className={`dc-field${savedFields.includes(name) && write.statuses[key]?.phase === 'saved' ? ' dc-written' : ''}`} key={name}><label htmlFor={`dc-${name}`}>{contractLabel(prop)}</label>{!editable && <strong>{displayValue(prop, values[name])}</strong>}
+        return <div className={`dc-field${name === 'oubo' ? ' dc-ref' : ''}${savedFields.includes(name) && write.statuses[key]?.phase === 'saved' ? ' dc-written' : ''}`} key={name}><label htmlFor={`dc-${name}`}>{contractLabel(prop)}</label>{!editable && <strong>{displayValue(prop, values[name])}</strong>}
           {editable && (prop.property_type === 'enumeration' ? <select id={`dc-${name}`} disabled={locked} value={value} onChange={event => { change(event.target.value); }}><option value="">未入力</option>{value && !prop.options.some(option => option.value === value) && <option value={value}>{displayValue(prop, value)}</option>}{prop.options.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select> : <input id={`dc-${name}`} disabled={locked} type={prop.property_type === 'date' ? 'date' : prop.property_type === 'number' ? 'number' : 'text'} step="any" value={value} onChange={event => { change(event.target.value); }} />)}
           {!CONTRACT_FIELDS.some(field => field === name) && <small>（ここでは変更できません）</small>}
+          {name === 'oubo' && !editable && <small>参考。応募の判断には HubSpot の応募の記録を使います</small>}
           {editable && request.changes.some(change => change.name === name) && <small className="dc-original">元: {displayValue(prop, base[name])}</small>}
         </div>;
       })}</div>

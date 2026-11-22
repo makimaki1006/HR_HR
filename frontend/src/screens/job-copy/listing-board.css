@@ -8,3 +8,4 @@
 .lb-table tbody tr:hover { background: #f6fafb; }
 .lb-table th[scope=row] { padding: 10px 8px 10px 16px; text-align: left; font-weight: normal; border-bottom: 1px solid #f1f5f9; }
 .lb-screen .ob-paging span { margin: 0 8px 0 auto; }
+.lb-table td.lb-media { color: #647381; }

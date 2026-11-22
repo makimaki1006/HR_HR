@@ -141,8 +141,8 @@ describe('dealSummaryModel', () => {
   it('媒体ごとの最終日', () => {
     const cutoffs = mediaCutoffs([...listings, { ...listing('w', 1, 0, [bill('2026-09-01', '2026-09-30', 1)]), media: 'airwork' }]);
     expect(cutoffs).toEqual([
-      { media: 'hrh', lastApplication: '2026-10-01', lastBilling: '2026-10-12' },
-      { media: 'airwork', lastApplication: '2026-10-01', lastBilling: '2026-09-30' },
+      { media: 'hrh', lastApplication: '2026-10-01', lastBilling: '2026-10-12', fetched: true },
+      { media: 'airwork', lastApplication: '2026-10-01', lastBilling: '2026-09-30', fetched: true },
     ]);
   });
 

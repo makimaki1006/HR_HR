@@ -6,6 +6,7 @@ import { apiGet } from '../../api/client';
 import { updateJobCopyQuery, useJobCopySearch } from './navigation';
 import { OwnerFilter, ownerParams, signalCards } from './OwnerTodo';
 import { Breadcrumbs } from './Breadcrumbs';
+import { InfoTip } from './InfoTip';
 import { ReasonChips } from './NextTodo';
 import { formatDateJst } from './format';
 import { backoff, runWhenDue, usePreparingRetry } from '../../shared/preparingRetry';
@@ -19,8 +20,8 @@ import './home.css';
 import './deal-board.css';
 import { recheckSelfOwner } from './selfOwner';
 const PAGE_SIZE = 20;
-// 案件一覧だけのタグ。「MTGが途絶えている」（60日以上）の手前の30〜59日を分けて数える。今日の画面には出さない。
-const boardSignalCards: (readonly [string, string, string])[] = signalCards.flatMap((card): (readonly [string, string, string])[] => card[0] === 'mtg' ? [card, ['mtg_gap', 'MTGが空いている', '最後のMTGから30〜59日']] : [card]);
+// 案件一覧だけのタグ。「MTGが60日以上空いている」（60日以上）の手前の30〜59日を分けて数える。今日の画面には出さない。
+const boardSignalCards: (readonly [string, string, string])[] = signalCards.flatMap((card): (readonly [string, string, string])[] => card[0] === 'mtg' ? [card, ['mtg_gap', 'MTGが30〜59日空いている', '最後のMTGから30〜59日']] : [card]);
 function lastContactLabel(row: DealRow): string {
   if (row.contact_status === 'outside') return '記録なし（対象外）';
   if (row.contact_status === 'unavailable') return '未取得';
@@ -149,8 +150,8 @@ export function DealBoard() {
         <button type="button" aria-pressed={firstOnly} onClick={() => { if (!firstOnly) change({ deals_first: 'yes', deals_zero: null, deals_period: null, deals_weeks: null, deals_from: null, deals_to: null, deals_launch: null, deals_sort: null, deals_direction: null }); }}>初回案件の立ち上がり</button>
         <button type="button" aria-pressed={zeroOnly} onClick={() => { if (!zeroOnly) change({ deals_zero: 'yes', deals_period: null, deals_weeks: null, deals_from: null, deals_to: null, deals_first: null, deals_launch: null, deals_reason: null, deals_sort: null, deals_direction: null }); }}>応募ゼロの案件</button>
       </div>
-      {ready.refresh_failed && <p role="status">更新できなかったため、前に取得した値を表示しています。</p>}
-      <p className="jh-note">最後の接触はMTGか60秒を超える電話です（メールは数えません）。最後の接触・最後のMTG・MTGのタグ：{ready.sheet_as_of ? `${formatDateJst(ready.sheet_as_of)} 時点（前日の集計）` : '集計した日が未取得'}。請負契約は接触とMTGの集計対象外です。</p>
+      {ready.refresh_failed && !ready.facts_stale && <p role="status">更新できなかったため、前に取得した値を表示しています。</p>}
+      <InfoTip className="jc-infotip-left db-rules" iconFirst label="数え方"><p>最後の接触はMTGか60秒を超える電話です（メールは数えません）。最後の接触・最後のMTG・MTGのタグ：{ready.sheet_as_of ? `${formatDateJst(ready.sheet_as_of)} 時点（前日の集計）` : '集計した日が未取得'}。請負契約は接触とMTGの集計対象外です。</p><p>応募：HubSpot の応募を応募日で数えています。応募日が無いときは作成日を使います。日本時間の今日を含む28日間と、その前の28日間を比べています。同じ応募は1回だけ数え、同じ人が同じ求人にもう一度応募したときは最初の1件だけを数えます。</p><p>タグは記録から自動で付き、条件が解消すると消えます。</p><ul>{boardSignalCards.map(([kind, label, rule]) => <li key={kind}>{label}：{rule}</li>)}</ul></InfoTip>
       {zeroOnly ? <><h2 className="db-zero-heading">応募が1件も無い案件{period !== 'all' && periodLabel && `（${periodLabel}）`} <strong>{scoped.length}件</strong></h2><p className="jh-note">{period === 'all' ? '求人票が案件に付いていて、その求人票への応募が全期間で1件もありません。' : period === 'contract' ? '初回契約の案件で、契約の開始日から満了日までの応募日が1件もありません。' : range ? `求人票が案件に付いていて、${periodLabel}の応募日が1件もありません。` : '期間の開始日と終了日を選んでください。'}{preparing ? '応募を集計しているため、件数は増える場合があります。' : '約60分ごとに更新します。'}求人票が付いていない案件は含みません。{periodUnknownCount > 0 && `応募日も作成日も分からない応募がある${String(periodUnknownCount)}件は、期間の応募数を数えられないため含みません。`}</p></> : <div className="db-reason-filters" role="group" aria-label="タグで絞る">
         <button type="button" aria-pressed={!reason} onClick={() => { change({ deals_reason: null }); }}>すべて <strong>{scoped.length}</strong></button>
         <button type="button" className={goodCount === 0 ? 'db-zero' : ''} aria-pressed={reason === 'good'} disabled={good === 'failed'} title={good === 'failed' ? 'いい案件の集計を読み込めませんでした。' : '応募が増えた・採用単価が同じ区分の中央値より低い・MTGで前向きな話があった案件'} onClick={() => { change({ deals_reason: reason === 'good' ? null : 'good' }); }}>順調 <strong>{goodCount ?? '—'}</strong></button>
@@ -161,10 +162,7 @@ export function DealBoard() {
       <section className="db-application-summary" aria-label="絞り込み中の応募数">
         <h2>応募のまとめ</h2>
         <p>直近4週 <strong>{applications.missing ? summaryPending : `${String(applications.recent)}件`}</strong> ／ 前の4週 <strong>{applications.missing ? summaryPending : `${String(applications.previous)}件`}</strong> ／ 差 <strong>{applications.missing ? summaryPending : applicationChange(applications.change)}</strong></p>
-        <p className="jh-note">HubSpot の応募を応募日で数えています。応募日が無いときは作成日を使います。日本時間の今日を含む28日間と、その前の28日間を比べています。同じ応募は1回だけ数え、同じ人が同じ求人にもう一度応募したときは最初の1件だけを数えます。</p>
-        {applications.unknown > 0 && <p className="jh-note">日付不明の応募 {applications.unknown}件は含めていません。</p>}
-        {applications.missing > 0 && !preparing && <p className="jh-note">応募数が未取得の案件が{applications.missing}件あります。</p>}
-        {applications.outOfScope > 0 && <p className="jh-note">満了から8週を過ぎた終了済みの案件{applications.outOfScope}件は数えていません。</p>}
+        {(() => { const left = [applications.unknown > 0 ? `日付不明の応募 ${String(applications.unknown)}件` : '', applications.missing > 0 && !preparing ? `応募数が未取得の案件 ${String(applications.missing)}件` : '', applications.outOfScope > 0 ? `満了から8週を過ぎた終了済みの案件 ${String(applications.outOfScope)}件` : ''].filter(text => text !== ''); return left.length > 0 && <p className="jh-note">含めていないもの：{left.join('・')}</p>; })()}
       </section>
       <div className="db-list-meta"><p aria-live="polite">{rows.length}件・{page} / {pages}ページ</p><p className="jh-note">並び: {sort === 'priority' ? firstOnly ? '目安より少ない → 開始から日数の長い順' : 'タグが多い順' : `${dealSorts.find(([key]) => key === sort)?.[1] ?? ''}の${descending ? '多い・新しい順' : '少ない・古い順'}`} {sort !== 'priority' && <button type="button" className="jh-link" onClick={() => { change({ deals_sort: null, deals_direction: null }); }}>標準の並びに戻す</button>}</p></div>
       <div className={`db-scroll-frame${moreRight ? ' db-more-right' : ''}`}><div className="db-board-scroll" ref={scrollRef} onScroll={checkScroll} tabIndex={0} role="region" aria-label="案件一覧（横スクロール）"><table className={`db-table${firstOnly ? ' db-launch-table' : ''}`}><thead><tr>{(firstOnly || zeroOnly ? columns.slice(0, 1) : columns).map(([key, label]) => <SortHeader key={key} label={label} active={sort === key} descending={descending} onSort={() => { changeSort(key); }} />)}{zeroOnly && ['担当', '契約期間', 'ステージ', '求人票の数', 'HubSpot'].map(label => <th scope="col" key={label}>{label}</th>)}{firstOnly && ['担当', '契約開始日', '開始からの応募数', '目安との比較', '最初の応募', '週ごとの応募', '掲載中の求人数'].map(label => <th scope="col" key={label}>{label}</th>)}<th scope="col" className="db-toggle-column">詳しい数字・詳細</th></tr></thead><tbody>

@@ -82,8 +82,8 @@ describe('求人のページの上の帯の表示', () => {
     expect(screen.getByText('課金（10/5 までの4週）')).toBeTruthy();
     expect(screen.getByTestId('band-billing').textContent).toBe('¥30,000');
     // データの最後の日は帯の中の1行。右の「数字の前提」欄はない。
-    expect(screen.getByTestId('rail-last-application').textContent).toMatch(/^応募データ：(2026\/)?10\/5まで$/);
-    expect(screen.getByTestId('rail-last-billing').textContent).toMatch(/^課金データ：(2026\/)?10\/5まで$/);
+    expect(screen.getByTestId('rail-last-application').textContent).toMatch(/^最後の応募：(2026\/)?10\/5$/);
+    expect(screen.getByTestId('rail-last-billing').textContent).toMatch(/^最後の課金：(2026\/)?10\/5$/);
     expect(container.querySelector('[aria-label="数字の前提"]')).toBeNull();
     expect(screen.queryByRole('button', { name: 'この求人から新しいパターンを作る' })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: '全文を比べる' }));
@@ -111,7 +111,7 @@ describe('求人のページの上の帯の表示', () => {
     expect(screen.getByTestId('band-per-application').textContent).toBe('—課金データなし');
     expect(screen.getByText('課金（4週あたり）')).toBeTruthy();
     expect(screen.getByTestId('band-billing').textContent).toBe('—課金データなし');
-    expect(screen.getByTestId('rail-last-billing').textContent).toBe('課金データ：なし');
+    expect(screen.getByTestId('rail-last-billing').textContent).toBe('最後の課金：なし');
   });
   it('「市場の今」に指定した職種・地域を出す', async () => {
     render(<MarketNowBar job={job} mode="demo" onIndeedTitleChanged={() => undefined} />);

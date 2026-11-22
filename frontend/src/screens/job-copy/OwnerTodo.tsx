@@ -122,7 +122,7 @@ export function OwnerScopeBanner({ work }: { work: OwnerWork }) {
     <button type="button" className="jc-button" onClick={() => { changeOwner('me'); }}>自分の担当分に戻す</button></p>;
 }
 export const signalCards = [
-  ['expiration', '契約満了が近い', '今日から60日後まで'],
+  ['expiration', '満了まで60日以内', '今日から60日後まで'],
   ['expired', '満了後も稼働中', '満了日が今日より前で、終了していないステージ（ステージはHubSpotで直す）'],
   ['contact', '接触が空いている', '最後の接触から31日以上（MTGか60秒を超える電話。メールは数えない）'],
   ['stalled', '応募が止まっている', '掲載中の求人があり、直近14日の応募が0件'],
@@ -130,7 +130,7 @@ export const signalCards = [
   ['nps', '定期の満足度が低い', '定期の満足度が4以下'],
   ['target', '採用目標に届いていない', '開始30日を過ぎ、採用目標の半分未満'],
   ['cpa', '採用単価が高い', '同じ進捗帯の中央値の1.5倍以上'],
-  ['mtg', 'MTGが途絶えている', '最後のMTGから60日以上'],
+  ['mtg', 'MTGが60日以上空いている', '最後のMTGから60日以上'],
 ] as const;
 const planCards = [
   ['overdue', '期限切れ', '今日より前の予定', 'urgent'],
@@ -185,7 +185,7 @@ export function OwnerTodo({ work, onOpenCompany, onOpenDeal, onSaved, onShowList
     <div><div className="jh-section-head"><h3>予定 <small>担当者が入れた次の予定</small></h3></div><div className="jh-cards jh-todo-cards">{planGroups.map(group => card(group))}</div>
       <CountLine label="ほかの予定" items={[{ key: 'later', label: 'それ以降の予定', count: work.actions.later.length, pressedKey: 'todo_later' }]} openKey={open} onToggle={toggle} />
       {inPlan && list}</div>
-    <div><div className="jh-section-head"><h3>タグが付いた案件</h3><InfoTip className="jc-infotip-aside" iconFirst label="数え方を見る"><p>タグは記録から自動で付き、条件が解消すると消えます。日付は日本時間、終了した案件は除いています。</p><p>色の意味：赤は予定が過ぎたもの（期限切れ）、橙は注意、灰は0件です。タグの赤い札は、MTGが60日以上途絶えている案件です。</p><p>MTGが途絶えているタグ：{work.sheet_as_of ? `${formatDateJst(work.sheet_as_of)} 時点（前日の集計）` : '集計した日が未取得'}。</p><ul>{signalGroups.map(group => <li key={group.key}>{group.label}：{group.rule}</li>)}</ul></InfoTip></div>
+    <div><div className="jh-section-head"><h3>タグが付いた案件</h3><InfoTip className="jc-infotip-aside" iconFirst label="数え方を見る"><p>タグは記録から自動で付き、条件が解消すると消えます。日付は日本時間、終了した案件は除いています。</p><p>色の意味：赤は予定が過ぎたもの（期限切れ）、橙は注意、灰は0件です。タグの赤い札は、MTGが60日以上空いている案件です。</p><p>MTGのタグ：{work.sheet_as_of ? `${formatDateJst(work.sheet_as_of)} 時点（前日の集計）` : '集計した日が未取得'}。</p><ul>{signalGroups.map(group => <li key={group.key}>{group.label}：{group.rule}</li>)}</ul></InfoTip></div>
       <div className="jh-cards jh-todo-cards">{mainSignals.map(group => card(group))}</div>
       <CountLine label="ほかのタグ" items={otherSignals.map(group => ({ key: group.key, label: group.label, count: group.items.length, pressedKey: `todo_${group.key}` }))} openKey={open} onToggle={toggle} />
       {goSignals.map(group => <p key={group.key} className="jh-go-line"><span>{group.label} {group.items.length}件</span><GoLink onClick={() => { toggle(group.key); }}>案件一覧で見る</GoLink></p>)}

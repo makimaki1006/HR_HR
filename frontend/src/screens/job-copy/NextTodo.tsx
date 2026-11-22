@@ -25,7 +25,7 @@ export function todoRequest(dealId: string, base: PropValues, due: string, conte
   return { dealId, changes: FIELDS.map(name => ({ object: 'deal' as const, name, base: base[name] ?? null, value: name === 'actionyotei' ? due : content })) };
 }
 export interface TodoReason { kind: 'expiration' | 'expired' | 'contact' | 'stalled' | 'first_contract' | 'nps' | 'target' | 'cpa' | 'mtg' | 'mtg_gap'; text: string; strong?: boolean; unlinked_mtg?: boolean }
-/** 「MTGが途絶えている」に添える。同じ会社に、案件へ結び付いていないMTG録画があるときの一覧への入口。 */
+/** 「MTGが60日以上空いている」に添える。同じ会社に、案件へ結び付いていないMTG録画があるときの一覧への入口。 */
 export function UnlinkedMtgLink() {
   return <a className="nt-unlinked" href="/app/job-copy?view=unlinked" onClick={event => { event.stopPropagation(); }}>未連携のMTGあり</a>;
 }

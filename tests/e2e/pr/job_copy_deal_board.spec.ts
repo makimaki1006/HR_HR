@@ -29,7 +29,7 @@ test('案件一覧の印・日付・並べ替え・絞り込み・20件送りと
   await expect(table.locator('tbody > tr').first()).toContainText('架空の採用支援01');
   await expect(page.getByText('23件・1 / 2ページ')).toBeVisible();
   await expect(page.getByText(/2026\/10\/15 時点（前日の集計）/)).toBeVisible();
-  await expect(table.locator('.nt-strong')).toHaveText('MTGが途絶えている（最後のMTGから 107 日）');
+  await expect(table.locator('.nt-strong')).toHaveText('MTGが60日以上空いている（最後のMTGから 107 日）');
   await expect(page.getByRole('checkbox', { name: '終わった案件も出す' })).not.toBeChecked();
   await expect(page.getByRole('combobox', { name: '並べ替え' })).toHaveCount(0);
   await expect(page.getByText('並び: タグが多い順', { exact: true })).toBeVisible();
@@ -51,7 +51,7 @@ test('案件一覧の印・日付・並べ替え・絞り込み・20件送りと
   await expect(nps).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByText('1件・1 / 1ページ')).toBeVisible();
   await expect(table.locator('tbody > tr')).toHaveCount(1);
-  await expect(marks.getByRole('button', { name: 'MTGが途絶えている 1', exact: true })).toBeVisible();
+  await expect(marks.getByRole('button', { name: 'MTGが60日以上空いている 1', exact: true })).toBeVisible();
   if (dir) await page.screenshot({ path: `${dir}/deals-filtered.png`, fullPage: true });
   await nps.click();
   await expect(page.getByText('23件・1 / 2ページ')).toBeVisible();
@@ -199,7 +199,7 @@ test('求人と応募の前回集計をやることと案件一覧に残して�
   await login(page);
   await page.goto('/app/job-copy?owner=11&owner_field=consultant');
   await expect(page.getByText('2026/10/16 00:10 時点の集計です。新しい集計を作っています。')).toBeVisible();
-  await expect(page.locator('.jh-todo-cards').getByRole('button', { name: /契約満了が近い/ }).locator('.jh-count')).toHaveText('1件');
+  await expect(page.locator('.jh-todo-cards').getByRole('button', { name: /満了まで60日以内/ }).locator('.jh-count')).toHaveText('1件');
   await page.getByRole('navigation', { name: '案件管理のメニュー' }).getByRole('button', { name: '案件', exact: true }).click();
   await expect(page.getByText('2026/10/16 00:10 時点の集計です。新しい集計を作っています。')).toBeVisible();
   await expect(page.locator('.db-table tbody > tr')).toHaveCount(20);

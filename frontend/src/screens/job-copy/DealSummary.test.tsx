@@ -58,7 +58,7 @@ it('表の上に職種の指定状況・地域・一括指定へのリンク、�
   // 未指定の 2 件には掲載を終えた求人D も入る（表は既定で掲載中だけ）
   const link = screen.getByRole('link', { name: '未指定の 2 件（うち掲載終了 1 件）を指定する' });
   expect(link.getAttribute('href')).toBe('/app/job-copy?view=occupations&deal=9');
-  expect(screen.getByTestId('ds-dataline').textContent).toContain('データの最後の日：HRハッカー 応募');
+  expect(screen.getByTestId('ds-dataline').textContent).toContain('最後の応募：HRハッカー');
   // 表は既定で掲載中だけ。掲載中で未指定の求人B に印が付く。
   const unset = document.querySelectorAll('.ds-table .ds-unset');
   expect(unset).toHaveLength(1);

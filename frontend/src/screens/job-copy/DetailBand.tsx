@@ -20,14 +20,15 @@ const shortDay = (value: string) => {
   return value.slice(0, 4) === todayJst().slice(0, 4) ? day : `${value.slice(0, 4)}/${day}`;
 };
 
-/** 帯の中の 1 行：応募データ・課金データの最後の日。読み込み中・失敗はここ 1 か所だけに出す。 */
+/** 帯の中の 1 行：最後の応募・最後の課金と、応募を取り込んだ日。読み込み中・失敗はここ 1 か所だけに出す。 */
 function DataLine({ job, n }: { job: JobCopyRecord; n: ReturnType<typeof bandNumbers> }) {
-  const application = n.lastApplicationDate ? `${shortDay(n.lastApplicationDate)}まで` : job.overallApplications?.byDate ? 'まだ応募なし' : null;
+  const application = n.lastApplicationDate ? shortDay(n.lastApplicationDate) : job.overallApplications?.byDate ? 'なし' : null;
   return <p className="jc-band-data" data-testid="band-data">
     {application === null
       ? <span role={job.applicationDates === 'failed' ? 'alert' : 'status'} data-testid="band-application-state">{noApplicationDatesText(job)}{job.applicationDates === 'failed' && <RetryApplicants id={job.hubspotId} />}</span>
-      : <span data-testid="rail-last-application">応募データ：{application}</span>}
-    <span aria-hidden="true"> ／ </span><span data-testid="rail-last-billing">課金データ：{n.lastBillingDate ? `${shortDay(n.lastBillingDate)}まで` : 'なし'}</span>
+      : <span data-testid="rail-last-application">最後の応募：{application}</span>}
+    <span aria-hidden="true"> ／ </span><span data-testid="rail-last-billing">最後の課金：{n.lastBillingDate ? shortDay(n.lastBillingDate) : 'なし'}</span>
+    {n.asOf && <><span aria-hidden="true"> ／ </span><span data-testid="rail-fetched">取り込み {shortDay(n.asOf)} 時点</span></>}
     {n.asOf && <InfoTip className="jc-infotip-left" iconFirst label="4週の数え方"><p>直近4週は、応募を取得した{shortDay(n.asOf)}までの28日、前の4週はその前の28日です。</p></InfoTip>}
   </p>;
 }
