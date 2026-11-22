@@ -341,12 +341,12 @@ pub const NAV_DEFS: &[NavDef] = &[
         requires: None,
         hidden: None,
     },
-    // 求人の給与チェック (React 画面 /app/listing-check)。データ (`/api/listing-check/salary`) は案件管理と同じく
+    // 求人チェック (React 画面 /app/listing-check)。データ (`/api/listing-check/salary`) は案件管理と同じく
     // 会社ドメインの Google ログインの人にだけ返す。
     NavDef {
         id: "listing-check",
-        label: "求人の給与チェック",
-        title: Some("HRハッカーに掲載中の求人の、給与の入力の誤りと最低賃金"),
+        label: "求人チェック",
+        title: Some("HRハッカーに掲載中の求人の、給与の入力の誤り・最低賃金・記載の誤り"),
         kind: NavKind::App,
         target: "/app/listing-check",
         group: None,
@@ -1367,7 +1367,7 @@ mod tests {
                     .filter(|e| e.2 != "競合調査")
                     // Exclude only the separately validated new link from the old golden.
                     .filter(|e| !e.1.contains(&("href".into(), "/app/job-copy".into())))
-                    // 求人の給与チェックも、旧テンプレートより後に足したリンク。
+                    // 求人チェックも、旧テンプレートより後に足したリンク。
                     .filter(|e| !e.1.contains(&("href".into(), "/app/listing-check".into())))
                     .collect::<Vec<_>>(),
                 elements(&old_top(kw, jg)),
