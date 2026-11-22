@@ -2262,7 +2262,7 @@ fn router_with_index(state: Option<&Arc<AppState>>) -> Router<Arc<AppState>> {
             "/api/job-copy/deals/{id}/refresh",
             get(listings::refresh_deal),
         )
-        // 求人のチェック（/app/listing-check）。認可は案件管理と同じ。
+        // 求人チェック（/app/listing-check）。認可は案件管理と同じ。
         .route("/api/listing-check/salary", get(salary_check::read))
         .merge(drafts::router(state, access.clone()))
         .merge(saved_notes::router())

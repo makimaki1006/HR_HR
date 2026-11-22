@@ -50,7 +50,7 @@ export default defineConfig({
         'consulting-v2': fromHere('src/entries/consulting-v2.tsx'),
         // 架電の練習 (2026-10-29): /app/call-practice。第 1 段は管理者だけ
         'call-practice': fromHere('src/entries/call-practice.tsx'),
-        // 求人のチェック (2026-11-21): /app/listing-check。案件管理と同じ条件の人にデータを返す
+        // 求人チェック (2026-11-21): /app/listing-check。案件管理と同じ条件の人にデータを返す
         'listing-check': fromHere('src/entries/listing-check.tsx'),
       },
     },

@@ -1,4 +1,4 @@
-// /app/listing-check: 求人のチェック。HRハッカーに掲載中の求人の、給与の入力の誤り・最低賃金・記載の誤りを一覧にする。
+// /app/listing-check: 求人チェック。HRハッカーに掲載中の求人の、給与の入力の誤り・最低賃金・記載の誤りを一覧にする。
 // データは GET /api/listing-check/salary（案件管理と同じ条件の人にだけ返る。読み取りのみ）。
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
@@ -206,12 +206,12 @@ export function ListingCheckScreen() {
   return (
     <div className="lc-page">
       <div className="lc-sheet">
-        <nav className="lc-nav" aria-label="求人のチェック">
+        <nav className="lc-nav" aria-label="求人チェック">
           <a href="/">← ダッシュボード</a>
         </nav>
         <header className="lc-header">
           <div>
-            <h1>求人のチェック</h1>
+            <h1>求人チェック</h1>
             <p className="lc-lead">
               HRハッカーに掲載中の求人の、給与の入力・最低賃金・記載の誤り
             </p>

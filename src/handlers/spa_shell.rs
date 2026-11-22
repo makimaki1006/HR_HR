@@ -64,7 +64,7 @@ pub const KNOWN_SCREENS: &[&str] = &[
     // 2026-11-02: コンサルKPI v2 (/app/consulting-v2)。今のコンサルKPI (/consulting) と並べて見比べる画面案。
     // データは今のコンサルKPIと同じ /api/consulting/* (ログインしていれば誰でも)。ナビは今のコンサルKPIの隣
     "consulting-v2",
-    // 2026-11-21: 求人のチェック (/app/listing-check)。データは /api/listing-check/salary が
+    // 2026-11-21: 求人チェック (/app/listing-check)。データは /api/listing-check/salary が
     // 案件管理と同じ条件 (会社ドメインの Google ログイン) の人にだけ返す
     "listing-check",
 ];
