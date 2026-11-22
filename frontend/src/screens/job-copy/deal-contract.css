@@ -30,3 +30,6 @@
 .dc-stage-pick label { display: grid; gap: 4px; font-size: 12px; color: #52616e; }
 .dc-field small { color: #647381; font-size: 12px; }
 .dc-root p.dc-stage { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; font-size: 14px; }
+
+/* 応募数（担当者の入力）は参考の数字。主の数字（HubSpot の応募の記録）と取り違えないよう控えめにする。 */
+.dc-field.dc-ref strong { font-size: 13px; font-weight: normal; color: #647381; }

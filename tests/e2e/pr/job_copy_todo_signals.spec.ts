@@ -40,7 +40,7 @@ test('要対応の理由をまとめ、予定をvalueで保存し、ホームと
   const dir = process.env.TODO_SIGNALS_SCREENSHOT_DIR;
   await login(page); await page.goto('/app/job-copy');
   await expect(page.locator('.jh-todo-cards .jh-card')).toHaveCount(7);
-  for (const card of ['契約満了が近い', '接触が空いている', '応募が止まっている']) {
+  for (const card of ['満了まで60日以内', '接触が空いている', '応募が止まっている']) {
     const button = page.getByRole('button', { name: new RegExp(card) });
     await expect(button.locator('.jh-count')).toHaveText('1件');
     // タグが付いた案件は注意（橙）。

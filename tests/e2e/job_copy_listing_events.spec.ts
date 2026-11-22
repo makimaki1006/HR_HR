@@ -55,7 +55,7 @@ test('応募が0件の求人は、分からないではなく0件で出す', asy
   await open(page, { total: 0, missing_date: 0, by_date: {} });
   await expect(page.getByTestId('listing-reasons')).toContainText('応募理由の記録はまだありません');
   await expect(page.getByTestId('lifeline')).toContainText('¥0');
-  await expect(page.getByTestId('rail-last-application')).toHaveText('まだ応募なし');
+  await expect(page.getByTestId('rail-last-application')).toHaveText('最後の応募：なし');
   await expect(page.getByText('応募を取得した日が分からない')).toHaveCount(0);
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/events-zero-applications.png`, fullPage: true });
 });

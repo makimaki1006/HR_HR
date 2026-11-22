@@ -333,7 +333,7 @@ export function eventWeekMarks(events: readonly Pick<DealEvent, 'n' | 'date' | '
   return [...marks.values()].sort((a, b) => a.index - b.index).map(mark => ({ ...mark, numbers: [...mark.numbers].sort((a, b) => a - b) }));
 }
 
-export interface MediaCutoff { media: 'hrh' | 'airwork' | 'reclogi'; lastApplication: string | null; lastBilling: string | null }
+export interface MediaCutoff { media: 'hrh' | 'airwork' | 'reclogi'; lastApplication: string | null; lastBilling: string | null; /** 応募の記録を取得できた求人がある（最後の応募が無ければ「なし」、取得できていなければ「未取得」）。 */ fetched: boolean }
 
 /** 媒体ごとの、応募と課金がどの日まであるか。 */
 export function mediaCutoffs(listings: readonly DealListingInput[]): MediaCutoff[] {
@@ -341,7 +341,7 @@ export function mediaCutoffs(listings: readonly DealListingInput[]): MediaCutoff
     const own = listings.filter(listing => listing.media === media);
     const dates = own.flatMap(listing => Object.entries(listing.byDate ?? {}).filter(([, count]) => count > 0).map(([date]) => date));
     const ends = own.flatMap(listing => listing.billing.map(entry => entry.end));
-    return { media, lastApplication: dates.length ? dates.reduce((a, b) => a > b ? a : b) : null, lastBilling: ends.length ? ends.reduce((a, b) => a > b ? a : b) : null };
+    return { media, lastApplication: dates.length ? dates.reduce((a, b) => a > b ? a : b) : null, lastBilling: ends.length ? ends.reduce((a, b) => a > b ? a : b) : null, fetched: own.some(listing => listing.byDate !== null) };
   });
 }
 

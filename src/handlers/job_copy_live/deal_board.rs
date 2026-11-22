@@ -149,7 +149,7 @@ struct DealBoardReason {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     strong: Option<bool>,
-    /// 「MTGが途絶えている」で、同じ会社に案件へ結び付いていないMTG録画があるときだけ true。
+    /// 「MTGが60日以上空いている」で、同じ会社に案件へ結び付いていないMTG録画があるときだけ true。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     unlinked_mtg: Option<bool>,
@@ -390,13 +390,13 @@ impl<'a> Metrics<'a> {
         if cs::high_cpa(cs::cpa(d), median) {
             add("cpa", "採用単価が同じ進捗帯の1.5倍以上", false);
         }
-        // 60日以上は「MTGが途絶えている」（今日の要対応と同じ基準）、30〜59日は別の印「MTGが空いている」。
+        // 60日以上は「MTGが60日以上空いている」（今日の要対応と同じ基準）、30〜59日は別の印「MTGが30〜59日空いている」。
         if let Some(days) = self.mtg_days(work, today) {
             match cs::mtg_band_for_days(days) {
                 cs::MtgBand::Critical => {
                     add(
                         "mtg",
-                        &format!("MTGが途絶えている（最後のMTGから {days} 日）"),
+                        &format!("MTGが60日以上空いている（最後のMTGから {days} 日）"),
                         true,
                     );
                     // 同じ会社に、案件へ結び付いていないMTG録画がある（結び付けは人が行う）。
@@ -408,7 +408,7 @@ impl<'a> Metrics<'a> {
                 }
                 cs::MtgBand::Yellow => add(
                     "mtg_gap",
-                    &format!("MTGが空いている（最後のMTGから {days} 日）"),
+                    &format!("MTGが30〜59日空いている（最後のMTGから {days} 日）"),
                     false,
                 ),
                 _ => {}
@@ -426,7 +426,7 @@ impl<'a> Metrics<'a> {
         cs::mtg_gap_of(d, last, today).days
     }
     /// ホームの要対応と取引ごとの「次にやること」で使う理由。
-    /// 「MTGが途絶えている」（60 日以上）だけを出し、30〜59 日の「MTGが空いている」は案件一覧の印だけにする。
+    /// 「MTGが60日以上空いている」（60 日以上）だけを出し、30〜59 日の「MTGが30〜59日空いている」は案件一覧の印だけにする。
     pub(super) fn todo_reasons(
         &self,
         snapshot: &Snapshot,
@@ -760,25 +760,25 @@ mod tests {
             (
                 30,
                 Some("mtg_gap"),
-                "MTGが空いている（最後のMTGから 30 日）",
+                "MTGが30〜59日空いている（最後のMTGから 30 日）",
                 false,
             ),
             (
                 59,
                 Some("mtg_gap"),
-                "MTGが空いている（最後のMTGから 59 日）",
+                "MTGが30〜59日空いている（最後のMTGから 59 日）",
                 false,
             ),
             (
                 60,
                 Some("mtg"),
-                "MTGが途絶えている（最後のMTGから 60 日）",
+                "MTGが60日以上空いている（最後のMTGから 60 日）",
                 true,
             ),
             (
                 90,
                 Some("mtg"),
-                "MTGが途絶えている（最後のMTGから 90 日）",
+                "MTGが60日以上空いている（最後のMTGから 90 日）",
                 true,
             ),
         ] {
@@ -797,7 +797,7 @@ mod tests {
     }
     #[test]
     fn home_todo_and_deal_board_count_the_same_stopped_mtg_deals() {
-        // 本番の食い違い（案件一覧 7 件・今日 2 件）の形: 30〜59 日の案件は「MTGが途絶えている」に入らない。
+        // 本番の食い違い（案件一覧 7 件・今日 2 件）の形: 30〜59 日の案件は「MTGが60日以上空いている」に入らない。
         let s = snapshot(120, "5", "21596025");
         for (days, stopped, gap) in [
             (29, false, false),

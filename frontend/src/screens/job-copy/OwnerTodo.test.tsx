@@ -33,7 +33,7 @@ it('7枚の件数カードと、ほかのタグの札・案件一覧へ移る行
   const push = vi.spyOn(window.history, 'pushState');
   render(<OwnerTodo work={demoOwnerTodo} onOpenCompany={company} onOpenDeal={deal} />);
   expect(document.querySelectorAll('.jh-todo-cards .jh-card')).toHaveLength(7);
-  expect([...document.querySelectorAll('.jh-todo-cards .jh-card .jh-card-title')].map(el => el.textContent)).toEqual(['期限切れ', '今日', '7日以内', '契約満了が近い', '接触が空いている', '応募が止まっている', 'MTGが途絶えている']);
+  expect([...document.querySelectorAll('.jh-todo-cards .jh-card .jh-card-title')].map(el => el.textContent)).toEqual(['期限切れ', '今日', '7日以内', '満了まで60日以内', '接触が空いている', '応募が止まっている', 'MTGが60日以上空いている']);
   expect(document.querySelector('.jh-rule')).toBeNull();
   // ほかのタグは0件も薄い札で残す。初回で成果が出ていないは札にせず、案件一覧へ移る青い下線。
   const others = screen.getByRole('group', { name: 'ほかのタグ' });
@@ -61,12 +61,12 @@ it('7枚の件数カードと、ほかのタグの札・案件一覧へ移る行
   if (!button) throw new Error('会社ボタンがありません');
   fireEvent.click(button);
   expect(company).toHaveBeenCalledWith({ id: '901', name: '合成事業所' });
-  fireEvent.click(screen.getByRole('button', { name: /契約満了が近い/ }));
+  fireEvent.click(screen.getByRole('button', { name: /満了まで60日以内/ }));
   expect(screen.queryByRole('region', { name: '期限切れの一覧' })).toBeNull();
   expect(screen.getByText('満了まで 30 日')).toBeTruthy();
   // タグの段の一覧は、その段のカードの下に開く。
-  expect(screen.getByRole('heading', { name: 'タグが付いた案件' }).compareDocumentPosition(screen.getByRole('region', { name: '契約満了が近いの一覧' })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-  fireEvent.click(screen.getByRole('button', { name: '契約満了が近いの一覧を閉じる' }));
+  expect(screen.getByRole('heading', { name: 'タグが付いた案件' }).compareDocumentPosition(screen.getByRole('region', { name: '満了まで60日以内の一覧' })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: '満了まで60日以内の一覧を閉じる' }));
   expect(screen.queryByRole('table')).toBeNull();
   expect(new URLSearchParams(window.location.search).get('card')).toBeNull();
   fireEvent.click(screen.getByRole('button', { name: '案件一覧で見る' }));
@@ -87,7 +87,7 @@ it('満了後も稼働中は件数の1行に出し、押すと一覧にHubSpot�
   expect(out.getAttribute('href')).toBe('https://app.hubspot.com/contacts/123/record/0-3/777');
   expect(out.textContent).toBe('↗ HubSpot');
   expect(out.getAttribute('target')).toBe('_blank');
-  expect(screen.getByText('MTGが途絶えている：最後のMTGから60日以上')).toBeTruthy();
+  expect(screen.getByText('MTGが60日以上空いている：最後のMTGから60日以上')).toBeTruthy();
   expect(screen.getByText('満了後も稼働中：満了日が今日より前で、終了していないステージ（ステージはHubSpotで直す）')).toBeTruthy();
 });
 it('198件を20件ずつ表示し、末尾の18件と担当変更時のページリセットを確認する', () => {
@@ -129,7 +129,7 @@ it('タグが1件以上なら橙（注意）、0件なら灰。期限切れは�
   const work = { ...demoOwnerTodo, signals: (demoOwnerTodo.signals ?? []).map(row => ({ ...row, reasons: (row.reasons ?? []).filter(r => r.kind === 'contact') })) };
   const { unmount } = render(<OwnerTodo work={work} onOpenCompany={vi.fn()} onOpenDeal={vi.fn()} />);
   expect(screen.getByRole('button', { name: /接触が空いている/ }).className).toBe('jh-card jh-warn');
-  for (const name of ['契約満了が近い', '応募が止まっている']) expect(screen.getByRole('button', { name: new RegExp(name) }).className).toBe('jh-card jh-zero');
+  for (const name of ['満了まで60日以内', '応募が止まっている']) expect(screen.getByRole('button', { name: new RegExp(name) }).className).toBe('jh-card jh-zero');
   expect(screen.getByRole('button', { name: /期限切れ/ }).className).toBe('jh-card jh-alert');
   unmount();
   render(<OwnerTodo work={{ ...work, actions: { ...work.actions, overdue: [] } }} onOpenCompany={vi.fn()} onOpenDeal={vi.fn()} />);
@@ -146,7 +146,7 @@ it('カードを押すと、開いた一覧の見出しまで画面が動く', (
   expect(scroll).toHaveBeenCalledTimes(1);
   expect(scroll.mock.contexts[0]).toBe(screen.getByRole('region', { name: '期限切れの一覧' }));
   expect(scroll).toHaveBeenCalledWith({ behavior: 'smooth', block: 'start' });
-  fireEvent.click(screen.getByRole('button', { name: /契約満了が近い/ }));
+  fireEvent.click(screen.getByRole('button', { name: /満了まで60日以内/ }));
   expect(scroll).toHaveBeenCalledTimes(2);
   raf.mockRestore();
 });
@@ -165,5 +165,5 @@ it('ほかのタグがすべて0件でも、札を薄く残して並びを変え
   expect(within(screen.getByRole('group', { name: 'ほかのタグ' })).getAllByRole('button').map(b => b.textContent)).toEqual(['満了後も稼働中 0件', '定期の満足度が低い 0件', '採用目標に届いていない 0件', '採用単価が高い 0件']);
   expect(document.querySelectorAll('.jh-more .jc-chip.is-zero')).toHaveLength(4);
   // 0件のカードには「一覧を見る ▾」を出さない。
-  expect(screen.getByRole('button', { name: /契約満了が近い/ }).textContent).toBe('0件契約満了が近い');
+  expect(screen.getByRole('button', { name: /満了まで60日以内/ }).textContent).toBe('0件満了まで60日以内');
 });

@@ -117,8 +117,7 @@ it('日付不明を添えて負の差を表示し、未取得の案件があれ�
   await open();
   const summary = within(screen.getByRole('region', { name: '絞り込み中の応募数' }));
   expect(summary.getByText(/直近4週/u).textContent).toBe('直近4週 未取得 ／ 前の4週 未取得 ／ 差 未取得');
-  expect(summary.getByText('日付不明の応募 1件は含めていません。')).toBeTruthy();
-  expect(summary.getByText('応募数が未取得の案件が1件あります。')).toBeTruthy();
+  expect(summary.getByText('含めていないもの：日付不明の応募 1件・応募数が未取得の案件 1件')).toBeTruthy();
   const first = screen.getByRole('table').querySelector('tbody tr');
   expect(first?.textContent).toContain('前の4週 3件 ／ 差 -2件');
   expect(first?.textContent).toContain('日付不明 1件を除外');
@@ -137,15 +136,15 @@ it('案件ごとの応募動機を行に出し、詳しい数字で全件の表�
   expect(priorities.getAllByRole('cell').map(cell => cell.textContent)).toEqual(['2件', '0件', '0件', '1件', '2件', '0件', '0件', '0件', '1件', '0件', '0件', '0件']);
 });
 
-it('MTGが途絶えている（60日以上）と MTGが空いている（30〜59日）を別の印で数え、接触はメールを添えるだけにする', async () => {
-  stub(['101'], [row(0), { ...row(1), reasons: [{ kind: 'mtg_gap', text: 'MTGが空いている（最後のMTGから 45 日）' }] }, row(2), { ...row(23), active: true }]);
+it('MTGが60日以上空いている（60日以上）と MTGが30〜59日空いている（30〜59日）を別の印で数え、接触はメールを添えるだけにする', async () => {
+  stub(['101'], [row(0), { ...row(1), reasons: [{ kind: 'mtg_gap', text: 'MTGが30〜59日空いている（最後のMTGから 45 日）' }] }, row(2), { ...row(23), active: true }]);
   await open('&deals_ended=yes');
   const filters = screen.getByRole('group', { name: 'タグで絞る' });
-  expect(within(filters).getByRole('button', { name: 'MTGが途絶えている 1' })).toBeTruthy();
-  expect(within(filters).getByRole('button', { name: 'MTGが空いている 1' })).toBeTruthy();
-  fireEvent.click(within(filters).getByRole('button', { name: 'MTGが空いている 1' }));
+  expect(within(filters).getByRole('button', { name: 'MTGが60日以上空いている 1' })).toBeTruthy();
+  expect(within(filters).getByRole('button', { name: 'MTGが30〜59日空いている 1' })).toBeTruthy();
+  fireEvent.click(within(filters).getByRole('button', { name: 'MTGが30〜59日空いている 1' }));
   await waitFor(() => { expect(names()).toEqual([row(1).name]); });
-  fireEvent.click(within(filters).getByRole('button', { name: 'MTGが空いている 1' }));
+  fireEvent.click(within(filters).getByRole('button', { name: 'MTGが30〜59日空いている 1' }));
   await waitFor(() => { expect(names()).toHaveLength(4); });
   const cell = (r: DealRow) => screen.getByRole('button', { name: r.name ?? '' }).closest('tr')?.querySelectorAll('td')[3]?.textContent;
   expect(cell(row(0))).toBe('2026/10/12メール 2026/10/14');

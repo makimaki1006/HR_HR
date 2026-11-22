@@ -229,8 +229,8 @@ test('本人が解決できる既定画面と、198件の期限切れを20件ず
   await expect(page.locator('.jh-todo-table')).toHaveCount(0);
   await page.goForward();
   await expect(list.locator('tbody tr')).toHaveCount(20);
-  await page.locator('.jh-todo-cards').getByRole('button', { name: /契約満了が近い/ }).click();
-  const expiration = page.getByRole('region', { name: '契約満了が近いの一覧' });
+  await page.locator('.jh-todo-cards').getByRole('button', { name: /満了まで60日以内/ }).click();
+  const expiration = page.getByRole('region', { name: '満了まで60日以内の一覧' });
   await expect(expiration.locator('tbody tr')).toHaveCount(1);
   await expect(expiration).toContainText('2026/11/15');
   await page.getByRole('button', { name: 'それ以降の予定 154件' }).click();

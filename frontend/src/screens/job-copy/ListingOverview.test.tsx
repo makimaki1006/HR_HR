@@ -23,7 +23,7 @@ describe('求人の画面（案3-2）', () => {
     expect(within(band).getByRole('button', { name: '全文を比べる' })).toBeTruthy();
     expect(within(band).queryByRole('button', { name: 'この求人から新しいパターンを作る' })).toBeNull();
     // データの最後の日は帯の中の1行。右の「数字の前提」欄はない。
-    expect(within(band).getByTestId('band-data').textContent).toContain('応募データ：');
+    expect(within(band).getByTestId('band-data').textContent).toContain('最後の応募：');
     expect(document.querySelector('[aria-label="数字の前提"]')).toBeNull();
     // 最新の変更を押すと、その出来事が下で開く。
     fireEvent.click(within(band).getByTestId('band-latest-event'));
