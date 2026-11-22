@@ -191,9 +191,16 @@ export function ListingCheckScreen() {
           <p className="lc-meta">
             {formatTime(data.checked_at)} 時点
             <span aria-hidden="true">｜</span>
-            対象 {data.total_listings.toLocaleString('ja-JP')} 件（うち指摘あり {data.flagged_listings.toLocaleString('ja-JP')} 件）
+            HubSpot で公開中 {data.total_listings.toLocaleString('ja-JP')} 件のうち指摘あり {data.flagged_listings.toLocaleString('ja-JP')} 件
             <span aria-hidden="true">｜</span>
             最低賃金：{data.min_wage_source}
+          </p>
+        )}
+
+        {data !== null && (data.ended_listings > 0 || data.unconfirmed_listings > 0) && (
+          <p className="lc-meta">
+            {data.ended_listings > 0 && <>求人ページが無くなっていた {data.ended_listings} 件は、掲載が終わったものとして除いています。</>}
+            {data.unconfirmed_listings > 0 && <>求人ページを開けず、掲載中かを確かめられなかった求人が {data.unconfirmed_listings} 件含まれます。</>}
           </p>
         )}
 
