@@ -6,13 +6,21 @@ export type SalaryCheckFinding = {
  */
 listing_id: string, 
 /**
- * HRハッカーの求人ID。
+ * 掲載している媒体（`hrhacker` / `airwork`）。
  */
-hrh_id: string, 
+media: string, 
 /**
- * HRハッカーの求人ページ。
+ * 媒体の名前（「HRハッカー」「AirWork」）。
  */
-hrh_url: string | null, 
+media_label: string, 
+/**
+ * 媒体の求人ID。
+ */
+media_id: string, 
+/**
+ * 媒体の求人ページ。
+ */
+media_url: string | null, 
 /**
  * HubSpot の求人票のページ。
  */

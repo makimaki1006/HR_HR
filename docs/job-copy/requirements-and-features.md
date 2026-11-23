@@ -75,6 +75,7 @@ flowchart LR
 | `id_airwork` / `airwork_account_login_id` | AirWork の求人 ID と、その口座のログイン ID（求人 ID だけだと別会社で重複する） |
 | `id_shop_hrhakkaa` | HRH の店舗 ID（事業所） |
 | `hrh_kyuujinhyou_honbun` | HRH の求人票本文（84 項目を 1 つの文字列にしたもの） |
+| `aw_kyuujinhyou_honbun` | AirWork の求人票本文（公開ページの 12 項目を「列名：値」でつないだもの。専用PCの定期取得が書く。2026-11-24 時点では HubSpot にまだ無い） |
 | `hrh_kyuujinhyou_gazou` | HRH の画像（URL を 1 行ずつ） |
 | `aw_kyuujinhyou_gazou` | AirWork の画像（URL を 1 行ずつ。写真なしは `NO_IMAGES`） |
 | `shigotonaiyou` | AirWork の本文 |
@@ -237,6 +238,10 @@ flowchart TB
 ### 4.6 その他
 
 - 画像は同一オリジンの `GET /api/job-copy/image`（Drive の不変な保存物。顧客との関連を確認してから返す）と `GET /api/job-copy/snapshot-image`（固定一覧の画像）から出す。
+- 求人チェック（`/app/listing-check`、`GET /api/listing-check/salary`）: 公開中の求人の給与・最低賃金・記載の誤りを一覧にする。読み取りのみ、結果は 60 分保持。
+  - HRハッカー: `hrh_kyuujinhyou_honbun` を `listing_salary_check.rs` と `listing_text_check.rs` で判定。指摘のある求人だけ求人ページを開き（4 件ずつ）、404 なら掲載終了として外す。
+  - AirWork（2026-11-24 追加）: `kyuujin_status` = 公開中・`id_airwork` あり・`aw_kyuujinhyou_honbun` が空でない求人を `listing_airwork_check.rs` で判定。区分は HRハッカーと共通で、「固定残業代の食い違い」だけを足した。最低賃金は勤務地の住所の都道府県と、HRハッカーと同じ表で比べる。指摘のある求人の公開ページ（`url_airwork`）は応答のあと背景で 1 秒に 1 件開き、404 なら外す。403・429・人の確認の画面が出たらその求人は残し、それから 1 時間は読まない。結果は 6 時間覚え、「最新にする」でも読み直さない。
+  - HubSpot の呼び出しの増え方: 1 回の集計につき、本文の項目の定義の確認 1 回と、AirWork の Search が 100 件ごとに 1 回（公開中 約 1,900 件で 約 19 回）。項目がまだ無いときは確認の 1 回だけで、AirWork は 0 件。
 - サーバ内の部品: Drive 読み取り（`job_copy_drive.rs`）、画像の参照橋渡し（`job_copy_image_bridge.rs`）、媒体取得物の橋渡し（`job_copy_capture.rs`）、市場（`job_copy_market.rs`）。
 
 ### 4.7 スクリーンショット（既存のもの）

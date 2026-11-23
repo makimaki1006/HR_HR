@@ -1,4 +1,4 @@
-// /app/listing-check: 求人チェック。HRハッカーに掲載中の求人の、給与の入力の誤り・最低賃金・記載の誤りを一覧にする。
+// /app/listing-check: 求人チェック。HRハッカーと AirWork に掲載中の求人の、給与の入力の誤り・最低賃金・記載の誤りを一覧にする。
 // データは GET /api/listing-check/salary（案件管理と同じ条件の人にだけ返る。読み取りのみ）。
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
@@ -13,6 +13,8 @@ import type { SalaryCheckResponse } from "../../generated/SalaryCheckResponse";
 
 /** 全件を読むので、最初の 1 回は時間がかかる。 */
 const LOAD_TIMEOUT_MS = 180_000;
+/** AirWork の求人ページを確かめている間、結果を読み直す間隔。 */
+const PENDING_POLL_MS = 20_000;
 
 function fetchCheck(
   fresh: boolean,
@@ -38,8 +40,9 @@ export function tierOf(severity: string): Tier {
 
 export interface ListingGroup {
   listingId: string;
-  hrhId: string;
-  hrhUrl: string | null;
+  mediaLabel: string;
+  mediaId: string;
+  mediaUrl: string | null;
   hubspotUrl: string;
   name: string;
   prefecture: string;
@@ -54,8 +57,9 @@ export function groupByListing(findings: SalaryCheckFinding[]): ListingGroup[] {
     if (!group) {
       group = {
         listingId: f.listing_id,
-        hrhId: f.hrh_id,
-        hrhUrl: f.hrh_url,
+        mediaLabel: f.media_label,
+        mediaId: f.media_id,
+        mediaUrl: f.media_url,
         hubspotUrl: f.hubspot_url,
         name: f.name,
         prefecture: f.prefecture,
@@ -117,7 +121,7 @@ function Rows({ groups, tier }: { groups: ListingGroup[]; tier: Tier }) {
               <div className="lc-sub">
                 {g.prefecture === "" ? "都道府県なし" : g.prefecture}
                 <span aria-hidden="true">・</span>
-                求人ID {g.hrhId}
+                {g.mediaLabel} 求人ID {g.mediaId}
               </div>
             </td>
             <td>
@@ -133,9 +137,9 @@ function Rows({ groups, tier }: { groups: ListingGroup[]; tier: Tier }) {
               </ul>
             </td>
             <td className="lc-links">
-              {g.hrhUrl !== null && (
-                <a href={g.hrhUrl} target="_blank" rel="noreferrer">
-                  HRハッカー
+              {g.mediaUrl !== null && (
+                <a href={g.mediaUrl} target="_blank" rel="noreferrer">
+                  {g.mediaLabel}
                 </a>
               )}
               <a href={g.hubspotUrl} target="_blank" rel="noreferrer">
@@ -170,6 +174,22 @@ export function ListingCheckScreen() {
       controller.abort();
     };
   }, [apply]);
+
+  // AirWork の求人ページは 1 秒に 1 件ずつ確かめるので、終わるまで結果を読み直す。
+  const pending = data?.airwork_pending ?? 0;
+  useEffect(() => {
+    if (pending === 0 || loading) return;
+    const controller = new AbortController();
+    const timer = setTimeout(() => {
+      void fetchCheck(false, controller.signal).then((result) => {
+        if (!controller.signal.aborted && result.ok) setData(result.data);
+      });
+    }, PENDING_POLL_MS);
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [data, pending, loading]);
 
   const reload = (): void => {
     setLoading(true);
@@ -213,7 +233,8 @@ export function ListingCheckScreen() {
           <div>
             <h1>求人チェック</h1>
             <p className="lc-lead">
-              HRハッカーに掲載中の求人の、給与の入力・最低賃金・記載の誤り
+              HRハッカーと AirWork
+              に掲載中の求人の、給与の入力・最低賃金・記載の誤り
             </p>
           </div>
           <button
@@ -230,8 +251,10 @@ export function ListingCheckScreen() {
             {formatTime(data.checked_at)} 時点
             <span aria-hidden="true">｜</span>
             HubSpot で公開中 {data.total_listings.toLocaleString("ja-JP")}{" "}
-            件のうち指摘あり {data.flagged_listings.toLocaleString("ja-JP")} 件
-            <span aria-hidden="true">｜</span>
+            件（HRハッカー {data.hrh_listings.toLocaleString("ja-JP")}{" "}
+            件・AirWork {data.airwork_listings.toLocaleString("ja-JP")}{" "}
+            件）のうち指摘あり {data.flagged_listings.toLocaleString("ja-JP")}{" "}
+            件<span aria-hidden="true">｜</span>
             最低賃金：{data.min_wage_source}
           </p>
         )}
@@ -253,6 +276,21 @@ export function ListingCheckScreen() {
               )}
             </p>
           )}
+
+        {data !== null && data.airwork_listings === 0 && (
+          <p className="lc-meta">
+            AirWork の求人の本文がまだ HubSpot に入っていないため、AirWork
+            の求人は点検していません。
+          </p>
+        )}
+
+        {data !== null && data.airwork_pending > 0 && (
+          <p className="lc-meta" role="status">
+            AirWork の求人ページを順に確かめています（残り{" "}
+            {data.airwork_pending}{" "}
+            件）。掲載が終わっていた求人は、確かめ終わると一覧から外れます。
+          </p>
+        )}
 
         {error !== null && (
           <p className="lc-error" role="alert">
@@ -333,7 +371,8 @@ export function ListingCheckScreen() {
               <section className="lc-section lc-section-mismatch">
                 <h2>本文との食い違い</h2>
                 <p className="lc-note">
-                  入力した額と、給与補足の文に書いた額が違うもの。
+                  入力した額と、給与補足の文に書いた額が違うもの。AirWork
+                  は、固定残業代の「あり／なし」と給与の詳細の文が合わないもの。
                 </p>
                 <Rows groups={tiers.mismatch} tier="mismatch" />
               </section>
@@ -353,7 +392,10 @@ export function ListingCheckScreen() {
               <details className="lc-section lc-section-unknown">
                 <summary>
                   判断できないもの（
-                  {tiers.unknown.reduce((sum, g) => sum + g.items.length, 0)}{" "}
+                  {tiers.unknown.reduce(
+                    (sum, g) => sum + g.items.length,
+                    0,
+                  )}{" "}
                   件）
                 </summary>
                 <p className="lc-note">
