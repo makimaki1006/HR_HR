@@ -117,7 +117,8 @@ it('日付不明を添えて負の差を表示し、未取得の案件があれ�
   await open();
   const summary = within(screen.getByRole('region', { name: '絞り込み中の応募数' }));
   expect(summary.getByText(/直近4週/u).textContent).toBe('直近4週 未取得 ／ 前の4週 未取得 ／ 差 未取得');
-  expect(summary.getByText('含めていないもの：日付不明の応募 1件・応募数が未取得の案件 1件')).toBeTruthy();
+  expect(summary.getByText('含めていないもの：日付不明の応募 1件')).toBeTruthy();
+  expect(summary.getByText('応募数が未取得の案件が 1 件あるため、合計は出していません。')).toBeTruthy();
   const first = screen.getByRole('table').querySelector('tbody tr');
   expect(first?.textContent).toContain('前の4週 3件 ／ 差 -2件');
   expect(first?.textContent).toContain('日付不明 1件を除外');
