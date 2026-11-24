@@ -97,6 +97,8 @@ pub enum Category {
     FixedOtExcluded,
     /// 本給の欄に試用期間の額が入っている。
     TrialAmount,
+    /// 固定残業代の「あり／なし」と給与の詳細の文が合わない（AirWork、`crate::listing_airwork_check`）。
+    FixedOtMismatch,
     // ---- 記載の誤り（`crate::listing_text_check`）----
     /// 「確認中」「要確認」など、書きかけの語が残っている。
     Placeholder,
@@ -128,7 +130,7 @@ pub enum Severity {
 }
 
 impl Category {
-    pub const ALL: [Category; 15] = [
+    pub const ALL: [Category; 16] = [
         Category::BelowMinWage,
         Category::TypeBand,
         Category::TextDigits,
@@ -136,6 +138,7 @@ impl Category {
         Category::TextAmount,
         Category::FixedOtExcluded,
         Category::TrialAmount,
+        Category::FixedOtMismatch,
         Category::Placeholder,
         Category::Mojibake,
         Category::AmountTypo,
@@ -154,6 +157,7 @@ impl Category {
             Category::TextAmount => "text_amount",
             Category::FixedOtExcluded => "fixed_overtime_excluded",
             Category::TrialAmount => "trial_amount",
+            Category::FixedOtMismatch => "fixed_overtime_mismatch",
             Category::Placeholder => "placeholder",
             Category::Mojibake => "mojibake",
             Category::AmountTypo => "amount_typo",
@@ -173,6 +177,7 @@ impl Category {
             Category::TextAmount => "本文と額が違う",
             Category::FixedOtExcluded => "本給に固定残業代が入っていない",
             Category::TrialAmount => "試用期間の額が入っている",
+            Category::FixedOtMismatch => "固定残業代の食い違い",
             Category::Placeholder => "書きかけの語",
             Category::Mojibake => "文字化け",
             Category::AmountTypo => "金額の書き間違い",
@@ -189,7 +194,9 @@ impl Category {
             | Category::TypeBand
             | Category::TextDigits
             | Category::AnnualDigits => Severity::Strong,
-            Category::TextAmount | Category::FixedOtExcluded => Severity::Medium,
+            Category::TextAmount | Category::FixedOtExcluded | Category::FixedOtMismatch => {
+                Severity::Medium
+            }
             Category::TrialAmount => Severity::Weak,
             Category::Placeholder
             | Category::Mojibake

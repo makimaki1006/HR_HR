@@ -11,21 +11,33 @@ export type SalaryCheckResponse = {
  */
 checked_at: string, 
 /**
- * 対象にした求人の数（HRハッカーで公開中の求人票）。
+ * 対象にした求人の数（HRハッカーと AirWork で公開中の求人票の合計）。
  */
 total_listings: number, 
+/**
+ * うち HRハッカーの求人の数。
+ */
+hrh_listings: number, 
+/**
+ * うち AirWork の求人の数（本文がまだ HubSpot に無い間は 0）。
+ */
+airwork_listings: number, 
 /**
  * 指摘が 1 つ以上ある求人の数（掲載が終わっていた求人は除く）。
  */
 flagged_listings: number, 
 /**
- * 指摘があったが、HRハッカーのページが無くなっていた（掲載が終わっていた）ため一覧から除いた求人の数。
+ * 指摘があったが、媒体の求人ページが無くなっていた（掲載が終わっていた）ため一覧から除いた求人の数。
  */
 ended_listings: number, 
 /**
- * 指摘があり一覧に出しているが、HRハッカーのページを開けず掲載中かを確かめられなかった求人の数。
+ * 指摘があり一覧に出しているが、媒体の求人ページを開けず掲載中かを確かめられなかった求人の数。
  */
 unconfirmed_listings: number, 
+/**
+ * 指摘があり、AirWork の求人ページをまだ確かめていない求人の数（背景で 1 秒に 1 件ずつ確かめている）。
+ */
+airwork_pending: number, 
 /**
  * 最低賃金の出典。
  */

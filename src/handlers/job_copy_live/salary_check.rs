@@ -1,7 +1,9 @@
-//! 求人チェック。HRハッカーに掲載中の求人票 (HubSpot 0-420) を読み、給与の入力の誤りと記載の誤りを一覧にする。
-//! 判定は `crate::listing_salary_check`（給与）と `crate::listing_text_check`（記載）。どちらも純粋な関数。ここは HubSpot の読み取り・60 分の保持・応答だけ。
+//! 求人チェック。HRハッカーと AirWork に掲載中の求人票 (HubSpot 0-420) を読み、給与の入力の誤りと記載の誤りを一覧にする。
+//! 判定は HRハッカーが `crate::listing_salary_check`（給与）と `crate::listing_text_check`（記載）、
+//! AirWork が `crate::listing_airwork_check`。どれも純粋な関数。ここは HubSpot の読み取り・60 分の保持・応答だけ。
 //! 読み取りのみで、HubSpot には何も書かない。
-//! 指摘のあった求人は HRハッカーの求人ページを開いて確かめ、掲載が終わっていたものは一覧から除く。
+//! 指摘のあった求人は媒体の求人ページを開いて確かめ、掲載が終わっていたものは一覧から除く。
+//! HRハッカーはその場で 4 件ずつ、AirWork は 1 秒に 1 件ずつ背景で確かめる（終わるまでは一覧に残す）。
 use super::*;
 use crate::listing_salary_check::{self as judge, Category};
 use ts_rs::TS;
@@ -10,16 +12,54 @@ use ts_rs::TS;
 const TTL: Duration = Duration::from_secs(60 * 60);
 /// 「最新にする」が続けて押されても、この時間内は読み直さない（同時に開いた人の分をまとめる）。
 const FRESH_MIN_GAP: Duration = Duration::from_secs(30);
-/// 100 件ずつ。掲載中は約 1,850 件 = 約 19 回の Search。
+/// 100 件ずつ。掲載中は HRハッカー約 1,850 件 = 約 19 回、AirWork 約 1,900 件 = 約 19 回の Search。
 const PAGE: usize = 100;
 const MAX_PAGES: usize = 100;
-const PROPERTIES: [&str; 5] = [
+const HRH_PROPERTIES: [&str; 5] = [
     "id_hrhakkaa",
     "url_hrhakkaa",
     "hs_name",
     "todoufuken",
     "hrh_kyuujinhyou_honbun",
 ];
+/// AirWork の本文。専用PCの定期取得が書く。まだ HubSpot に無い間は AirWork を 0 件として扱う。
+const AW_BODY: &str = "aw_kyuujinhyou_honbun";
+/// AirWork の求人票には `todoufuken` が無いので、都道府県は本文の勤務地から出す。
+const AW_PROPERTIES: [&str; 4] = ["id_airwork", "url_airwork", "hs_name", AW_BODY];
+
+/// 掲載している媒体。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Media {
+    HrHacker,
+    AirWork,
+}
+
+impl Media {
+    fn key(self) -> &'static str {
+        match self {
+            Media::HrHacker => "hrhacker",
+            Media::AirWork => "airwork",
+        }
+    }
+    fn label(self) -> &'static str {
+        match self {
+            Media::HrHacker => "HRハッカー",
+            Media::AirWork => "AirWork",
+        }
+    }
+    fn id_property(self) -> &'static str {
+        match self {
+            Media::HrHacker => "id_hrhakkaa",
+            Media::AirWork => "id_airwork",
+        }
+    }
+    fn url_property(self) -> &'static str {
+        match self {
+            Media::HrHacker => "url_hrhakkaa",
+            Media::AirWork => "url_airwork",
+        }
+    }
+}
 
 #[derive(Deserialize)]
 pub(super) struct SalaryCheckQuery {
@@ -32,14 +72,20 @@ pub(super) struct SalaryCheckQuery {
 pub struct SalaryCheckResponse {
     /// 集計した時刻（RFC 3339、UTC）。
     pub checked_at: String,
-    /// 対象にした求人の数（HRハッカーで公開中の求人票）。
+    /// 対象にした求人の数（HRハッカーと AirWork で公開中の求人票の合計）。
     pub total_listings: u32,
+    /// うち HRハッカーの求人の数。
+    pub hrh_listings: u32,
+    /// うち AirWork の求人の数（本文がまだ HubSpot に無い間は 0）。
+    pub airwork_listings: u32,
     /// 指摘が 1 つ以上ある求人の数（掲載が終わっていた求人は除く）。
     pub flagged_listings: u32,
-    /// 指摘があったが、HRハッカーのページが無くなっていた（掲載が終わっていた）ため一覧から除いた求人の数。
+    /// 指摘があったが、媒体の求人ページが無くなっていた（掲載が終わっていた）ため一覧から除いた求人の数。
     pub ended_listings: u32,
-    /// 指摘があり一覧に出しているが、HRハッカーのページを開けず掲載中かを確かめられなかった求人の数。
+    /// 指摘があり一覧に出しているが、媒体の求人ページを開けず掲載中かを確かめられなかった求人の数。
     pub unconfirmed_listings: u32,
+    /// 指摘があり、AirWork の求人ページをまだ確かめていない求人の数（背景で 1 秒に 1 件ずつ確かめている）。
+    pub airwork_pending: u32,
     /// 最低賃金の出典。
     pub min_wage_source: String,
     /// 区分ごとの指摘の数（0 件の区分は入れない）。
@@ -60,10 +106,14 @@ pub struct SalaryCheckCount {
 pub struct SalaryCheckFinding {
     /// HubSpot の求人票の ID。
     pub listing_id: String,
-    /// HRハッカーの求人ID。
-    pub hrh_id: String,
-    /// HRハッカーの求人ページ。
-    pub hrh_url: Option<String>,
+    /// 掲載している媒体（`hrhacker` / `airwork`）。
+    pub media: String,
+    /// 媒体の名前（「HRハッカー」「AirWork」）。
+    pub media_label: String,
+    /// 媒体の求人ID。
+    pub media_id: String,
+    /// 媒体の求人ページ。
+    pub media_url: Option<String>,
     /// HubSpot の求人票のページ。
     pub hubspot_url: String,
     /// 案件名。
@@ -79,6 +129,7 @@ pub struct SalaryCheckFinding {
 
 struct Listing {
     id: String,
+    media: Media,
     properties: BTreeMap<String, Option<String>>,
 }
 
@@ -104,10 +155,22 @@ fn build(listings: &[Listing], portal_id: &str, checked_at: String) -> SalaryChe
                 .and_then(|v| v.as_deref())
                 .unwrap_or("")
         };
-        let prefecture = prop("todoufuken");
-        let body = prop("hrh_kyuujinhyou_honbun");
-        let mut found = judge::check(Some(prefecture).filter(|p| !p.is_empty()), body);
-        found.extend(crate::listing_text_check::check(body));
+        let prefecture = match listing.media {
+            Media::HrHacker => prop("todoufuken").to_string(),
+            Media::AirWork => {
+                crate::listing_airwork_check::prefecture(prop(AW_BODY)).unwrap_or_default()
+            }
+        };
+        let prefecture = prefecture.as_str();
+        let found = match listing.media {
+            Media::HrHacker => {
+                let body = prop("hrh_kyuujinhyou_honbun");
+                let mut found = judge::check(Some(prefecture).filter(|p| !p.is_empty()), body);
+                found.extend(crate::listing_text_check::check(body));
+                found
+            }
+            Media::AirWork => crate::listing_airwork_check::check(prop(AW_BODY)),
+        };
         if !found.is_empty() {
             flagged += 1;
         }
@@ -116,8 +179,10 @@ fn build(listings: &[Listing], portal_id: &str, checked_at: String) -> SalaryChe
                 item.category,
                 SalaryCheckFinding {
                     listing_id: listing.id.clone(),
-                    hrh_id: prop("id_hrhakkaa").to_string(),
-                    hrh_url: http_url(prop("url_hrhakkaa")),
+                    media: listing.media.key().to_string(),
+                    media_label: listing.media.label().to_string(),
+                    media_id: prop(listing.media.id_property()).to_string(),
+                    media_url: http_url(prop(listing.media.url_property())),
                     hubspot_url: format!(
                         "https://app.hubspot.com/contacts/{portal_id}/record/0-420/{}",
                         listing.id
@@ -138,9 +203,18 @@ fn build(listings: &[Listing], portal_id: &str, checked_at: String) -> SalaryChe
     SalaryCheckResponse {
         checked_at,
         total_listings: listings.len() as u32,
+        hrh_listings: listings
+            .iter()
+            .filter(|l| l.media == Media::HrHacker)
+            .count() as u32,
+        airwork_listings: listings
+            .iter()
+            .filter(|l| l.media == Media::AirWork)
+            .count() as u32,
         flagged_listings: flagged,
         ended_listings: 0,
         unconfirmed_listings: 0,
+        airwork_pending: 0,
         min_wage_source: judge::MIN_WAGE_SOURCE.to_string(),
         counts: counts(&findings),
         findings,
@@ -165,7 +239,7 @@ fn counts(findings: &[SalaryCheckFinding]) -> Vec<SalaryCheckCount> {
         .collect()
 }
 
-/// HRハッカーの求人ページの状態。
+/// 媒体の求人ページの状態。
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Page {
     /// ページが開ける（掲載中）。
@@ -193,22 +267,42 @@ async fn page_state(http: &reqwest::Client, url: Option<&str>) -> Page {
     }
 }
 
-/// 指摘のあった求人のページを開き、掲載が終わっていた求人を一覧から除く。
+/// 指摘のあった求人（媒体ごと）と、その求人ページ。
+fn flagged_pages(data: &SalaryCheckResponse, media: Media) -> Vec<(String, Option<String>)> {
+    let mut targets: Vec<(String, Option<String>)> = Vec::new();
+    for f in data.findings.iter().filter(|f| f.media == media.key()) {
+        if !targets.iter().any(|(id, _)| *id == f.listing_id) {
+            targets.push((f.listing_id.clone(), f.media_url.clone()));
+        }
+    }
+    targets
+}
+
+/// 掲載が終わっていた求人を一覧から除き、件数を数え直す。
+fn drop_ended(data: &mut SalaryCheckResponse, ended: &BTreeSet<String>) {
+    if ended.is_empty() {
+        return;
+    }
+    data.findings.retain(|f| !ended.contains(&f.listing_id));
+    data.ended_listings += ended.len() as u32;
+    data.flagged_listings = data.flagged_listings.saturating_sub(ended.len() as u32);
+    data.counts = counts(&data.findings);
+}
+
+/// 指摘のあった HRハッカーの求人のページを開き、掲載が終わっていた求人を一覧から除く。
 /// HubSpot の「公開」は同期の時点の値で、掲載が終わったあとも残ることがあるため。
 async fn keep_live_only(data: &mut SalaryCheckResponse) {
     use futures::StreamExt;
-    let mut targets: Vec<(String, Option<String>)> = Vec::new();
-    for f in &data.findings {
-        if !targets.iter().any(|(id, _)| *id == f.listing_id) {
-            targets.push((f.listing_id.clone(), f.hrh_url.clone()));
-        }
+    let targets = flagged_pages(data, Media::HrHacker);
+    if targets.is_empty() {
+        return;
     }
     let Ok(http) = reqwest::Client::builder()
         .timeout(PAGE_TIMEOUT)
         .user_agent("Mozilla/5.0 (compatible; listing-check)")
         .build()
     else {
-        data.unconfirmed_listings = targets.len() as u32;
+        data.unconfirmed_listings += targets.len() as u32;
         return;
     };
     let states: Vec<(String, Page)> = futures::stream::iter(targets)
@@ -222,31 +316,69 @@ async fn keep_live_only(data: &mut SalaryCheckResponse) {
         .buffer_unordered(PAGE_CONCURRENCY)
         .collect()
         .await;
-    let ended: BTreeSet<&str> = states
+    let ended: BTreeSet<String> = states
         .iter()
         .filter(|(_, s)| *s == Page::Ended)
-        .map(|(id, _)| id.as_str())
+        .map(|(id, _)| id.clone())
         .collect();
-    data.findings
-        .retain(|f| !ended.contains(f.listing_id.as_str()));
-    data.ended_listings = ended.len() as u32;
-    data.unconfirmed_listings = states.iter().filter(|(_, s)| *s == Page::Unknown).count() as u32;
-    data.flagged_listings = data.flagged_listings.saturating_sub(data.ended_listings);
-    data.counts = counts(&data.findings);
+    data.unconfirmed_listings += states.iter().filter(|(_, s)| *s == Page::Unknown).count() as u32;
+    drop_ended(data, &ended);
 }
 
 /// HRハッカーの求人ID があり、HRハッカーで公開中の求人票をすべて読む（背景の優先度）。
-async fn load(service: &JobReadService) -> Result<Vec<Listing>, ReadError> {
+async fn load_hrhacker(service: &JobReadService) -> Result<Vec<Listing>, ReadError> {
+    load(
+        service,
+        Media::HrHacker,
+        json!([
+            {"propertyName": "id_hrhakkaa", "operator": "HAS_PROPERTY"},
+            {"propertyName": "baitai_genjoukyou_hrhakkaa", "operator": "EQ", "value": "公開"}
+        ]),
+        &HRH_PROPERTIES,
+    )
+    .await
+}
+
+/// AirWork の求人ID があり、公開中で、本文が入っている求人票をすべて読む（背景の優先度）。
+/// 本文のプロパティがまだ HubSpot に無いときは（Search が 400 になるため）、先に定義を確かめて 0 件にする。
+async fn load_airwork(service: &JobReadService) -> Result<Vec<Listing>, ReadError> {
+    let hs = service.hs.background();
+    let path = format!("/crm/v3/properties/0-420/{AW_BODY}");
+    match hs.read_raw(false, &path, &[], None).await {
+        Ok(reply) if reply.status == 404 => return Ok(Vec::new()),
+        Ok(reply) if (200..300).contains(&reply.status) => {}
+        Ok(reply) if reply.status == 429 => {
+            return Err(ReadError(StatusCode::SERVICE_UNAVAILABLE, "hubspot_busy"))
+        }
+        Ok(_) => return Err(fail("hubspot_read_failed")),
+        Err(e) => return Err(client_error(e)),
+    }
+    load(
+        service,
+        Media::AirWork,
+        json!([
+            {"propertyName": "id_airwork", "operator": "HAS_PROPERTY"},
+            {"propertyName": "kyuujin_status", "operator": "EQ", "value": "公開中"},
+            {"propertyName": AW_BODY, "operator": "HAS_PROPERTY"}
+        ]),
+        &AW_PROPERTIES,
+    )
+    .await
+}
+
+async fn load(
+    service: &JobReadService,
+    media: Media,
+    filters: Value,
+    properties: &[&str],
+) -> Result<Vec<Listing>, ReadError> {
     let hs = service.hs.background();
     let mut out = Vec::new();
     let mut after: Option<String> = None;
     for _ in 0..MAX_PAGES {
         let mut body = json!({
-            "filterGroups": [{"filters": [
-                {"propertyName": "id_hrhakkaa", "operator": "HAS_PROPERTY"},
-                {"propertyName": "baitai_genjoukyou_hrhakkaa", "operator": "EQ", "value": "公開"}
-            ]}],
-            "properties": PROPERTIES,
+            "filterGroups": [{"filters": filters}],
+            "properties": properties,
             "sorts": [{"propertyName": "hs_object_id", "direction": "ASCENDING"}],
             "limit": PAGE,
         });
@@ -271,6 +403,7 @@ async fn load(service: &JobReadService) -> Result<Vec<Listing>, ReadError> {
                 .unwrap_or_default();
             out.push(Listing {
                 id: id.to_string(),
+                media,
                 properties,
             });
         }
@@ -306,14 +439,189 @@ pub(super) async fn read(
             return Ok(([(header::CACHE_CONTROL, "no-store")], Json(data.clone())));
         }
     }
-    let listings = load(service).await?;
+    let mut listings = load_hrhacker(service).await?;
+    listings.extend(load_airwork(service).await?);
     let mut data = build(
         &listings,
         &crate::hubspot::deep_link::hubspot_portal_id(),
         chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
     );
     keep_live_only(&mut data).await;
+    let pending = airwork::apply_known(&mut data);
     let data = Arc::new(data);
     *held = Some((Instant::now(), data.clone()));
+    drop(held);
+    airwork::confirm_later(data.checked_at.clone(), pending);
     Ok(([(header::CACHE_CONTROL, "no-store")], Json(data)))
+}
+
+/// AirWork の求人ページの確かめ。読むのは 1 秒に 1 件まで。時間がかかるので応答を返したあと背景で進め、
+/// 掲載が終わっていた求人を保持している結果から除く（画面は確かめ終わるまで読み直す）。
+/// 403・429・人の確認（CAPTCHA）の画面が出たら、その求人は一覧に残し、それ以降 1 時間は読まない（回避しない）。
+mod airwork {
+    use super::*;
+    use std::collections::HashMap;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    /// 求人ページを開く先はこのサイトだけ（HubSpot の項目の値をそのまま開かない）。
+    const ORIGIN: &str = "https://arwrk.net/";
+    /// 1 件読んだら次まで空ける時間。
+    const SPACING: Duration = Duration::from_secs(1);
+    /// 確かめた結果（掲載中・掲載終了）を覚えておく時間。「最新にする」を押しても読み直さない。
+    const REMEMBER: Duration = Duration::from_secs(6 * 60 * 60);
+    /// 403・429・人の確認の画面が出たあと、ページを開かない時間。
+    const BLOCK_PAUSE: Duration = Duration::from_secs(60 * 60);
+
+    /// 求人ページ URL → (状態, 確かめた時刻)。掲載中か掲載終了と分かったものだけ。
+    fn known() -> &'static std::sync::Mutex<HashMap<String, (Page, Instant)>> {
+        static KNOWN: std::sync::OnceLock<std::sync::Mutex<HashMap<String, (Page, Instant)>>> =
+            std::sync::OnceLock::new();
+        KNOWN.get_or_init(Default::default)
+    }
+    /// いちばん新しい集計の番号。古い集計の確かめは途中でやめる。
+    static GENERATION: AtomicU64 = AtomicU64::new(0);
+    /// 確かめは 1 本ずつ（1 秒に 1 件を守る）。
+    fn running() -> &'static tokio::sync::Mutex<()> {
+        static RUN: std::sync::OnceLock<tokio::sync::Mutex<()>> = std::sync::OnceLock::new();
+        RUN.get_or_init(Default::default)
+    }
+
+    fn blocked_at() -> &'static std::sync::Mutex<Option<Instant>> {
+        static AT: std::sync::OnceLock<std::sync::Mutex<Option<Instant>>> =
+            std::sync::OnceLock::new();
+        AT.get_or_init(Default::default)
+    }
+
+    fn paused() -> bool {
+        let at = blocked_at().lock().unwrap_or_else(|e| e.into_inner());
+        at.is_some_and(|at| at.elapsed() < BLOCK_PAUSE)
+    }
+
+    fn remembered(url: &str) -> Option<Page> {
+        let mut map = known().lock().unwrap_or_else(|e| e.into_inner());
+        map.retain(|_, (_, at)| at.elapsed() < REMEMBER);
+        map.get(url).map(|(state, _)| *state)
+    }
+
+    fn remember(url: &str, state: Page) {
+        if state != Page::Unknown {
+            let mut map = known().lock().unwrap_or_else(|e| e.into_inner());
+            map.insert(url.to_string(), (state, Instant::now()));
+        }
+    }
+
+    /// 覚えている結果を当て、まだ確かめていない AirWork の求人（ID と求人ページ）を返す。
+    pub(super) fn apply_known(data: &mut SalaryCheckResponse) -> Vec<(String, String)> {
+        let mut ended = BTreeSet::new();
+        let mut pending = Vec::new();
+        for (id, url) in flagged_pages(data, Media::AirWork) {
+            let Some(url) = url.filter(|u| u.starts_with(ORIGIN)) else {
+                data.unconfirmed_listings += 1;
+                continue;
+            };
+            match remembered(&url) {
+                Some(Page::Ended) => {
+                    ended.insert(id);
+                }
+                Some(_) => {}
+                None => pending.push((id, url)),
+            }
+        }
+        drop_ended(data, &ended);
+        data.airwork_pending = pending.len() as u32;
+        pending
+    }
+
+    enum Seen {
+        Page(Page),
+        /// 403・429・人の確認の画面。これ以上読まない。
+        Blocked,
+    }
+
+    async fn open(http: &reqwest::Client, url: &str) -> Seen {
+        let res = match http.get(url).send().await {
+            Ok(res) => res,
+            Err(_) => return Seen::Page(Page::Unknown),
+        };
+        match res.status().as_u16() {
+            404 | 410 => Seen::Page(Page::Ended),
+            403 | 429 => Seen::Blocked,
+            200..=299 => match res.text().await {
+                // 求人の中身が埋め込まれていなければ、人の確認などの別の画面とみなす。
+                Ok(text) if text.contains("recruitData") => Seen::Page(Page::Live),
+                Ok(_) => Seen::Blocked,
+                Err(_) => Seen::Page(Page::Unknown),
+            },
+            _ => Seen::Page(Page::Unknown),
+        }
+    }
+
+    /// 保持している結果（同じ集計のもの）を書き換える。
+    async fn update(checked_at: &str, change: impl FnOnce(&mut SalaryCheckResponse)) {
+        let mut held = slot().lock().await;
+        if let Some((at, data)) = held.as_ref() {
+            if data.checked_at == checked_at {
+                let mut next = (**data).clone();
+                change(&mut next);
+                *held = Some((*at, Arc::new(next)));
+            }
+        }
+    }
+
+    pub(super) fn confirm_later(checked_at: String, pending: Vec<(String, String)>) {
+        let generation = GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
+        if pending.is_empty() {
+            return;
+        }
+        tokio::spawn(async move {
+            let _run = running().lock().await;
+            let http = reqwest::Client::builder()
+                .timeout(PAGE_TIMEOUT)
+                .user_agent("Mozilla/5.0 (compatible; listing-check)")
+                .build()
+                .ok();
+            let total = pending.len() as u32;
+            let mut done = 0;
+            let mut blocked = paused();
+            for (id, url) in pending {
+                if GENERATION.load(Ordering::SeqCst) != generation {
+                    return;
+                }
+                let state = match (remembered(&url), &http) {
+                    (Some(state), _) => state,
+                    _ if blocked => Page::Unknown,
+                    (None, None) => Page::Unknown,
+                    (None, Some(http)) => {
+                        let started = tokio::time::Instant::now();
+                        let seen = open(http, &url).await;
+                        tokio::time::sleep_until(started + SPACING).await;
+                        match seen {
+                            Seen::Page(state) => {
+                                remember(&url, state);
+                                state
+                            }
+                            Seen::Blocked => {
+                                tracing::warn!("listing-check: AirWork のページの確かめを止めた");
+                                *blocked_at().lock().unwrap_or_else(|e| e.into_inner()) =
+                                    Some(Instant::now());
+                                blocked = true;
+                                Page::Unknown
+                            }
+                        }
+                    }
+                };
+                done += 1;
+                let left = total - done;
+                update(&checked_at, |data| {
+                    data.airwork_pending = left;
+                    match state {
+                        Page::Ended => drop_ended(data, &BTreeSet::from([id])),
+                        Page::Unknown => data.unconfirmed_listings += 1,
+                        Page::Live => {}
+                    }
+                })
+                .await;
+            }
+        });
+    }
 }
