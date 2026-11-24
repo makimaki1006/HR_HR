@@ -48,3 +48,12 @@
 .jc-listing-popup-bar { display:flex; flex-wrap:wrap; align-items:center; gap:8px 16px; margin:0 0 8px; }
 .jc-listing-popup-bar .jc-listing-popup-note { margin:0; }
 .jc-listing-popup-heading button.jc-listing-close { font-size:14px; line-height:1.4; }
+
+/* 2026-11-24 求人の内容の小窓の見やすさ：項目名を左、中身を右に並べ、行の長さを読みやすい幅に抑える。 */
+.jc-listing-popup-scroll > * { max-width: 1120px; margin-left: auto; margin-right: auto; }
+.jc-listing-popup-summary { padding: 14px 18px; border: 1px solid #dbe6ec; border-radius: 10px; background: #f7fafb; }
+.jc-listing-comparison:not(.jc-listing-two-columns) .jc-listing-popup-section { display: grid; grid-template-columns: 180px minmax(0, 1fr); gap: 0 28px; margin: 0; padding: 14px 12px; border-bottom: 1px solid #e6eef2; }
+.jc-listing-comparison:not(.jc-listing-two-columns) .jc-listing-popup-section h3 { margin: 0; padding: 0; border: 0; font-size: 13px; color: #52697a; line-height: 1.8; }
+.jc-listing-comparison:not(.jc-listing-two-columns) .jc-listing-popup-section > :not(h3) { grid-column: 2; max-width: 760px; }
+.jc-listing-comparison:not(.jc-listing-two-columns) .jc-listing-popup-section p { line-height: 1.8; }
+.jc-listing-comparison:not(.jc-listing-two-columns) .jc-listing-image-cell { border-bottom: 0; }

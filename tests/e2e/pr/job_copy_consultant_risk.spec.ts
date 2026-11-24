@@ -42,7 +42,8 @@ test('危ない案件・詳細・次の予定・担当切替・URLの往復', as
   await fresh.getByRole('button', { name: riskRow.name, exact: true }).click();
   const detail = page.getByRole('dialog');
   await expect(detail.getByText('採用状況を確認し、次の打ち合わせを決めた。')).toBeVisible();
-  await expect(detail.getByText('接触：1日前 ／ MTG：2026/10/01')).toBeVisible();
+  await expect(detail).toContainText('最後の接触1日前');
+  await expect(detail).toContainText('最後のMTG2026/10/01');
   await expect(detail.getByRole('heading', { name: '2026/10/18 電話' })).toBeVisible();
   await expect(detail.getByRole('link', { name: '求人を見る' })).toHaveAttribute('href', /deal=101&listing=501/);
   await expect(detail.getByRole('link', { name: 'HubSpotで開く' })).toHaveAttribute('href', /record\/0-3\/101$/);

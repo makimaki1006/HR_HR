@@ -94,7 +94,9 @@ test('近い3つの日時でも給与「不明」と本文「同じ」が重な�
   const body = page.getByRole('group', { name: '本文', exact: true }).locator('.jt-mark');
   await expect(body).toHaveCount(3);
   expect(await body.allTextContents()).toEqual(['最初', '同じ', '同じ']);
-  for (const locator of [body, page.getByRole('group', { name: '給与', exact: true }).locator('.jt-salary-label')]) {
+  // 給与は前の本文と同じなら名札を出さない（最初の1つだけ）。本文の名札3つが重ならないことを見る。
+  await expect(page.getByRole('group', { name: '給与', exact: true }).locator('.jt-salary-label')).toHaveCount(1);
+  for (const locator of [body]) {
     const boxes = await locator.evaluateAll(elements => elements.map(element => element.getBoundingClientRect().toJSON()));
     expect(boxes).toHaveLength(3);
     for (let i = 1; i < boxes.length; i++) expect(boxes[i].top).toBeGreaterThanOrEqual(boxes[i - 1].bottom);
@@ -151,7 +153,7 @@ for (const [width, height] of [[1440, 900], [1440, 690], [1920, 900]]) {
       if (width === 1440 && height === 900 && pinned) await page.screenshot({ path: path.join(shots, 'after-scope-wording-1440.png') });
       await scope.locator('summary').click();
       await selectJobFeature(page, 'diff');
-      await expect(page.locator('.jc-image-comparison')).toContainText('前の本文または後の本文の画像が未取得のため、画像が変わったかどうかは不明です。');
+      await expect(page.locator('.jc-image-comparison')).toContainText('前の本文または後の本文の画像を読めていないため、画像が変わったかどうかは分かりません。');
       await expect(page.locator('.jc-image-comparison')).not.toContainText('版');
       await selectJobFeature(page, 'applicants');
       await expect(page.locator('.ac-overall')).toContainText('どの本文への応募か不明');

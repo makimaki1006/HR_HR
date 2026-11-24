@@ -571,8 +571,8 @@ impl Snapshot {
             if !self.matches(id, field, owner.as_deref())
                 || !listings::is_delivery(deal.record.value("pipeline"))
                 || ENDED_STAGES.contains(&deal.record.value("dealstage").unwrap_or(""))
-                // 紹介料の取引はコンサルの契約ではないので、やること・期限・兆候に出さない
-                || crate::handlers::cs_dashboard::is_referral_deal(
+                // 紹介料の取引・オプション契約（求人追加・一次対応など）は接触もMTGも付かないので、やること・期限・兆候に出さない
+                || crate::handlers::cs_dashboard::is_excluded_deal(
                     deal.record.value("dealname").unwrap_or(""),
                     deal.record.value("dealstage").unwrap_or(""),
                 )

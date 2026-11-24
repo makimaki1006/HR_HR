@@ -11,7 +11,7 @@ function job(id: string, total?: number): JobCopyRecord {
 describe('actual job list applicant aggregates', () => {
   it('distinguishes unacquired counts from an acquired zero and excludes demo totals', () => {
     expect(actualApplicationCount(job('missing'))).toBeNull();
-    expect(applicationCountLabel(job('missing'))).toBe('応募未取得');
+    expect(applicationCountLabel(job('missing'))).toBe('応募数不明');
     expect(actualApplicationCount(job('zero', 0))).toBe(0);
     expect(applicationCountLabel(job('zero', 0))).toBe('応募0件');
     const demo = job('demo', 42);
@@ -21,7 +21,7 @@ describe('actual job list applicant aggregates', () => {
     expect(applicationCountLabel(demo)).toBe('応募42件（架空）');
     const demoMissing = job('demo-missing');
     delete demoMissing.dataSource;
-    expect(applicationCountLabel(demoMissing)).toBe('応募未取得');
+    expect(applicationCountLabel(demoMissing)).toBe('応募数不明');
     for (const total of [-1, NaN, 1.5, Infinity]) expect(actualApplicationCount(job('invalid', total))).toBeNull();
   });
   it('sorts rich actual counts ahead of zero and unknown while retaining equal-count source order', () => {

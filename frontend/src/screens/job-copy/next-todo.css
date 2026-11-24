@@ -19,3 +19,7 @@
 .nt-reason-item { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 5px; }
 .nt-unlinked { font-size: 12px; white-space: nowrap; }
 .nt-overdue { display: inline-block; margin-left: 8px; padding: 1px 8px; border-radius: 10px; background: #b42318; color: #fff; font-size: 12px; font-weight: 700; white-space: nowrap; }
+
+/* 案件のページの「次の予定」：ボタンとタグの見出しの間を空け、タグの状態の文は注記の大きさにする。 */
+.dc-root.nt-deal h3 { margin: 20px 0 8px; font-size: 15px; }
+.dc-root.nt-deal p.nt-note { margin: 8px 0 0; color: #647381; font-size: 12px; }

@@ -263,13 +263,12 @@ export function ListingOverview({ job, events, billing, market, selectedId, onSe
     tasks?.onChange('hearing');
     requestAnimationFrame(() => { const target = document.getElementById(`hearing-${applicant}`); target?.scrollIntoView({ block: 'center' }); target?.focus(); });
   };
-  if (!events.length) return <div className="lo-main"><section className="lo-card" aria-label="出来事"><h2>出来事</h2><p className="lo-note" role="status">掲載の開始や変更の記録がないため、出来事は出せません。</p></section>{marketSlot}{taskSection}<ListingReasons job={job} /></div>;
+  if (!events.length) return <div className="lo-main"><section className="lo-card" aria-label="出来事"><h2>出来事</h2><p className="lo-note" role="status">掲載の開始や変更の記録がないため、出来事は出せません。</p></section>{taskSection}{marketSlot}<ListingReasons job={job} /></div>;
   return <div className="lo-main">
     <section className="lo-card" aria-labelledby="lo-chart-title">
       <div className="lo-head"><h2 id="lo-chart-title">求人のライフライン</h2><InfoTip className="jc-infotip-left" iconFirst label="見方"><p>掲載開始から{lifeline?.endIndex !== null && lifeline?.endIndex !== undefined ? '掲載終了' : '今日'}まで、1週を1列で並べています（月曜はじまり）。横にスクロールできます。上の段の番号を押すと、その出来事が下で開きます。</p></InfoTip><span>1週を1列で並べています。番号は下の出来事の番号です。</span></div>
       {lifeline ? <LifelineChart lifeline={lifeline} job={job} selectedWeek={selectedWeek} onSelect={onSelect} /> : <p className="lo-note" role="status">掲載の開始日が分からないため、週ごとの推移は出せません。</p>}
     </section>
-    {marketSlot}
     {taskSection}
     <section aria-labelledby="lo-events-title">
       <div className="lo-head"><h2 id="lo-events-title">出来事（新しい順）</h2><InfoTip className="jc-infotip-left" iconFirst label="数え方"><EventRules /></InfoTip>{applicationCount > 0 && <label className="lo-toggle"><input type="checkbox" checked={showApplications} onChange={event => { setShowApplications(event.target.checked); }} />応募（{applicationCount}件）も一覧に並べる</label>}</div>
@@ -292,7 +291,7 @@ export function ListingOverview({ job, events, billing, market, selectedId, onSe
             <button type="button" className="lo-event-head" aria-expanded={open} onClick={() => { onSelect(open ? null : event.id); }}>
               <span className="lo-num">{isApplication ? '応' : event.n}</span>
               <span className="lo-date">{md(event.date)}</span>
-              <span className="lo-title"><small className="lo-kind">{KIND_LABEL[event.kind]}</small>{event.title}{(isApplication || isCompetitor) && <small className="lo-attrs">{event.summary}</small>}</span>
+              <span className="lo-title">{!isApplication && <small className="lo-kind">{KIND_LABEL[event.kind]}</small>}{event.title}{(isApplication || isCompetitor) && <small className="lo-attrs">{event.summary}</small>}</span>
               {isApplication || isCompetitor ? <span /> : <span className="lo-result"><strong>{resultText(event, counts, job.overallApplications ? undefined : noApplicationDatesText(job))}</strong>{diff !== null && <small>差 {diff > 0 ? '+' : diff < 0 ? '−' : '±'}{Math.abs(diff)} 件{partial ? `（${partial}）` : ''}</small>}{unequal && <small data-testid="event-no-diff">{shortSide === '後' ? '後の期間がまだ短い' : '前の期間が短い'}ため差は出していません（前 {String(counts.beforeDays)} 日・後 {String(counts.afterDays)} 日）</small>}{diff === null && !unequal && partial && <small>{partial}</small>}</span>}
               <span className="lo-caret jc-open" aria-hidden="true">{open ? '閉じる ▲' : '詳細 ▼'}</span>
             </button>
@@ -300,11 +299,11 @@ export function ListingOverview({ job, events, billing, market, selectedId, onSe
             {open && isApplication && !event.repeat && <div className="lo-event-body"><p className="lo-summary"><strong>応募者：</strong>{event.summary}</p><ApplicationDetails job={job} event={event} hearing={hearing.data} loading={hearing.loading} onShowHearing={showHearing} /></div>}
             {open && isCompetitor && <div className="lo-event-body">{competitorEntry ? <CompetitorMonthDetails entry={competitorEntry} /> : <p className="lo-summary">この月の記録を読めませんでした。</p>}</div>}
             {open && !isApplication && !isCompetitor && <div className="lo-event-body">
+              <p className="lo-summary lo-changed"><strong>変えた中身：</strong>{event.summary}</p>
               <EventCostTable event={event} counts={counts} costs={eventCosts(event, counts, billing)} asOf={asOf} />
               <ul className="lo-checks" aria-label="ほかに応募を動かしそうなこと">
                 {checks.map(check => <li key={check.key}><span className={`lo-mark lo-mark-${check.mark}`}>{check.markLabel}</span><strong>{check.label}</strong><span>{check.text}</span></li>)}
               </ul>
-              <p className="lo-summary"><strong>変えた中身：</strong>{event.summary}</p>
               <div className="lo-actions">
                 {event.versionId && <button type="button" className="jc-button" onClick={() => { onCompare(event.previousVersionId ?? undefined, event.versionId ?? undefined); }}>この出来事の前と後の全文を比べる</button>}
                 <button type="button" className="jc-button" onClick={() => { onOpenDrawer('who', event); }}>応募者・応募理由の前後を見る</button>
@@ -317,6 +316,7 @@ export function ListingOverview({ job, events, billing, market, selectedId, onSe
       </div>
       {newestFirst.length > RECENT_EVENT_COUNT && <p className="lo-more-events"><span>{expanded ? `${String(newestFirst.length)}件すべてを表示しています。` : `新しい順に${String(RECENT_EVENT_COUNT)}件を表示しています（全${String(newestFirst.length)}件）。`}</span>{selectedIndex < RECENT_EVENT_COUNT && <button type="button" className="jc-button" aria-expanded={expanded} onClick={() => { setShowAllEvents(value => !value); }}>{expanded ? `最新${String(RECENT_EVENT_COUNT)}件だけにする` : `すべて表示（${String(newestFirst.length)}件）`}</button>}</p>}
     </section>
+    {marketSlot}
     <ListingReasons job={job} />
   </div>;
 }

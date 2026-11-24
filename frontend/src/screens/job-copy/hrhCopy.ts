@@ -54,7 +54,7 @@ export function parseHrhFields(body: string): Map<string, string> {
 const money = (value: string) => /^\d+(?:\.\d+)?$/.test(value.normalize('NFKC').replace(/,/g, ''))
   ? `${Number(value.normalize('NFKC').replace(/,/g, '')).toLocaleString('ja-JP')}円` : value;
 export function composeSalary(kind: string, min: string, max: string): string {
-  const range = min ? `${money(min)}${max ? min === max ? '' : `〜${money(max)}` : '〜'}` : max ? `${money(max)}まで` : '金額は未取得';
+  const range = min ? `${money(min)}${max ? min === max ? '' : `〜${money(max)}` : '〜'}` : max ? `${money(max)}まで` : '金額は不明';
   return `${displayCode('給与形態', kind) || '給与形態は不明'} ${range}`;
 }
 export function hrhCopySections(body: string): BodySection[] {
@@ -67,7 +67,7 @@ export function hrhCopySections(body: string): BodySection[] {
   const sections: BodySection[] = [];
   const add = (heading: string, text: string) => { if (text.trim()) sections.push({ heading, text }); };
   const simple = (keys: string[]) => { for (const key of keys) add(labels[key] ?? 'その他', get(key)); };
-  const pairs = (prefix: string) => { for (let n = 1; n <= 4; n++) { const heading = get(`${prefix}${String(n)}のタイトル`); const text = get(`${prefix}${String(n)}の内容`); if (heading || text) add(heading || 'その他', text || '内容は未取得'); } };
+  const pairs = (prefix: string) => { for (let n = 1; n <= 4; n++) { const heading = get(`${prefix}${String(n)}のタイトル`); const text = get(`${prefix}${String(n)}の内容`); if (heading || text) add(heading || 'その他', text || '内容は不明'); } };
   const workTime = (prefix = '') => {
     const lines: string[] = [];
     const time = get(`${prefix}タスクの所要時間`); const unit = get(`${prefix}タスクの単位`);

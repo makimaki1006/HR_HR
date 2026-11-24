@@ -199,7 +199,7 @@ export function HoujinView() {
     updateJobCopyQuery({ risk_deal: id });
   };
   const dealTable = (items: CustomerDeal[], label = "契約の系列") => (
-    <div className="hj-scroll">
+    <div className="hj-scroll hj-scroll-tall">
       <table aria-label={label}>
         <thead>
           <tr>
@@ -215,8 +215,8 @@ export function HoujinView() {
               "面接",
               "採用",
               "状態",
-            ].map((t) => (
-              <th key={t}>{t}</th>
+            ].map((t, i) => (
+              <th key={t} className={i >= 5 && i <= 9 ? "hj-num" : undefined}>{t}</th>
             ))}
           </tr>
         </thead>
@@ -239,18 +239,18 @@ export function HoujinView() {
                   {d.name || "案件名未登録"}
                 </button>
               </th>
-              <td>{d.stage}</td>
-              <td>{d.site_name || "事業所未登録"}</td>
-              <td>{d.kind}</td>
+              <td className="hj-stage">{d.stage}</td>
+              <td className="hj-nowrap">{d.site_name || "事業所未登録"}</td>
+              <td className="hj-nowrap">{d.kind}</td>
               <td className="hj-nowrap">
                 {formatDateJst(d.start, "—")}〜{formatDateJst(d.expiration, "—")}
               </td>
-              <td>{d.renewal_no ?? "—"}</td>
-              <td className="hj-nowrap">{yen(d.amount)}</td>
-              <td>{d.oubo ?? "—"}</td>
-              <td>{d.mensetu ?? "—"}</td>
-              <td>{d.syoudaku ?? "—"}</td>
-              <td>
+              <td className="hj-num">{d.renewal_no ?? "—"}</td>
+              <td className="hj-num">{yen(d.amount)}</td>
+              <td className="hj-num">{d.oubo ?? "—"}</td>
+              <td className="hj-num">{d.mensetu ?? "—"}</td>
+              <td className="hj-num">{d.syoudaku ?? "—"}</td>
+              <td className={d.is_active ? "hj-nowrap hj-active" : "hj-nowrap hj-ended"}>
                 {d.is_active ? "稼働中" : "終了"}
                 {d.right_censored && "・未確定"}
               </td>
@@ -448,7 +448,7 @@ export function HoujinView() {
                 query.get(`houjin_${key}`) &&
                 ready.index.some((r) => r[field] === null) ? (
                   <p key={key}>
-                    {label}が未取得：
+                    {label}が不明：
                     {ready.index.filter((r) => r[field] === null).length}社
                   </p>
                 ) : null,
@@ -472,8 +472,8 @@ export function HoujinView() {
                           "承諾",
                           "稼働中",
                           "最終満了",
-                        ].map((t) => (
-                          <th key={t}>{t}</th>
+                        ].map((t, i) => (
+                          <th key={t} className={i >= 1 && i <= 10 ? "hj-num" : undefined}>{t}</th>
                         ))}
                       </tr>
                     </thead>
@@ -495,16 +495,16 @@ export function HoujinView() {
                               {r.name}
                             </button>
                           </th>
-                          <td>{r.deals ?? "—"}</td>
-                          <td>{r.sites ?? "—"}</td>
-                          <td>{r.kigyouzentaininzuu ?? "—"}</td>
-                          <td className="hj-nowrap">{yen(r.monthly_amount_max)}</td>
-                          <td className="hj-nowrap">{yen(r.ltv)}</td>
-                          <td>{r.max_renewal_no ?? "—"}</td>
-                          <td>{r.oubo_total ?? "—"}</td>
-                          <td>{r.mensetu_total ?? "—"}</td>
-                          <td>{r.syoudaku_total ?? "—"}</td>
-                          <td>{r.active ?? "—"}</td>
+                          <td className="hj-num">{r.deals ?? "—"}</td>
+                          <td className="hj-num">{r.sites ?? "—"}</td>
+                          <td className="hj-num">{r.kigyouzentaininzuu?.toLocaleString("ja-JP") ?? "—"}</td>
+                          <td className="hj-num">{yen(r.monthly_amount_max)}</td>
+                          <td className="hj-num">{yen(r.ltv)}</td>
+                          <td className="hj-num">{r.max_renewal_no ?? "—"}</td>
+                          <td className="hj-num">{r.oubo_total ?? "—"}</td>
+                          <td className="hj-num">{r.mensetu_total ?? "—"}</td>
+                          <td className="hj-num">{r.syoudaku_total ?? "—"}</td>
+                          <td className="hj-num">{r.active ?? "—"}</td>
                           <td className="hj-nowrap">{formatDateJst(r.last_expiration, "—")}</td>
                         </tr>
                       ))}
@@ -521,8 +521,11 @@ export function HoujinView() {
             )}
             {data?.customer && (
               <>
-                <section aria-label="顧客の数字" id="hj-customer">
-                  <h2>{data.customer.name}</h2>
+                <section aria-label="顧客の数字" id="hj-customer" className="hj-card">
+                  <div className="hj-card-head">
+                    <h2>{data.customer.name}</h2>
+                    <a className="jc-go" href={kpiHref}><span aria-hidden="true">→ </span>他の顧客と比べる（コンサルKPI）</a>
+                  </div>
                   <div className="hj-kpis">
                     {(
                       [
@@ -563,7 +566,7 @@ export function HoujinView() {
                             .map((d) => d.expiration)
                             .sort()
                             .at(-1)
-                            ? `追加契約を含むと${formatDateJst(data.customer.last_expiration, "未取得")}`
+                            ? `追加契約を含むと${formatDateJst(data.customer.last_expiration, "不明")}`
                             : null,
                         ],
                       ] as const
@@ -582,8 +585,9 @@ export function HoujinView() {
                     </InfoTip>
                   </div>
                 </section>
-                <section id="hj-site">
+                <section id="hj-site" className="hj-card">
                   <h2>事業所</h2>
+                  <div className="hj-site-pick">
                   <label>
                     事業所を選ぶ
                     <select
@@ -603,15 +607,30 @@ export function HoujinView() {
                     顧客の{deals.length}件のうち、この事業所の{siteDeals.length}件
                     {!query.get("houjin_site") && "（最新の契約がある事業所）"}
                   </p>
+                  </div>
                   <h3>契約の系列</h3>
                   {dealTable(siteDeals)}
                   <Figure
                     title="契約の連なり"
                     id="hj-contracts"
                     onDealClick={open}
-                    note="案件ごとの開始日と満了日。"
+                    note="案件ごとの開始日と満了日。線にマウスを置くと案件名と期間が出ます。"
+                    height={Math.max(160, siteDeals.length * 22 + 56)}
                     option={{
                       ...chartOption([], []),
+                      // 凡例は縦の軸の案件名と同じなので出さない。案件名は軸と tooltip で読む。
+                      legend: { show: false },
+                      grid: { left: 12, right: 28, top: 12, bottom: 28, containLabel: true },
+                      tooltip: {
+                        trigger: "item",
+                        confine: true,
+                        formatter: (p: { dataIndex: number; seriesIndex: number }) => {
+                          const d = siteDeals[p.seriesIndex];
+                          return d
+                            ? `${d.name.replace(/[&<>"']/g, (c) => `&#${String(c.charCodeAt(0))};`)}<br/>${formatDateJst(d.start, "—")}〜${formatDateJst(d.expiration, "—")}`
+                            : "";
+                        },
+                      },
                       xAxis: {
                         type: "time",
                         axisLabel: {
@@ -625,6 +644,7 @@ export function HoujinView() {
                       yAxis: {
                         type: "category",
                         data: siteDeals.map((d) => d.name),
+                        axisLabel: { interval: 0, fontSize: 11 },
                       },
                       series: siteDeals.map((d, i) => ({
                         name: d.name,
@@ -638,9 +658,6 @@ export function HoujinView() {
                     }}
                   />
                 </section>
-                <p>
-                  <a className="jc-go" href={kpiHref}><span aria-hidden="true">→ </span>他の顧客と比べる（コンサルKPI）</a>
-                </p>
                 <Fold summary={`分析の図と事業所の比較（図${String(figureCount)}点）`} id="hj-analysis">
                 <section>
                   <h2>事業所の比較</h2>
@@ -660,8 +677,8 @@ export function HoujinView() {
                             "採用の合計",
                             "最初の開始",
                             "最後の満了",
-                          ].map((t) => (
-                            <th key={t}>{t}</th>
+                          ].map((t, i) => (
+                            <th key={t} className={i >= 1 && i <= 5 ? "hj-num" : undefined}>{t}</th>
                           ))}
                         </tr>
                       </thead>
@@ -678,16 +695,16 @@ export function HoujinView() {
                                 {s.name}
                               </button>
                             </th>
-                            <td>{s.rows.length}</td>
-                            <td>{s.rows.filter((d) => d.is_active).length}</td>
-                            <td>
+                            <td className="hj-num">{s.rows.length}</td>
+                            <td className="hj-num">{s.rows.filter((d) => d.is_active).length}</td>
+                            <td className="hj-num">
                               {Math.max(
                                 0,
                                 ...s.rows.map((d) => d.renewal_no ?? 0),
                               )}
                             </td>
-                            <td>{yen(sumKnown(s.rows, (d) => d.amount))}</td>
-                            <td>
+                            <td className="hj-num">{yen(sumKnown(s.rows, (d) => d.amount))}</td>
+                            <td className="hj-num">
                               {sumKnown(s.rows, (d) => d.syoudaku) ?? "—"}（
                               {s.rows.filter((d) => d.syoudaku !== null).length}
                               件）
@@ -755,7 +772,7 @@ export function HoujinView() {
                                     .filter((h) => h.deal_id === d.deal_id)
                                     .map(
                                       (h) =>
-                                        `${formatDateJst(h.date, h.date)} ${h.from} → ${h.to}（${h.reflected || "反映状況未取得"}）`,
+                                        `${formatDateJst(h.date, h.date)} ${h.from} → ${h.to}（${h.reflected || "反映状況不明"}）`,
                                     )
                                     .join("、") || "記録なし"}
                                 </td>
@@ -924,7 +941,7 @@ export function HoujinView() {
                   </p>
                 </section>
                 </Fold>
-                <section>
+                <section className="hj-card">
                   <h2>案件と求人</h2>
                   {endedCount > 0 && activeDeals.length > 0 && (
                     <div className="hj-ended-toggle">
@@ -988,7 +1005,7 @@ export function HoujinView() {
                 </section>
                 <p className="jh-note">
                   集計日 {formatDateJst(data.meta.today, data.meta.today)} ／ 取得元{" "}
-                  {formatDateJst(data.meta.source_as_of, data.meta.source_as_of ?? "未取得")} ／ 案件 {deals.length}
+                  {formatDateJst(data.meta.source_as_of, data.meta.source_as_of ?? "不明")} ／ 案件 {deals.length}
                   件・稼働中 {deals.filter((d) => d.is_active).length}件
                 </p>
               </>

@@ -61,9 +61,9 @@ it('distinguishes unread shared links from a known zero and rejects keys without
   const zero = required(await readJob([]));
   expect(zero.overall.multiListing).toEqual({ byDate: {}, missingDate: 0 });
   const { rerender } = render(<ApplicantReasons job={{ ...baseJob(), overallApplications: unknown.overall, applicationRows: unknown.rows, applicantReasons: unknown.reasons }} />);
-  expect(screen.getByText('ほかの求人にも関連する応募を見分ける情報は未取得です。')).toBeTruthy();
+  expect(screen.getByText('ほかの求人にも関連する応募を見分ける情報は読めていません。')).toBeTruthy();
   rerender(<ApplicantReasons job={{ ...baseJob(), overallApplications: zero.overall, applicationRows: zero.rows, applicantReasons: zero.reasons }} />);
-  expect(screen.queryByText('ほかの求人にも関連する応募を見分ける情報は未取得です。')).toBeNull();
+  expect(screen.queryByText('ほかの求人にも関連する応募を見分ける情報は読めていません。')).toBeNull();
   expect(await readJob([key('4')])).toBeNull();
 });
 

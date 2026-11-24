@@ -18,7 +18,7 @@ export function ImageGallery({ images, title, marks = [], failureMessage, unavai
   const headingId = useId();
   const [selected, setSelected] = useState<CopyImage | null>(null);
   return <section className="jc-image-section" aria-label={title}><h3>{title}</h3>
-    {images === undefined ? <p className="jc-muted">{unavailableMessage ?? '画像は未取得です。画像なし・削除とは判定していません。'}</p> : images.length === 0 ? <p className="jc-muted">{emptyMessage ?? 'この本文に対応する画像はありません。'}</p> : <div className="jc-image-grid">{images.map((image, index) => <figure key={`${image.id}-${String(index)}`} className={marks.includes(image.sourceReferenceHash ?? image.url) ? 'jc-image-marked' : ''}>
+    {images === undefined ? <p className="jc-muted">{unavailableMessage ?? '画像を読めていません（画像なし・削除ではありません）。'}</p> : images.length === 0 ? <p className="jc-muted">{emptyMessage ?? 'この本文に対応する画像はありません。'}</p> : <div className="jc-image-grid">{images.map((image, index) => <figure key={`${image.id}-${String(index)}`} className={marks.includes(image.sourceReferenceHash ?? image.url) ? 'jc-image-marked' : ''}>
       <RetryableImage failureMessage={failureMessage} key={image.url} image={image} slot={image.sourceSlot ?? index + 1} onOpen={() => { setSelected(image); dialog.current?.showModal(); }} />
       <figcaption><strong>画像{image.sourceSlot ?? index + 1}</strong> {image.caption}{marks.includes(image.sourceReferenceHash ?? image.url) && <span>変更対象</span>}</figcaption>
     </figure>)}</div>}

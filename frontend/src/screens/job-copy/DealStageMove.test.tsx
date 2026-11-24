@@ -58,9 +58,10 @@ it('schemaの順で同じ区分だけ選び、必須入力と未保存の契約�
   fireEvent.click(await screen.findByRole('button', { name: '編集' }));
   fireEvent.change(screen.getByLabelText('金額', { exact: true }), { target: { value: '360000' } });
   expect(container.querySelector('.dc-stage-now strong')?.textContent).toBe('合成・契約中');
-  expect(screen.getByText('HubSpot の案件のステージが変わります。次の画面で確かめてから保存します。')).toBeTruthy();
+  expect(screen.queryByText('HubSpot の案件のステージが変わります。次の画面で確かめてから保存します。')).toBeNull();
   expect(screen.queryByLabelText('移す先のステージ')).toBeNull();
   const chooser = await openChooser();
+  expect(screen.getByText('HubSpot の案件のステージが変わります。次の画面で確かめてから保存します。')).toBeTruthy();
   expect([...chooser.options].map(o => o.value)).toEqual(['stage-demo', '66848546', 'delivery-done', 'cancelled']);
   expect(chooser.options[0]?.textContent).toBe('合成・契約中（今のステージ）');
   fireEvent.change(chooser, { target: { value: '66848546' } });

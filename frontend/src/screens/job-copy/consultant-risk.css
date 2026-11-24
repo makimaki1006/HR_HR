@@ -75,3 +75,72 @@
 .cr-split > main { flex: 1 1 0; min-width: 0; margin-top: 0; margin-bottom: 0; }
 .cr-detail.cr-side { position: sticky; top: 56px; flex: 0 0 440px; width: 440px; max-width: 440px; max-height: calc(100dvh - 72px); margin: 16px 16px 0 0; padding: 20px; box-sizing: border-box; background: #fff; color: inherit; }
 .cr-main tbody tr.cr-row-open, .db-table tbody tr.cr-row-open { background: #e3f1f4; box-shadow: inset 4px 0 #007c91; }
+
+/* ── 見やすさ（2026-11-24）: 一覧は行を低く、札を小さく。詳細は「理由・次の予定・満了まで」を上にまとめる。 ── */
+.cr-main > header p { margin: 4px 0 0; }
+.cr-main .cr-asof { font-size: 13px; color: #52697a; }
+.cr-main .cr-scope { margin-top: 8px; color: #52697a; }
+.cr-main section + section { margin-top: 32px; }
+.cr-main h2 { display: flex; align-items: baseline; gap: 0; }
+.cr-main th, .cr-main td { padding: 10px 12px; }
+.cr-main thead th { padding-block: 8px; font-size: 12px; font-weight: 600; color: #52697a; white-space: nowrap; }
+/* 列幅: 札の列を広く、日数の列は狭く。 */
+.cr-main th:first-child { width: 22%; }
+.cr-main th:nth-child(2) { width: 9%; }
+.cr-main th:nth-child(3) { width: 36%; }
+.cr-main th:nth-child(4), .cr-main th:nth-child(5) { width: 8%; }
+.cr-main tbody th { font-size: 14px; line-height: 1.45; }
+.cr-main tbody th small { margin-top: 2px; font-size: 12px; }
+.cr-main td small { margin-top: 2px; font-size: 12px; }
+.cr-main .cr-nowrap, .cr-main .cr-date { white-space: nowrap; }
+.cr-overdue { color: #b42318; font-weight: 700; }
+.cr-main td.cr-open-cell { vertical-align: top; }
+.cr-flags { gap: 4px; }
+.cr-flags li { padding: 2px 7px; font-size: 12px; line-height: 1.5; border-radius: 4px; }
+.cr-flags .cr-new-mark { margin-left: 4px; padding: 0 4px; }
+.cr-since { margin-top: 3px; font-size: 11px; color: #6b7d8a; }
+/* 詳細を右に並べている間は一覧が狭いので、担当と日数の列をさらに詰める。 */
+.cr-split .cr-main { padding: 20px 16px 24px 24px; }
+.cr-split .cr-main th:first-child { width: 22%; }
+.cr-split .cr-main th:nth-child(2) { width: 9%; }
+.cr-split .cr-main th:nth-child(3) { width: 30%; }
+.cr-split .cr-main th:nth-child(4), .cr-split .cr-main th:nth-child(5) { width: 8%; }
+.cr-split .cr-main th, .cr-split .cr-main td { padding-inline: 8px; }
+
+/* 詳細 */
+.cr-detail > header { align-items: flex-start; }
+.cr-detail .cr-title { min-width: 0; }
+.cr-detail .cr-title h2 { margin: 0; font-size: 18px; line-height: 1.4; overflow-wrap: anywhere; }
+.cr-detail .cr-title p { margin: 4px 0 0; font-size: 13px; color: #52697a; }
+.cr-detail > header .jc-button { flex-shrink: 0; }
+.cr-focus { display: grid; gap: 12px; margin-top: 16px; padding: 14px 16px; border: 1px solid #d4dfe7; border-radius: 8px; background: #f6f9fb; }
+.cr-focus-row { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 4px 12px; align-items: start; }
+.cr-detail .cr-focus-row.cr-plan { margin: 0; }
+.cr-focus-label { padding-top: 2px; font-size: 12px; font-weight: 600; color: #52697a; }
+.cr-detail h3.cr-focus-label { margin: 0; font-size: 12px; }
+.cr-focus .cr-flags { margin: 0; }
+.cr-plan p { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; margin: 0 0 8px; }
+.cr-plan-date { font-size: 17px; }
+.cr-plan .nt-overdue { margin-left: 0; }
+.cr-expiry { font-size: 15px; font-weight: 600; }
+.cr-detail .cr-next { margin-top: 14px; }
+.cr-detail .cr-loading { margin: 12px 0 0; font-size: 13px; color: #52697a; }
+.cr-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 16px; margin: 18px 0 0; padding: 14px 0; border-block: 1px solid #e1e8ed; }
+.cr-facts > div { min-width: 0; }
+.cr-facts dt { font-size: 12px; color: #52697a; }
+.cr-facts dd { margin: 2px 0 0; font-size: 14px; overflow-wrap: anywhere; }
+.cr-detail .pm-memo { margin-top: 18px; }
+.cr-detail .pm-memo h3 small { margin-left: 0; }
+.cr-detail .pm-current { margin: 6px 0 0; font-size: 14px; }
+.cr-detail .cr-records { margin-top: 22px; }
+.cr-detail .cr-records h3 { margin: 0 0 4px; }
+.cr-detail .cr-records article { padding: 12px 0; white-space: normal; }
+.cr-detail .cr-records article p { margin: 4px 0 0; font-size: 13px; line-height: 1.65; white-space: pre-wrap; }
+.cr-detail .cr-records h4 { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; font-size: 14px; }
+.cr-detail .cr-records h4 time { font-weight: 600; white-space: nowrap; }
+.cr-kind { padding: 0 6px; border: 1px solid #c9d6df; border-radius: 4px; font-size: 11px; font-weight: 600; color: #355466; background: #fff; }
+.cr-subject { font-weight: 600; overflow-wrap: anywhere; }
+.cr-detail .cr-records .cr-meta { margin-top: 2px; font-size: 12px; color: #52697a; }
+.cr-detail .cr-records .cr-labeled b { margin-right: 2px; font-weight: 600; color: #33475b; }
+/* 長い案件名は 1 行で省略し、全文は title で出す。 */
+.cr-detail .cr-title h2 { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; overflow-wrap: normal; }

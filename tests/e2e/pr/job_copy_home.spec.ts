@@ -148,7 +148,7 @@ test('担当者の切替でホームのカードを絞り、案件・会社か�
   await overdueCard.click();
   const overdue = page.getByRole('region', { name: '期限切れの一覧' });
   await expect(overdue.locator('tbody tr')).toHaveCount(2);
-  await expect(overdue.locator('tbody tr').first()).toContainText(/合成事業所合成案件101対応中2026\/10\/15\d+日過ぎています電話する合成担当A/);
+  await expect(overdue.locator('tbody tr').first()).toContainText(/合成案件101合成事業所対応中2026\/10\/15\d+日過ぎています電話する合成担当A/);
   await page.getByRole('combobox', { name: '担当者', exact: true }).fill('合成担当B（退職）'); await await page.getByRole('combobox', { name: '担当者', exact: true }).press('Enter');
   await expect(overdueCard.locator('.jh-count')).toHaveText('0件');
   // ほかの人の分を見ている間だけ黄色の帯と「自分の担当分に戻す」。
@@ -217,7 +217,7 @@ test('本人が解決できる既定画面と、198件の期限切れを20件ず
   const list = page.getByRole('region', { name: '期限切れの一覧' });
   await expect(list.locator('tbody tr')).toHaveCount(20);
   await expect(list).toContainText('1〜20件 ／ 全198件');
-  await expect(list.locator('tbody tr').first()).toContainText(/合成案件1000対応中2026\/10\/15\d+日過ぎています応募状況を確認する合成担当A/);
+  await expect(list.locator('tbody tr').first()).toContainText(/合成案件1000合成事業所対応中2026\/10\/15\d+日過ぎています応募状況を確認する合成担当A/);
   if (dir) await page.locator('.jc-main').screenshot({ path: `${dir}/overdue.png` });
   await list.getByRole('button', { name: '次の20件' }).click();
   await expect(list).toContainText('21〜40件 ／ 全198件');

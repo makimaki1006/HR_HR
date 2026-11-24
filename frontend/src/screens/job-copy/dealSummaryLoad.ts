@@ -75,7 +75,7 @@ export async function loadDealData(dealId: string, name: string, signal: AbortSi
 /** 計算に渡す求人。HRハッカーは HubSpot の週ごとの実績 (と取り込んだ課金CSV)、AirWork は HubSpot の週ごとの実績があるものだけ (無い求人は課金データなし)。 */
 export function dealInputs(data: DealData, billingByJob: Readonly<Record<string, readonly BillingEntry[]>>): DealListingInput[] {
   return data.rows.map(row => ({
-    id: row.id, title: row.title ?? '求人名未取得', media: row.media, ended: publicationLabel(row.publication_status) === '掲載終了',
+    id: row.id, title: row.title ?? '求人名なし', media: row.media, ended: publicationLabel(row.publication_status) === '掲載終了',
     byDate: data.applications.get(row.id) ?? null,
     billing: row.media === 'airwork' ? perfBillingEntries(data.perf.get(row.id), row.media_job_id) : [...perfBillingEntries(data.perf.get(row.id), row.media_job_id), ...(billingByJob[`hubspot-history-${row.id}`] ?? [])],
     fetchedDate: data.fetched.get(row.id) ?? null,
@@ -105,7 +105,7 @@ export async function loadCompanyDatas(companyId: string, signal: AbortSignal, k
       const index = next; next += 1;
       const deal = wanted[index];
       if (!deal || limit.signal.aborted) return;
-      const data = await loadDealData(deal.id, deal.name ?? '案件名未取得', limit.signal).catch(() => null);
+      const data = await loadDealData(deal.id, deal.name ?? '案件名なし', limit.signal).catch(() => null);
       results[index] = data;
       if (data?.rows.length && !signal.aborted) onProgress?.(results.filter((item): item is DealData => !!item?.rows.length));
     }

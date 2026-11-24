@@ -67,7 +67,7 @@ export function ListingPopup({ job, version, onClose, returnFocus, navigation }:
   }, [displayed.id]);
   const images = (item: typeof model, recorded?: CopyVersion) => <section className="jc-listing-popup-section jc-listing-image-cell">
     <h3>画像</h3>
-    {item.images?.length ? <><ImageGallery failureMessage="画像はありますが、取得できていません" title="掲載画像" images={item.images} />{recorded?.historicalImageBytesAvailable === false && <p className="jc-listing-popup-note">画像は当時と異なる可能性があります。</p>}</> : item.observedImages ? <><p className="jc-listing-popup-note">現在取得できる画像（確認日時：{formatDateTimeJst(item.observedImages.observedAt, '未取得')}）。本文の記録時点の画像とは限りません。</p><ImageGallery failureMessage="画像はありますが、取得できていません" title="掲載画像" images={item.observedImages.images} /></> : <p>{item.imageReason}</p>}
+    {item.images?.length ? <><ImageGallery failureMessage="画像はありますが、取得できていません" title="掲載画像" images={item.images} />{recorded?.historicalImageBytesAvailable === false && <p className="jc-listing-popup-note">画像は当時と異なる可能性があります。</p>}</> : item.observedImages ? <><p className="jc-listing-popup-note">現在取得できる画像（確認日時：{formatDateTimeJst(item.observedImages.observedAt, '不明')}）。本文の記録時点の画像とは限りません。</p><ImageGallery failureMessage="画像はありますが、取得できていません" title="掲載画像" images={item.observedImages.images} /></> : <p>{item.imageReason}</p>}
   </section>;
   const missing = (item: typeof model) => !item.optionalFieldsKnown ? <p className="jc-listing-popup-note">任意項目の記載状況を取得できていません。</p> : <details className="jc-listing-popup-missing"><summary>記載のない任意項目（{item.missing.length}件）</summary><ul>{item.missing.map((name, i) => <li key={i}>{name}</li>)}</ul></details>;
   return <dialog ref={dialog} className="jc-listing-popup" role="dialog" aria-modal="true" aria-labelledby={headingId} tabIndex={-1}
@@ -87,14 +87,14 @@ export function ListingPopup({ job, version, onClose, returnFocus, navigation }:
       {busy && <p role="status">求人の内容を読み込んでいます…</p>}{error && <p role="alert">{error}</p>}
       <dl className="jc-listing-popup-summary">{[['求人名', model.title], ['媒体', displayed.media], ['公開状況', model.publication], ['勤務地', model.location], ['給与', model.salary], ['応募数', model.applications]].map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>
       <div className="jc-listing-popup-bar">
-        <p className="jc-listing-popup-note">記録日時：{formatDateTimeJst(selectedVersion?.observedAt, '未取得')}</p>
+        <p className="jc-listing-popup-note">記録日時：{formatDateTimeJst(selectedVersion?.observedAt, '不明')}</p>
         <InfoTip className="jc-infotip-left" iconFirst label="日時と応募数について"><p>本文が記録された日時です。掲載開始日時とは異なります。{selectedVersion?.source === 'HubSpotの現在の本文' && '現在の本文は確認した日時です。本文の記録日時は不明です。'}</p>{model.hasCurrentConditions && <p>本文以外の補足条件・公開状況は現在の取得値です。過去の本文に補っていません。</p>}<p>応募数は求人全体の取得値で、この本文への応募数ではありません。</p></InfoTip>
         {previous && selectedVersion && <button type="button" className="jc-button" onClick={() => { setCompareOpen(true); }}>前の本文と全文を比べる</button>}
       </div>
       {selectedVersion?.kind === 'ai_draft' && <p className="jc-notice">未掲載の案です。</p>}
       {!model.bodyAvailable && <p className="jc-notice">本文を取得できていません。</p>}
       <div className="jc-listing-comparison">
-        {rows.map(row => <div className="jc-listing-comparison-row" key={row.key}><section className="jc-listing-popup-section"><h3>{row.label}</h3><p className={row.value === '記載なし' ? 'jc-listing-absent' : undefined}>{row.value}</p></section></div>)}
+        {rows.map(row => <div className="jc-listing-comparison-row" key={row.key}><section className="jc-listing-popup-section"><h3>{row.label}</h3><p className={row.value === '記載なし' ? 'jc-listing-absent' : undefined}>{row.value.replace(/^\s*\n/, '').replace(/\n\s*$/, '')}</p></section></div>)}
         {images(model, selectedVersion)}
         <div key={`${displayed.id}-missing`}>{missing(model)}</div>
       </div>

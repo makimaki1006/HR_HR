@@ -339,7 +339,7 @@ export function buildBillingImport(rows: readonly (readonly string[])[], mapping
       const sameId = sameMedia.filter(item => item.mediaJobId.trim() === mediaJobId);
       const accountLabel = media === 'Airワーク' ? 'アカウントのログイン番号' : '媒体の店舗番号';
       const message = sameId.length && sameId.every(item => !item.accountId?.trim())
-        ? `${media} の求人は一覧にありますが、求人の${accountLabel}が未取得のため結びつけません`
+        ? `${media} の求人は一覧にありますが、求人の${accountLabel}を読めていないため結びつけません`
         : sameId.length
           ? `${media} の求人は一覧にありますが、${accountLabel}が違います${zeroHint(accountId, sameId.map(item => item.accountId?.trim() ?? ''), accountLabel)}`
           : `${media} の条件に合う求人は一覧にありません${zeroHint(mediaJobId, sameMedia.map(item => item.mediaJobId.trim()), '媒体の求人番号')}`;

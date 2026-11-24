@@ -78,8 +78,9 @@ test('要対応の理由をまとめ、予定をvalueで保存し、ホームと
   // ステージは文字で出し、「ステージを変える…」を押したときだけ選ぶ欄を開く
   const contract = page.getByRole('region', { name: '契約・成果', exact: true });
   await expect(contract.locator('.dc-stage-now strong')).toHaveText(stageSchema.stages[0]!.label);
-  await expect(contract).toContainText('HubSpot の案件のステージが変わります。次の画面で確かめてから保存します。');
+  await expect(contract).not.toContainText('HubSpot の案件のステージが変わります。');
   await contract.getByRole('button', { name: 'ステージを変える…' }).click();
+  await expect(contract).toContainText('HubSpot の案件のステージが変わります。次の画面で確かめてから保存します。');
   const stage = page.getByRole('combobox', { name: '移す先のステージ' });
   await expect(stage).toBeEnabled();
   await expect(stage).toHaveValue('stage-demo');

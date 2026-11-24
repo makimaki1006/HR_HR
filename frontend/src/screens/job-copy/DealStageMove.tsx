@@ -37,7 +37,7 @@ export function DealStageMove({ dealId, write, detail, props, request, locked, o
     });
     const unavailable = targetStage.required.filter(name => !defs.some(d => d.name === name));
     if (unavailable.length) {
-      setError(`移動に必要な項目をこの画面で入力できません。HubSpotで確認してください（${unavailable.map(name => props.find(p => p.name === name)?.label ?? '未取得の項目').join('、')}）。`);
+      setError(`移動に必要な項目をこの画面で入力できません。HubSpotで確認してください（${unavailable.map(name => props.find(p => p.name === name)?.label ?? '名前の分からない項目').join('、')}）。`);
       setLoading(false); return;
     }
     const current: PropValues = {};
@@ -67,11 +67,11 @@ export function DealStageMove({ dealId, write, detail, props, request, locked, o
     };
     setFlow({ target, ctx }); setLoading(false);
   }
-  // 今のステージは文字で出し、変えるときだけ選ぶ欄を開く（選ぶと HubSpot が変わる操作なので、ただの選択欄に見せない）。
+  // 今のステージは文字で出し、変えるときだけ選ぶ欄と説明を開く（選ぶと HubSpot が変わる操作なので、ただの選択欄に見せない）。
   return <div className="dc-stage">
     <p className="dc-stage-now">ステージ：<strong>{label ?? '現在のステージ'}</strong>
       {!choosing && <button type="button" className="jc-button" disabled={locked || loading || flow !== null} onClick={() => { setChoosing(true); setError(''); }}>ステージを変える…</button>}</p>
-    <p className="dc-stage-note">HubSpot の案件のステージが変わります。次の画面で確かめてから保存します。</p>
+    {choosing && <p className="dc-stage-note">HubSpot の案件のステージが変わります。次の画面で確かめてから保存します。</p>}
     {choosing && <div className="dc-stage-pick"><label>移す先のステージ<select value={stageId ?? ''} disabled={locked || loading || flow !== null} onChange={e => { void pick(e.target.value); }}>
       {!stages.some(s => s.id === stageId) && <option value={stageId ?? ''}>{label ?? '現在のステージ'}</option>}
       {stages.map(s => <option key={s.id} value={s.id}>{s.id === stageId ? `${s.label}（今のステージ）` : s.label}</option>)}

@@ -9,3 +9,11 @@
 .lb-table th[scope=row] { padding: 10px 8px 10px 16px; text-align: left; font-weight: normal; border-bottom: 1px solid #f1f5f9; }
 .lb-screen .ob-paging span { margin: 0 8px 0 auto; }
 .lb-table td.lb-media { color: #647381; }
+/* 行を詰め、求人名を太く、決まっていない欄は薄くして、指定済みの欄が目に入るようにする。 */
+.lb-table th[scope=row], .lb-table td { padding-top: 7px; padding-bottom: 7px; }
+.lb-table .lb-title { width: 30%; }
+.lb-table .jc-row-name { font-weight: 600; font-size: 14px; color: #0f172a; }
+.lb-table .ob-sub { margin-top: 2px; }
+.lb-table td.lb-nowrap { white-space: nowrap; }
+.lb-table td.lb-muted { color: #8a99a6; }
+.lb-table td.ob-num { font-variant-numeric: tabular-nums; }

@@ -33,3 +33,20 @@
 
 /* 応募数（担当者の入力）は参考の数字。主の数字（HubSpot の応募の記録）と取り違えないよう控えめにする。 */
 .dc-field.dc-ref strong { font-size: 13px; font-weight: normal; color: #647381; }
+
+/* ── 契約・成果：成果の数字を上に大きく、契約の条件はその下に控えめに（2026-11-24） ── */
+.dc-root .dc-head .jc-button { margin-left: auto; }
+.dc-root > .dc-stage { margin: 12px 0 0; padding-bottom: 12px; border-bottom: 1px solid #e6ecf0; }
+.dc-group { margin-top: 16px; }
+.dc-root .dc-group h3 { margin: 0 0 12px; font-size: 13px; font-weight: 700; color: #52616e; }
+.dc-group .dc-fields { gap: 14px 20px; }
+.dc-group-result .dc-fields { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
+.dc-group-result .dc-field strong { font-size: 20px; }
+.dc-group-contract { padding-top: 14px; border-top: 1px solid #e6ecf0; }
+.dc-group-contract .dc-fields { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+.dc-group-contract .dc-field strong { font-size: 14px; font-weight: 600; }
+.dc-field { gap: 4px; }
+.dc-root p.dc-fixed-note { margin: 10px 0 0; color: #647381; font-size: 12px; }
+.dc-group-result .dc-field.dc-ref strong { font-size: 20px; font-weight: normal; color: #647381; }
+.dc-group-result .dc-fields { grid-template-columns: repeat(4, minmax(90px, 1fr)) repeat(2, minmax(130px, 1.4fr)); }
+.dc-group-result .dc-field strong { white-space: nowrap; }

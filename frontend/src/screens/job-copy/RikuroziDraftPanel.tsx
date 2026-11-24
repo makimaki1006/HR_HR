@@ -169,19 +169,19 @@ export function RikuroziDraftPanel({ listingId }: { listingId: string }) {
       <InfoTip className="jc-infotip-left" iconFirst label="確かめていること"><p>CSVを出す前に内容を確認してください。先方への送信・掲載は行いません。</p><p>数字は原文に同じ表記があるかだけを確かめます。通常と研修の取り違えなど、正しい数字を違う文脈で使った誤りは検知できません。給与や時間の意味は担当者が確認してください。</p><p>自動で作り直した回数：{String(draft.regeneration_count ?? 0)}回（最大2回）</p></InfoTip>
       <h4>比べた求人と文の一致率</h4>
       <InfoTip className="jc-infotip-left" iconFirst label="一致率の決まり"><p>文の一致率が{(draft.threshold * 100).toLocaleString('ja-JP', { maximumSignificantDigits: 6 })}％以上の場合、または生成した全文が相手の本文に含まれると「似すぎ・不合格」です。既知の項目見出しを除いて文を比べます。{draft.min_sentence_chars === 0 ? '短い文もすべて数えます。' : `${draft.min_sentence_chars.toLocaleString('ja-JP')}文字未満の文は一致率に数えません。`}</p></InfoTip>
-      <ul>{draft.comparisons.map((item, index) => <li key={index}><strong>{item.media} · {item.title}</strong><span>{item.publication} ／ 文の一致率：{item.ratio === null ? '未取得（要確認）' : `${(item.ratio * 100).toFixed(1)}％`}{item.too_similar && ' ／ 似すぎ・不合格（要確認）'}</span>
+      <ul>{draft.comparisons.map((item, index) => <li key={index}><strong>{item.media} · {item.title}</strong><span>{item.publication} ／ 文の一致率：{item.ratio === null ? '不明（要確認）' : `${(item.ratio * 100).toFixed(1)}％`}{item.too_similar && ' ／ 似すぎ・不合格（要確認）'}</span>
         {item.whole_match && <p>生成した全文が相手の本文に含まれています。</p>}
         {item.matched_sentences.length > 0 && <><span>一致した文</span><ul>{item.matched_sentences.map((sentence, sentenceIndex) => <li key={sentenceIndex}>{sentence}</li>)}</ul></>}
       </li>)}</ul>
       <h4>原本の条件</h4>
       <InfoTip className="jc-infotip-left" iconFirst label="勤務地について"><p>勤務地は基準の事業所を引き継ぎます。詳しい住所は事業所の情報で確認してください。</p></InfoTip>
-      <dl>{draft.copied.map(item => <div key={item.label}><dt>{item.label}{item.review && '（要確認）'}</dt><dd>{item.value ?? '未取得'}{item.reason && <p>{item.reason}</p>}</dd></div>)}</dl>
+      <dl>{draft.copied.map(item => <div key={item.label}><dt>{item.label}{item.review && '（要確認）'}</dt><dd>{item.value ?? '不明'}{item.reason && <p>{item.reason}</p>}</dd></div>)}</dl>
       {draft.images && <>
         <h4>使用する画像</h4>
         <ol>{draft.images.slice(0, 3).map((url, index) => <li key={index}>画像{index + 1}：{url || '空欄'}</li>)}</ol>
       </>}
       <h4>作成した文章と確認結果</h4>
-      <dl>{draft.generated.map(item => <div key={item.label}><dt>{item.label}{item.review && '（要確認）'}</dt><dd>{item.value ?? '未取得'}{item.reason && <p>{item.reason}</p>}{item.missing_chunks.length > 0 && <><p>原文にない数字の表記</p><ul>{item.missing_chunks.map(chunk => <li key={chunk}>{chunk}</li>)}</ul></>}</dd></div>)}</dl>
+      <dl>{draft.generated.map(item => <div key={item.label}><dt>{item.label}{item.review && '（要確認）'}</dt><dd>{item.value ?? '不明'}{item.reason && <p>{item.reason}</p>}{item.missing_chunks.length > 0 && <><p>原文にない数字の表記</p><ul>{item.missing_chunks.map(chunk => <li key={chunk}>{chunk}</li>)}</ul></>}</dd></div>)}</dl>
       {draft.review_required && <p role="status">要確認の項目があります。<InfoTip className="jc-infotip-left" label="くわしく"><p>原文にない数字の表記がある文章は空欄です。似すぎの文章は作り直すか、担当者が確認してください。</p></InfoTip></p>}
       <div className="jc-rikurozi-create">
         <p>押すと HubSpot に新しい求人（公開前）を1件作り、元の求人と同じ案件に付けてから CSV を出します。何度押しても作るのは1件です。</p>

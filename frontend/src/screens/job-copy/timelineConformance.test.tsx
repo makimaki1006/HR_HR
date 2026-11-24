@@ -4,9 +4,9 @@
  * contracts.
  * 1. A version is dated by the day it was acquired. A change is reported as 「文面を確認した日A〜文面を確認した日Bの間に
  *    変化」; the days in between are not given to either version, and after the last acquisition
- *    nothing is known (未取得).
+ *    nothing is known (不明).
  * 2. Images: reference changes (差し替え / 並び順) and same-reference file changes (中身) are told
- *    apart; 同じ only when both comparisons agree; a version without image data is 未取得.
+ *    apart; 同じ only when both comparisons agree; a version without image data is 不明.
  * 3. An application linked to more than one job is never put into a version's period, and totals
  *    across jobs say they can count one application more than once.
  * 6. The dummy billing can be turned off on screen and is never in a total or a sort.
@@ -121,7 +121,7 @@ describe('2. images: references and file contents', () => {
     expect(imageChangeKind(base, { id: 'q' })).toBe('missing');
     expect(imageChangeKind(undefined, { id: 'q' })).toBe('missing');
     expect(imageChangeKind({ id: 'p' }, { id: 'q', images: sameImages })).toBe('unknown');
-    expect(Object.values(IMAGE_CHANGE_MARK).map(mark => mark.text)).toEqual(['最初', '未取得', '差し替え', '並び順', '中身', '同じ', '不明']);
+    expect(Object.values(IMAGE_CHANGE_MARK).map(mark => mark.text)).toEqual(['最初', '読めず', '差し替え', '並び順', '中身', '同じ', '不明']);
   });
 
   it('counts a same-URL file change as an image change in the lane and the change kinds, and never says 変更はありません then', () => {
@@ -134,7 +134,7 @@ describe('2. images: references and file contents', () => {
     expect(marks.map(mark => [mark.textContent, mark.getAttribute('aria-label')])).toEqual([
       ['最初', `${changes[0]?.label ?? ''}の画像：最初の本文`],
       ['中身', `${changes[1]?.label ?? ''}の画像：同じ場所の画像の中身が変わりました`],
-      ['未取得', `${changes[2]?.label ?? ''}の画像：この本文に対応する画像は未取得です`],
+      ['読めず', `${changes[2]?.label ?? ''}の画像：この本文に対応する画像を読めていません`],
     ]);
     const second = marks[1];
     if (!second) throw new Error('missing the second 画像 mark');

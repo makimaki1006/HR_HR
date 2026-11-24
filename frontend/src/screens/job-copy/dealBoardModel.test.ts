@@ -21,9 +21,9 @@ it('初回は目安より少ない案件を先にし、日数の長い順に並�
   const { firstRows } = await import('./dealBoard.testFixtures');
   const { sortLaunch, launchLabel } = await import('./dealBoardModel');
   expect(sortLaunch(firstRows.filter(r => r.first_contract)).map(r => r.id)).toEqual(['103', '100', '101', '104', '102']);
-  expect(firstRows.map(r => launchLabel(r, false))).toEqual(['目安より少ない（あと1件）', '目安どおり', '立ち上がり中', '目安より少ない（あと10件）', '未取得', '目安より少ない（あと10件）']);
+  expect(firstRows.map(r => launchLabel(r, false))).toEqual(['目安より少ない（あと1件）', '目安どおり', '立ち上がり中', '目安より少ない（あと10件）', '不明', '目安より少ない（あと10件）']);
   const missing = firstRows[4];
-  if (!missing) throw new Error('未取得の案件がありません');
+  if (!missing) throw new Error('不明の案件がありません');
   expect(launchLabel(missing, true)).toBe('集計中');
 });
 
@@ -72,5 +72,5 @@ it('まとめは応募IDで重複除去し、日付不明と未取得を区別�
   expect(summarizeApplications([{ ...base, recent_application_ids: null }]).missing).toBe(1);
   expect(summarizeApplications([a, { ...base, applications_out_of_scope: true, recent_application_ids: null }])).toEqual({ recent: 2, previous: 1, change: 1, unknown: 1, missing: 0, outOfScope: 1 });
   expect(summarizeApplications([])).toEqual({ recent: 0, previous: 0, change: 0, unknown: 0, missing: 0, outOfScope: 0 });
-  expect([applicationChange(3), applicationChange(0), applicationChange(-2), applicationChange(null)]).toEqual(['+3件', '0件', '-2件', '未取得']);
+  expect([applicationChange(3), applicationChange(0), applicationChange(-2), applicationChange(null)]).toEqual(['+3件', '0件', '-2件', '不明']);
 });

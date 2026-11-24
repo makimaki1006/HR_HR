@@ -253,6 +253,37 @@ pub fn is_referral_deal(name: &str, stage: &str) -> bool {
     MARKETING_STAGES.contains(&stage) || name.contains(REFERRAL_NAME_WORD)
 }
 
+/// オプション契約か（求人追加・一次対応など）。種別（取引名の接頭辞）とステージの OR。
+/// HubSpot から直接読む案件管理側の取引が使う。シートの取引は `Deal::is_option`。
+///
+/// 本番の取引名は「求人追加①」「AirWork広告運用②」「Airwork広告運用」「追加求人」のように揺れるので、
+/// 接頭辞の末尾の番号（①〜⑳・数字）を外し、AirWork の大文字小文字をそろえ、「追加求人」を「求人追加」と読む。
+/// 2026-11-24 の本番の案件一覧 4,155 件で、完全一致だけだと 9 件（稼働中 1 件）が漏れていた。
+pub fn is_option_deal(name: &str, stage: &str) -> bool {
+    if OPTION_STAGES.contains(&stage) {
+        return true;
+    }
+    let kind = contract_kind_from_name(name)
+        .trim_end_matches(|c: char| {
+            c.is_ascii_digit() || ('０'..='９').contains(&c) || ('①'..='⑳').contains(&c)
+        })
+        .trim();
+    let kind = kind
+        .replacen("Airwork", "AirWork", 1)
+        .replacen("AIRWORK", "AirWork", 1);
+    let kind = match kind.as_str() {
+        "追加求人" => "求人追加",
+        "AirWork広告費用" => "AirWork",
+        k => k,
+    };
+    OPTION_KINDS.contains(&kind)
+}
+
+/// 画面の母集団から外す取引か（オプション契約、または紹介料の取引）。案件管理側で使う。
+pub fn is_excluded_deal(name: &str, stage: &str) -> bool {
+    is_option_deal(name, stage) || is_referral_deal(name, stage)
+}
+
 /// 決着の3状態。ここに入らないものは「結果待ち」で、分母に入れない。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Outcome {

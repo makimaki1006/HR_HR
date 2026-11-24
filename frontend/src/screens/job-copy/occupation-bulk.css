@@ -51,3 +51,6 @@
 .ob-table .jc-button:disabled { opacity:1; color:#475569 !important; }
 .ob-tab-note { font-size:12px; color:#475569; margin-right:auto; }
 .ob-intro .ob-save-note { flex-basis:100%; font-size:13px; color:#475569; }
+/* 保存先の説明は必要なときに開く。 */
+.ob-intro details.ob-save-note > summary { cursor:pointer; color:#475569; }
+.ob-intro details.ob-save-note > p { margin:4px 0 0; }

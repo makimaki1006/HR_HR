@@ -93,9 +93,9 @@ test('preparing switches to forty jobs automatically; missing history and failed
   await expect(page.getByLabel('求人票')).toContainText('時給1,800円');
   await expect(page.getByRole('region', { name: '現在取得できる掲載画像' }).locator('img')).toBeVisible();
   await list.getByRole('button', { name: '看護スタッフ・東京39の本文を見る' }).click();
-  await expect(page.getByText('この求人の文面の履歴はありません。本文は未取得です。')).toBeVisible();
+  await expect(page.getByText('この求人の文面の履歴はありません。本文は読めていません。')).toBeVisible();
   await list.getByRole('button', { name: '看護スタッフ・大分40の本文を見る' }).click();
-  await expect(page.getByText(/選んだ本文は未取得です/)).toBeVisible();
+  await expect(page.getByText(/選んだ本文は読めていません/)).toBeVisible();
   await list.getByRole('button', { name: '看護スタッフ・沖縄38の本文を見る' }).click();
   await expect(page.getByRole('heading', { name: '求人票を取得できませんでした' })).toBeVisible();
 });

@@ -10,7 +10,7 @@ import { InfoTip } from './InfoTip';
 import { formatDateJst, joinPresent, plainWording } from './format';
 import './job-analysis.css';
 
-const amount = (value: number | null | undefined) => value == null ? '未取得' : value.toLocaleString('ja-JP', { maximumFractionDigits: 2 });
+const amount = (value: number | null | undefined) => value == null ? '不明' : value.toLocaleString('ja-JP', { maximumFractionDigits: 2 });
 /** mode 'demo' uses the same fictional market data as the timeline's 市場 lane and sends no request. */
 export function MarketContext({ job, view = 'charts', mode = 'api' }: { job: JobCopyRecord; view?: 'charts' | 'table' | 'inactive'; mode?: 'api' | 'demo' }) {
   return <MarketContextForJob key={job.id} job={job} view={view} mode={mode} />;
@@ -53,7 +53,7 @@ function MarketContextForJob({ job, view, mode }: { job: JobCopyRecord; view: 'c
     <h2>{view === 'table' ? '市場データの数値表' : '職種・地域の市場グラフ'}</h2><p>{job.title} · {job.location}</p>
     <AssumptionsNote className="jc-notice" includeHubSpot={false} summary="市場の数字はIndeedの集計です。閲覧者指標は求職者の人数や、この求人の応募数ではありません。" items={[
       data?.ctk_basis && plainWording(data.ctk_basis),
-      'グラフごとに単位と縦軸が異なります。未取得の月は線をつなぎません。',
+      'グラフごとに単位と縦軸が異なります。値が分からない月は線をつなぎません。',
       '応募と市場の取得期間は一致するとは限りません。それぞれの対象月を確認して比べてください。',
       '応募数はHubSpotに記録されたものだけで、市場の数字とは出所が異なります。',
     ]} />
@@ -66,10 +66,10 @@ function MarketContextForJob({ job, view, mode }: { job: JobCopyRecord; view: 'c
         <p>市場の対象：{joinPresent([title, data.series?.prefecture], ' / ')} · {formatDateJst(shown[0]?.month)}〜{formatDateJst(shown.at(-1)?.month)}</p>
         {lastMonth && <p className="jc-market-until">{marketDataUntil(lastMonth)}</p>}
         {view === 'charts' && <div className="jc-market-charts">{charts.map(chart => <section key={chart.key} aria-label={`${chart.label}の月次グラフ`}><h4>{chart.label}</h4>
-          {shown.some(row => row[chart.key] !== null) ? <EChart option={{ ...trendOption(shown.map(row => formatDateJst(row.month)), shown.map(row => row[chart.key]), chart.label, chart.unit), dataZoom: [], grid: { top: 36, left: 14, right: 18, bottom: 30, containLabel: true } }} testId={`jc-market-${chart.key}`} renderer="svg" height={280} /> : <p>この指標は未取得です。</p>}
+          {shown.some(row => row[chart.key] !== null) ? <EChart option={{ ...trendOption(shown.map(row => formatDateJst(row.month)), shown.map(row => row[chart.key]), chart.label, chart.unit), dataZoom: [], grid: { top: 36, left: 14, right: 18, bottom: 30, containLabel: true } }} testId={`jc-market-${chart.key}`} renderer="svg" height={280} /> : <p>この指標は読めていません。</p>}
         </section>)}</div>}
         {view === 'table' && <><p className="jc-analysis-scroll-hint">表は横にスクロールして確認できます。</p><div className="jc-analysis-table" role="region" aria-label="市場実績の数値表" tabIndex={0}><table><caption>{title} / {data.series?.prefecture}の月次市場実績</caption><thead><tr><th>対象月</th><th>市場求人数</th><th><InfoTip className="jc-infotip-left" label="Indeed閲覧者指標"><p>Indeed上で求人を見た人の動きをもとにした指標です。求職者の人数や応募数ではありません。</p></InfoTip></th><th>募集企業数</th><th>1求人当たり閲覧者指標</th></tr></thead><tbody>{shown.map(row => <tr key={row.month}><th>{formatDateJst(row.month)}</th><td>{amount(row.jobs)}</td><td>{amount(row.viewers)}</td><td>{amount(row.employers)}</td><td>{amount(row.viewersPerJob)}</td></tr>)}</tbody></table></div></>}
-      </> : <p>{title && prefecture ? '選択した職種・県の月次市場データはありません。' : '市場職種と県を選択するとグラフを表示します。'} 未取得値を0には置き換えません。</p>}
+      </> : <p>{title && prefecture ? '選択した職種・県の月次市場データはありません。' : '市場職種と県を選択するとグラフを表示します。'} 分からない値を0には置き換えません。</p>}
     </>}
   </section>;
 }

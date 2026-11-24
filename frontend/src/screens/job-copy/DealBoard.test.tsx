@@ -105,7 +105,7 @@ it('まとめは案件をまたぐ応募を1回に数え、絞り込みに従い
   const summary = () => within(screen.getByRole('region', { name: '絞り込み中の応募数' }));
   expect(summary().getByText(/直近4週/u).textContent).toBe('直近4週 4件 ／ 前の4週 1件 ／ 差 +3件');
   const first = screen.getByRole('table').querySelector('tbody tr');
-  expect(first?.textContent).toContain('前の4週 1件 ／ 差 0件');
+  expect(first?.textContent).toContain('前の4週 1件差 0件');
   fireEvent.click(screen.getByRole('checkbox', { name: '面接が1件も無い案件だけ' }));
   expect(summary().getByText(/直近4週/u).textContent).toBe('直近4週 3件 ／ 前の4週 1件 ／ 差 +2件');
   fireEvent.click(screen.getByRole('button', { name: '定期の満足度が低い 1' }));
@@ -116,11 +116,11 @@ it('日付不明を添えて負の差を表示し、未取得の案件があれ�
   stub([], [{ ...row(0), recent_applications: 1, previous_applications: 3, applications_change: -2, unknown_application_ids: ['u'] }, { ...row(1), recent_applications: null, recent_application_ids: null, previous_applications: null, previous_application_ids: null, unknown_application_ids: null, applications_change: null }]);
   await open();
   const summary = within(screen.getByRole('region', { name: '絞り込み中の応募数' }));
-  expect(summary.getByText(/直近4週/u).textContent).toBe('直近4週 未取得 ／ 前の4週 未取得 ／ 差 未取得');
+  expect(summary.getByText(/直近4週/u).textContent).toBe('直近4週 不明 ／ 前の4週 不明 ／ 差 不明');
   expect(summary.getByText('含めていないもの：日付不明の応募 1件')).toBeTruthy();
-  expect(summary.getByText('応募数が未取得の案件が 1 件あるため、合計は出していません。')).toBeTruthy();
+  expect(summary.getByText('応募数が分からない案件が 1 件あるため、合計は出していません。')).toBeTruthy();
   const first = screen.getByRole('table').querySelector('tbody tr');
-  expect(first?.textContent).toContain('前の4週 3件 ／ 差 -2件');
+  expect(first?.textContent).toContain('前の4週 3件差 -2件');
   expect(first?.textContent).toContain('日付不明 1件を除外');
 });
 
@@ -148,7 +148,7 @@ it('MTGが60日以上空いている（60日以上）と MTGが30〜59日空い�
   fireEvent.click(within(filters).getByRole('button', { name: 'MTGが30〜59日空いている 1' }));
   await waitFor(() => { expect(names()).toHaveLength(4); });
   const cell = (r: DealRow) => screen.getByRole('button', { name: r.name ?? '' }).closest('tr')?.querySelectorAll('td')[3]?.textContent;
-  expect(cell(row(0))).toBe('2026/10/12メール 2026/10/14');
+  expect(cell(row(0))).toBe('2026/10/12最後のメール 2026/10/14');
   expect(cell(row(2))).toBe('2026/10/12');
   expect(cell(row(23))).toBe('記録なし（対象外）');
 });

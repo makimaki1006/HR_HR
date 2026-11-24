@@ -176,3 +176,50 @@ button.jc-open:hover, .jh-card:hover .jc-open { background: #eef5fb; }
 /* 満了まで 30 日以内・過ぎて 30 日以内は赤い太字（急ぐ）、過ぎて 31 日以上は灰（案件のページの見出しと同じ判定）。 */
 .jc-expiry-urgent { color: #b42318; font-weight: 700; }
 .jc-expiry-ended { color: #8a99a6; }
+
+/* ── 今日の画面の見やすさ（2026-11-24）: 段ごとに白い枠でまとめ、カードを低く、色は赤（急ぐ）だけ面を塗る。 ── */
+.jh-home { gap: 20px; }
+.jh-panel { background: var(--jc-paper, #fff); border: 1px solid var(--jc-border, #d4dfe7); border-radius: 8px; padding: 16px 20px 18px; }
+.jh-todo-panel .jh-todo { margin: 0; }
+.jh-home .jh-todo > h2 { margin-bottom: 2px; }
+.jh-home .jh-todo > h2 + p { margin-bottom: 4px; font-size: 12px; color: var(--jc-muted, #52697a); }
+.jh-home .jh-todo > div + div { margin-top: 18px; padding-top: 16px; border-top: 1px solid #e6edf2; }
+.jh-home .jh-section-head h3 { font-size: 15px; }
+/* カード: 数字と名前を左、「一覧を見る」を右下に置いて高さを抑える。 */
+.jh-home .jh-card { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto auto; align-items: end; column-gap: 8px; row-gap: 2px; min-height: 0; padding: 12px 14px; border-radius: 8px; }
+.jh-home .jh-card > .jh-count { grid-column: 1; grid-row: 1; font-size: 26px; }
+.jh-home .jh-card > .jh-card-title { grid-column: 1; grid-row: 2; font-size: 14px; line-height: 1.4; }
+.jh-home .jh-card > .jh-card-cue { grid-column: 2; grid-row: 1 / span 2; align-self: end; margin: 0; }
+.jh-home .jh-todo-cards .jh-card { min-height: 0; padding: 12px 14px; }
+.jh-home .jh-todo-cards .jh-count { font-size: 26px; }
+/* 橙（注意）は枠の色だけにし、面を塗るのは赤（期限切れ）だけ。 */
+.jh-home .jh-card.jh-warn { background: var(--jc-paper, #fff); border-color: var(--jc-border, #d4dfe7); box-shadow: inset 4px 0 #e9a15c; }
+.jh-home .jh-card.jh-warn:hover { border-color: #8aafbb; }
+.jh-home .jh-cards .jh-card[aria-pressed='true'] { box-shadow: inset 0 0 0 2px var(--jc-accent, #007c91); }
+.jh-home .jh-more { margin-top: 10px; }
+.jh-home .jh-go-line { margin-top: 8px; font-size: 12px; }
+/* 媒体の実績は媒体ごとに 1 行。 */
+.jh-media-note { line-height: 1.6; }
+.jh-media-weeks { display: block; margin: 2px 0; font-weight: 500; color: #33475b; }
+.jh-media-week { display: block; }
+.jh-media-sep { display: none; }
+.jh-home .jh-customers { padding: 16px 20px; }
+/* やることの一覧: 上揃えで行を読みやすく。期限切れの一覧では日付だけ赤にし、「○日過ぎています」は赤い字に留める。 */
+.jh-home .jh-todo-table th, .jh-home .jh-todo-table td { vertical-align: top; padding-block: 10px; }
+.jh-home .jh-todo-table thead th { vertical-align: bottom; }
+.jh-home .jh-todo-table time { display: inline-block; margin-right: 6px; font-weight: 600; }
+.jh-home .jh-todo-table .nt-overdue { margin-left: 0; padding: 0; background: none; color: #b42318; font-size: 12px; }
+.jh-home .jh-todo-table .jc-button { min-height: 28px; padding: 3px 10px; font-size: 12px; white-space: nowrap; }
+.jh-home .jh-todo-table .nt-reason { padding: 1px 7px; border-radius: 4px; }
+/* やることの一覧: 案件名を主に、その下に会社名を小さく。 */
+.jh-home .jh-todo-table th.jh-todo-deal { min-width: 220px; font-weight: 400; }
+.jh-home .jh-todo-deal > .jc-go { font-weight: 700; }
+.jh-todo-company { display: block; margin-top: 3px; font-size: 12px; color: var(--jc-muted, #52697a); }
+.jh-todo-company .jc-go { font-weight: 400; font-size: 12px; }
+.jh-todo-hubspot { display: block; margin-top: 3px; }
+/* 顧客の枠: 見出しと検索欄・開くボタンの下端をそろえる。 */
+.jh-home .jh-customers-head { align-items: center; justify-content: flex-start; gap: 12px 20px; }
+.jh-home .jh-customers-head h2 { margin: 0; }
+.jc-app .jh-home .jh-customers-head label { display: flex; flex-direction: row; align-items: center; gap: 8px; margin: 0 0 0 auto; white-space: nowrap; }
+.jc-app .jh-home .jh-customers-head label input { width: 300px; max-width: 100%; }
+.jh-home .jh-customers-head > .jc-open { margin: 0; }

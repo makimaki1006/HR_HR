@@ -53,7 +53,7 @@ export function periodPerformance(job: JobCopyRecord, period: Period | null) {
   return { total, ratios: performanceRatios(total), covered };
 }
 export function fourWeekLabel(period: Period | null): string {
-  if (!period) return '未取得';
+  if (!period) return '不明';
   const start = period.start.replaceAll('-', '/');
   const end = (period.start.slice(0, 4) === period.end.slice(0, 4) ? period.end.slice(5) : period.end).replaceAll('-', '/');
   return `${start}〜${end} の4週`;

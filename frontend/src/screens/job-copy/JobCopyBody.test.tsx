@@ -17,7 +17,7 @@ describe('求人票の読み取り', () => {
   it('preserves unlabelled text and explicitly explains an empty body', () => {
     expect(jobCopySections('チームで利用者を支えます。\n9:00から勤務。\nhttps://example.invalid/info')).toEqual([{ heading: '仕事内容', text: 'チームで利用者を支えます。\n9:00から勤務。\nhttps://example.invalid/info' }]);
     render(<JobCopyBody body="" />);
-    expect(screen.getByRole('status').textContent).toContain('本文は未取得');
+    expect(screen.getByRole('status').textContent).toContain('本文は読めていません');
   });
   it('uses a separately labelled current value when history is unavailable', () => {
     const record = listingRecord({ listing: { id: '42', media: 'airwork', media_job_id: 'AW-42', account_id: null, title: '合成求人', prefecture: null, municipality: null, category: null, publication_status: null, last_csv_detected_at: null, application_count: null }, history_counts: { shigotonaiyou: 0 }, history_may_be_incomplete: false, versions: [], current: { body: '現在の仕事内容', checked_at: '2026-10-10T00:00:00Z', image_urls: null }, current_images: { observed_at: '2026-10-09T00:00:00Z', image_urls: ['/api/job-copy/image?sample=1'] } });

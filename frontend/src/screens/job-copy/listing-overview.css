@@ -80,26 +80,16 @@ dialog.lo-drawer::backdrop { background: rgb(15 23 42 / 35%); }
 
 /* 上の帯の追加部分 */
 .jc-band-latest { display: flex; flex-direction: column; align-items: flex-start; gap: 0; padding: 4px 12px; border: 1px solid #a9d6de; background: var(--jc-soft); border-radius: 8px; color: var(--jc-ink); text-align: left; cursor: pointer; font: inherit; max-width: 360px; }
-.jc-band-latest small { font-size: 11px; color: #0b5563; }
-.jc-band-latest strong { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
-.jc-band-spacer { flex: 1 1 8px; }
 .lo-draft-notice { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 0 0 12px; }
 
-/* 通常は帯を1行に収め、大きな金額や一覧の固定で幅が足りないときは次の行へ送る。 */
+/* 帯の求人名の行と操作ボタン（PC 幅）。 */
 @media (min-width: 801px) {
-  .jc-detail .jc-band { flex-wrap: wrap; gap: 12px; }
   /* 求人名の列は 300px より狭くしない（会社・地域・媒体・掲載状況の行が縦に折れないように）。足りないときは右の操作が次の段へ回る。 */
   .jc-detail .jc-band-name { flex: 1 1 320px; min-width: 300px; }
   .jc-detail .jc-band-name span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   /* 幅が足りないとき、本文の呼び名は枠の中で「…」に切る（枠の外へ出さない）。 */
   .jc-detail .jc-band-version { min-width: 0; max-width: 100%; }
   .jc-detail .jc-band-version > summary { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .jc-detail .jc-band-numbers { flex-wrap: nowrap; gap: 12px; flex: 0 0 auto; }
-  .jc-detail .jc-band-numbers dd { font-size: 18px; }
-  .jc-detail .jc-band-numbers dd small { display: block; margin-left: 0; font-size: 11px; }
-  .jc-detail .jc-band-numbers dt { white-space: nowrap; font-size: 11px; }
-  .jc-detail .jc-band-latest { flex: 0 1 150px; min-width: 100px; padding: 3px 8px; }
-  .jc-detail .jc-band-spacer { flex: 0 0 0; }
   .jc-detail .jc-band-buttons > .jc-button { flex: 0 0 auto; white-space: nowrap; padding-inline: 10px; font-size: 13px; }
 }
 
@@ -196,8 +186,6 @@ dialog.lo-drawer::backdrop { background: rgb(15 23 42 / 35%); }
 .jc-band-latest-cue { margin-left: 12px; flex: 0 0 auto; }
 .lo-head label.lo-toggle { display: inline-flex; flex-direction: row; align-items: center; gap: 6px; white-space: nowrap; }
 .lo-head label.lo-toggle input { margin: 0; }
-/* 最新の変更は長い文を「…」で切り、求人名の列に幅を回す（全文はボタンの title）。 */
-.jc-detail .jc-band-latest.jc-open { flex: 0 1 auto; min-width: 160px; max-width: 250px; }
 /* 常に使う 3 つ（全文を比べる・求人の内容・報告書）。同じ大きさの枠付きで 1 列に。本文の状態はその下の小さな灰色の文字。 */
 .jc-band-actions { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; flex: 0 0 auto; margin-left: auto; }
 .jc-band-buttons { display: flex; flex-wrap: nowrap; gap: 6px; }
@@ -219,3 +207,72 @@ dialog.lo-drawer::backdrop { background: rgb(15 23 42 / 35%); }
 .lo-competitor-month dd { white-space: normal; }
 .lo-competitor-n { display: block; font-size: 11px; font-weight: 400; color: var(--jc-muted); }
 .lf-legend { grid-column: 1 / -1; margin: 6px 0 0; font-size: 12px; color: var(--jc-muted); }
+
+/* 2026-11-24 求人の詳細の見やすさ。
+   上の帯は 2 段（1 段目：求人名と操作、2 段目：数字・最新の変更・データの日付）。
+   出来事は 1 枚の枠の中の行にし、応募の行は 1 行に収める。市場の今と競合の推移は横に並べる。 */
+.jc-detail .jc-band { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; padding: 14px 0 12px; }
+.jc-detail .jc-band-top { display: flex; align-items: flex-start; gap: 16px; min-width: 0; }
+.jc-detail .jc-band-top .jc-band-name { flex: 1 1 auto; min-width: 0; gap: 4px; }
+.jc-detail .jc-band-top .jc-band-name h1 { font-size: 20px; line-height: 1.3; letter-spacing: -.01em; }
+.jc-detail .jc-band-top .jc-band-status { font-size: 12.5px; }
+.jc-detail .jc-band-actions { margin-left: auto; gap: 4px; }
+.jc-detail .jc-band-stats { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 20px; min-width: 0; }
+.jc-detail .jc-band-stats .jc-band-numbers { display: flex; flex-wrap: nowrap; gap: 0; flex: 0 0 auto; margin: 0; padding: 8px 0; border: 1px solid var(--jc-border); border-radius: 8px; background: #f7f9fb; }
+.jc-detail .jc-band-stats .jc-band-numbers > div { padding: 0 18px; min-width: 120px; }
+.jc-detail .jc-band-stats .jc-band-numbers > div + div { border-left: 1px solid var(--jc-border); }
+.jc-detail .jc-band-stats .jc-band-numbers dt { color: var(--jc-muted); font-size: 11.5px; white-space: nowrap; }
+.jc-detail .jc-band-stats .jc-band-numbers dd { margin: 0; font-weight: 700; font-size: 22px; line-height: 1.25; font-variant-numeric: tabular-nums; }
+.jc-detail .jc-band-stats .jc-band-numbers dd small { display: block; margin: 0; font-weight: 400; color: var(--jc-muted); min-height: 1.3em; font-size: 11px; }
+/* 狭い画面では数字の帯を折り返し、横にはみ出さない（スマホは後回しなので最低限）。 */
+@media (max-width: 800px) { .jc-detail .jc-band-stats .jc-band-numbers { flex-wrap: wrap; flex: 1 1 auto; row-gap: 8px; } .jc-detail .jc-band-stats .jc-band-numbers > div { flex: 1 1 120px; min-width: 0; } .jc-detail .jc-band-stats .jc-band-numbers dt { white-space: normal; } }
+.jc-detail .jc-band-stats .jc-band-latest.jc-open { flex: 0 1 auto; min-width: 200px; max-width: 480px; padding: 8px 12px; font-size: 13px; }
+.jc-detail .jc-band-stats .jc-band-data { flex: 1 1 260px; justify-content: flex-end; text-align: right; font-size: 12px; }
+
+/* この求人でやること：札を低くし、操作の印は見出しの横へ。 */
+.lt-root { margin: 0; }
+.lt-root > h2 { margin: 0 0 8px; font-size: 15px; }
+.lt-cards { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.lt-card { grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto auto; align-items: center; gap: 2px 10px; min-height: 0; padding: 10px 12px; }
+.lt-card[aria-pressed='true'] { padding: 9px 11px; }
+.lt-card strong { grid-column: 1; grid-row: 1; font-size: 14px; }
+.lt-card > span:not(.lt-cue) { grid-column: 1 / -1; grid-row: 2; }
+.lt-card small { grid-column: 1 / -1; }
+.lt-card .lt-cue { grid-column: 2; grid-row: 1; justify-self: end; }
+
+/* 出来事：1 枚の枠に行を並べ、行の境目は細い線。開いた行は左の色の線と薄い地色。 */
+.lo-events { gap: 0; border: 1px solid var(--jc-border); border-radius: 8px; background: var(--jc-paper); overflow: hidden; }
+.lo-event { border: 0; border-radius: 0; border-bottom: 1px solid #e6ecf1; }
+.lo-event:last-child { border-bottom: 0; }
+.lo-event.lo-open { border: 0; border-bottom: 1px solid #e6ecf1; box-shadow: inset 3px 0 0 var(--jc-accent); background: #f6fafb; }
+.lo-event-head { grid-template-columns: 30px 48px minmax(0, 1fr) minmax(200px, 400px) auto; padding: 9px 14px; }
+.lo-event-head:hover { background: #f6f9fb; }
+.lo-num { width: 26px; height: 26px; font-size: 12px; }
+.lo-date { font-variant-numeric: tabular-nums; }
+.lo-title { font-weight: 600; }
+.lo-kind { vertical-align: 1px; }
+.lo-kind-application .lo-event-head { padding: 5px 14px; }
+.lo-kind-application .lo-title { font-weight: 500; color: #3b4f60; }
+.lo-kind-application .lo-attrs { display: inline; margin-left: 12px; font-size: 12px; }
+.lo-kind-application .lo-num { width: 22px; height: 22px; font-size: 10px; }
+.lo-kind-competitor .lo-attrs { display: inline; margin-left: 12px; font-size: 12px; }
+.lo-result strong { font-variant-numeric: tabular-nums; }
+.lo-result small { line-height: 1.4; }
+.lo-caret.jc-open { font-size: 12px; padding: 2px 8px; }
+.lo-event-body { padding: 2px 14px 16px 102px; gap: 12px; }
+.lo-changed { font-size: 13px; }
+.lo-more-events { margin-top: 10px; }
+
+/* 市場の今と競合の推移は横に並べる（どちらも必要なときに見るもの）。 */
+.lo-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; align-items: start; min-width: 0; }
+.lo-pair > .lo-market, .lo-pair > .lo-competitor { margin-top: 0; }
+@media (max-width: 1100px) { .lo-pair { grid-template-columns: minmax(0, 1fr); } .lt-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 800px) { .lo-event-body { padding-left: 14px; } .lt-cards { grid-template-columns: minmax(0, 1fr); } }
+/* 閉じている行の「詳細 ▼」は控えめに（行を押せば開く）。開いた行と、行に乗ったときだけ枠を出す。 */
+.lo-event:not(.lo-open) .lo-caret.jc-open { border-color: transparent; background: transparent; color: var(--jc-muted); }
+.lo-event:not(.lo-open) .lo-event-head:hover .lo-caret.jc-open { border-color: #9fc3d9; color: #0a5fb4; }
+
+/* 本文と画像：文面のタイムライン。どの本文でも同じ記録元・掲載開始は見出しの下に 1 回だけ出し、1 件ごとは本文の名前と日時だけにする。 */
+.jc-history > p.jc-history-common { margin: -6px 0 12px; padding: 6px 8px; border-radius: 6px; background: #f3f6f8; color: var(--jc-muted); font-size: 11px; line-height: 1.6; }
+.jc-history .jc-version { padding: 8px 11px; gap: 2px; margin-bottom: 6px; }
+.jc-history .jc-version time { color: var(--jc-muted); font-size: 11px; }

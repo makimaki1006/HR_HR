@@ -159,6 +159,9 @@ pub(super) use upsert::test_support as upsert_test_support;
 
 /// AirWork image URLs, one per line. Written by `scripts/job_copy_airwork_image_urls.py`.
 pub(super) const AW_IMAGES: &str = "aw_kyuujinhyou_gazou";
+/// AirWork の求人票の本文 (12 項目、XLSX の列から作る)。2026-11-24 から夜の取得で書かれる。
+/// 空の求人は今までどおり仕事内容 (`shigotonaiyou`) を本文として扱う。
+pub(super) const AW_BODY: &str = "aw_kyuujinhyou_honbun";
 /// Weekly Indeed (HRハッカー) results as JSON. Written by `scripts/indeed_weekly_import.py`.
 pub(super) const INDEED_WEEKLY_PERF: &str = "indeed_weekly_perf";
 /// Weekly AirWork results as JSON, same shape with `"source":"airwork"`. Filled by a separate sync.
@@ -210,6 +213,7 @@ const PROPERTIES: &[&str] = &[
     "hrh_kyuujinhyou_honbun",
     "hrh_kyuujinhyou_gazou",
     AW_IMAGES,
+    AW_BODY,
     "todoufuken",
     "shikuchouson",
     "qinwude",
@@ -1702,6 +1706,8 @@ struct Version {
     body: String,
     image_urls: Option<Vec<String>>,
     images_registered: Option<bool>,
+    /// 求人票の本文 (全文) なら true。AirWork で仕事内容だけのときは false。
+    full_body: bool,
 }
 #[derive(Deserialize)]
 struct History {
@@ -1783,7 +1789,7 @@ fn versions(
         vec!["hrh_kyuujinhyou_honbun", "hrh_kyuujinhyou_gazou"]
     } else {
         if media == "airwork" {
-            vec!["shigotonaiyou", AW_IMAGES]
+            vec!["shigotonaiyou", AW_IMAGES, AW_BODY]
         } else {
             vec!["shigotonaiyou"]
         }
@@ -1813,9 +1819,17 @@ fn versions(
     let mut body: Option<String> = None;
     let mut images = None;
     let mut images_registered = None;
+    let mut full_body = media == "hrh";
     let mut result: Vec<Version> = Vec::new();
     for (time, changes) in events {
-        if let Some(value) = changes.get(body_property) {
+        // AirWork は本文の項目が入ってからはそれを使い、仕事内容の変更は版にしない。
+        if let Some(value) = changes.get(AW_BODY).filter(|v| !v.trim().is_empty()) {
+            body = Some(value.clone());
+            full_body = true;
+        } else if let Some(value) = changes
+            .get(body_property)
+            .filter(|_| !full_body || media == "hrh")
+        {
             body = Some(value.clone());
         }
         if let Some(value) = changes.get("hrh_kyuujinhyou_gazou") {
@@ -1838,6 +1852,7 @@ fn versions(
                 body: body.clone(),
                 image_urls: images.clone(),
                 images_registered,
+                full_body,
             });
         }
     }
@@ -1845,12 +1860,16 @@ fn versions(
     Ok((result, counts, may_be_incomplete))
 }
 fn current_body(record: &Record, media: &str) -> Option<Value> {
-    let property = if media == "hrh" {
-        "hrh_kyuujinhyou_honbun"
-    } else {
-        "shigotonaiyou"
+    let aw_body = (media == "airwork")
+        .then(|| record.value(AW_BODY))
+        .flatten()
+        .filter(|v| !v.trim().is_empty());
+    let full_body = media == "hrh" || aw_body.is_some();
+    let body = match aw_body {
+        Some(body) => body,
+        None if media == "hrh" => record.value("hrh_kyuujinhyou_honbun")?,
+        None => record.value("shigotonaiyou")?,
     };
-    let body = record.value(property)?;
     let (images, registered) = if media == "hrh" {
         (
             record.value("hrh_kyuujinhyou_gazou").map(image_urls),
@@ -1864,7 +1883,7 @@ fn current_body(record: &Record, media: &str) -> Option<Value> {
         (None, None)
     };
     Some(
-        json!({"checked_at":chrono::Utc::now().to_rfc3339(),"body":body,"image_urls":images,"images_registered":registered}),
+        json!({"checked_at":chrono::Utc::now().to_rfc3339(),"body":body,"image_urls":images,"images_registered":registered,"full_body":full_body}),
     )
 }
 // Available observed images can accompany an AirWork body; never relabel them as historical images.
@@ -2027,7 +2046,7 @@ async fn listing_data(
                 (
                     "propertiesWithHistory",
                     format!(
-                        "hrh_kyuujinhyou_honbun,hrh_kyuujinhyou_gazou,shigotonaiyou,kyuujin_status,baitai_genjoukyou_hrhakkaa,baitai_genjoukyou_airwork,{AW_IMAGES},{}",
+                        "hrh_kyuujinhyou_honbun,hrh_kyuujinhyou_gazou,shigotonaiyou,kyuujin_status,baitai_genjoukyou_hrhakkaa,baitai_genjoukyou_airwork,{AW_IMAGES},{AW_BODY},{}",
                         crate::job_gen::drafts::FACTS
                     ),
                 ),

@@ -187,7 +187,7 @@ describe('private media capture import', () => {
     const history = [{ ...source.jobs[0], id: 'old-no-pixels', capturedAt: '2026-09-01T00:00:00Z', images: [], historicalImageBytesAvailable: false }];
     const version = parseMediaCapture(JSON.stringify({ ...source, jobs: [{ ...source.jobs[0], history }] }))[0]?.versions[0];
     expect(version).not.toHaveProperty('images');
-    expect(version?.note).toContain('この本文に対応する画像の情報は未取得です');
+    expect(version?.note).toContain('この本文に対応する画像の情報は読めていません');
   });
 
   it('rejects future, simultaneous, duplicate, or excessive historical observations', () => {

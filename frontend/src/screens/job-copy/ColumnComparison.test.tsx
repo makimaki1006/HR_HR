@@ -74,7 +74,7 @@ describe('全文で検知して列で特定する', () => {
     const result = compareColumns('案件名：配送\n勤務時間：8時', '案件名：配送\n応募資格：');
     expect(result.changes).toMatchObject([{ key: '勤務時間', kind: '削除', before: '8時' }, { key: '応募資格', kind: '追加', after: '' }]);
     render(<ColumnComparison result={result} />); expect(screen.getByRole('table').textContent).toContain('（空欄）');
-    expect(screen.getByRole('table').textContent).toContain('未取得');
+    expect(screen.getByRole('table').textContent).toContain('不明');
   });
   it('案の列値は保存された行データを使い、値の中の列名や改行を分割しない', () => {
     const a = { '仕事内容': '配送します\n勤務時間：8時', '勤務時間': '9時〜17時' };

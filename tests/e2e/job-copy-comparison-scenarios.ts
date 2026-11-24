@@ -117,8 +117,8 @@ export function registerComparisonTests(authenticate: (page: Page) => Promise<vo
     await page.setViewportSize({ width: 1440, height: 1700 });
     await page.getByRole('dialog', { name: 'くわしい分析', exact: true }).screenshot({ path: shotPath(info, 'three-columns.png') });
     await info.attach('求人比較・3列', { path: shotPath(info, 'three-columns.png'), contentType: 'image/png' });
-    await comparison.getByText(/^同じ項目・未取得/).click();
-    const same = comparison.getByRole('region', { name: '同じ項目・未取得の横並び比較', exact: true });
+    await comparison.getByText(/^同じ項目・不明の項目/).click();
+    const same = comparison.getByRole('region', { name: '同じ項目・不明の項目の横並び比較', exact: true });
     await same.scrollIntoViewIfNeeded();
     await expect(same.locator('img')).toHaveCount(3);
     await expect.poll(() => same.locator('img').evaluateAll(images => images.every(image => image instanceof HTMLImageElement && image.complete && image.naturalWidth === 480))).toBe(true);

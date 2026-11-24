@@ -33,7 +33,7 @@ for (const width of [1440, 1920]) test(`実応答の形を使った表・横並�
   await panel.getByRole('button', { name: 'この案件の求人', exact: true }).click();
   const table = page.getByRole('table', { name: '案件の求人一覧表' });
   await expect(table.locator('tbody tr').first()).toContainText('月給 213,000円〜249,000円');
-  await expect(table.locator('tbody tr').last()).toContainText('月給 金額は未取得');
+  await expect(table.locator('tbody tr').last()).toContainText('月給 金額は不明');
   await expect(table.locator('tbody tr').first()).toContainText('2026/10/09');
   await expect(table.locator('tbody tr').last()).toContainText('2026/10/10');
   expect(historyIds).toEqual([['1', '2']]);

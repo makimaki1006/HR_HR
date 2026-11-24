@@ -108,7 +108,7 @@ export function OccupationBulk() {
     <nav className="ob-crumb" aria-label="現在地"><a href="/app/job-copy">案件管理</a><span aria-hidden="true">›</span><span aria-current="page"><strong>職種の指定</strong></span></nav>
     <section className="ob-intro" aria-label="説明と進み具合">
       <p>求人ごとに、Indeed のどの職種と比べるかを指定します。自動では決めません。指定した求人から、市場の数字（競合の求人数・求人を見た人）がつながります。掲載中で、直近 4 週の応募が多い求人から並べています。</p>
-      <p className="ob-save-note">指定は求人 1 件ずつです。HubSpot の求人の項目「比べる Indeed 職種」に入るので、HubSpot の画面からも直せます。指定していない求人は、市場との比較を出しません。</p>
+      <details className="ob-save-note"><summary>指定の保存先と、指定しない求人</summary><p>指定は求人 1 件ずつです。HubSpot の求人の項目「比べる Indeed 職種」に入るので、HubSpot の画面からも直せます。指定していない求人は、市場との比較を出しません。</p></details>
       <div className="ob-progress">
         <div><strong data-testid="ob-live-progress">{live ? `掲載中 ${String(liveTotal)}件のうち ${String(liveDone)}件を指定済み` : '掲載中の求人を数えています'}</strong></div>
         <div className="ob-bar" role="progressbar" aria-label="職種を指定済みの掲載中の求人" aria-valuemin={0} aria-valuemax={liveTotal} aria-valuenow={liveDone}><span style={{ width: `${String(percent(liveDone, liveTotal))}%` }} /></div>
@@ -151,7 +151,7 @@ function BulkRow({ row, titles, done, onSaved }: { row: HubSpotListing; titles: 
   const initial = row.indeed_title_state ?? 'unset';
   const current = initial === 'set' ? row.indeed_title ?? '' : initial === 'none' ? NONE_LABEL : '';
   const company = peekCompany(row.id);
-  const name = row.title ?? '求人名未取得';
+  const name = row.title ?? '求人名なし';
   const jobKind = row.summary?.job_kind?.trim() ?? '';
   // Indeed 表示職種名は HRハッカーの本文にだけある（AirWork の occupation は「職種」と同じ値）。
   const indeedName = row.media === 'hrh' ? row.summary?.occupation?.trim() ?? '' : '';

@@ -95,7 +95,7 @@ describe('契約・成果の表示形式', () => {
     expect(container.querySelectorAll('.dc-status')).toHaveLength(1);
     expect(container.querySelectorAll('.dc-field .dc-status')).toHaveLength(0);
     expect(container.querySelectorAll('.dc-written')).toHaveLength(2);
-    expect([...container.querySelectorAll('.dc-status, .dc-fields')].map(element => element.className)).toEqual(['dc-status dc-green', 'dc-fields']);
+    expect([...container.querySelectorAll('.dc-status, .dc-fields')].map(element => element.className)).toEqual(['dc-status dc-green', 'dc-fields', 'dc-fields']);
     fireEvent.click(screen.getByRole('button', { name: '編集' }));
     fireEvent.change(screen.getByLabelText('金額', { exact: true }), { target: { value: '480000' } });
     expect(screen.getByText('元: ¥360,000')).toBeTruthy();

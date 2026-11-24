@@ -28,7 +28,7 @@ function SourceCounts({ collection }: { collection: ApplicantReasonCollection })
       const counts = collection.sourceCounts[property];
       const unset = CATEGORY_SOURCES.includes(property) ? unsetOnlyApplicants(collection, property) : 0;
       return <tr key={property}><th scope="row">{reasonSourceLabels[property]}</th>
-        {counts ? <><td>{counts.nonblank}件{unset > 0 && <small>うち「未設定」{unset}件（分類は選ばれていません）</small>}</td><td>{counts.blank}件</td><td>{counts.missing}件</td></> : <td colSpan={3}>未取得（0件という意味ではありません）</td>}
+        {counts ? <><td>{counts.nonblank}件{unset > 0 && <small>うち「未設定」{unset}件（分類は選ばれていません）</small>}</td><td>{counts.blank}件</td><td>{counts.missing}件</td></> : <td colSpan={3}>読めていません（0件ではありません）</td>}
       </tr>;
     })}</tbody>
   </table></div>;
@@ -56,7 +56,7 @@ function CategoryTable({ label, classification, withSelected, selectionsUnread =
   const result = tally(classification.applications);
   const unit = classification.unit === 'text' ? '記述' : '応募';
   return <>
-    <p>n={result.n}（{unit}{result.n}件）{withSelected && <> · 選択済み{result.selectedN}件</>}{selectionsUnread && <> · 分類の選択件数は未取得</>} · キーワードで推定{result.estimatedN}件 · 分類できない{result.unclassified}件</p>
+    <p>n={result.n}（{unit}{result.n}件）{withSelected && <> · 選択済み{result.selectedN}件</>}{selectionsUnread && <> · 分類の選択件数は不明</>} · キーワードで推定{result.estimatedN}件 · 分類できない{result.unclassified}件</p>
     {result.n === 0 ? <p>{unread > 0 ? `読み込めた記述がありません（記入あり ${String(unread)}件 は読み込める上限を超えたため読み込んでいません。0件という意味ではありません）。` : '分類できる記録はありません。'}</p> : <div className="ar-table-scroll" role="region" aria-label={label} tabIndex={0}><table className="ar-table">
       <thead><tr><th scope="col">分類</th><th scope="col">{withSelected ? '合計' : '件数（キーワードで推定）'}</th>{withSelected && <><th scope="col">選択済み</th><th scope="col">キーワードで推定</th></>}<th scope="col">nに対する割合</th></tr></thead>
       <tbody>{result.counts.map(row => <tr key={row.category}><th scope="row">{row.category}</th><td>{row.total}件</td>{withSelected && <><td>{row.selected}件</td><td>{row.estimated}件</td></>}<td>{shareText(row.total, result.n) ?? `n=${String(result.n)}のため出しません`}</td></tr>)}</tbody>
@@ -107,7 +107,7 @@ export const ReasonCategorySummary = memo(function ReasonCategorySummary({ colle
     <section className="ar-category-group" aria-label="応募理由の分類">
     <h3>応募理由の分類</h3>
     <p>HubSpotで分類が選ばれた応募は「選択済み」、分類が選ばれていない応募は応募動機・応募理由・勤務条件の優先順位・本人希望記入欄と、電話で聞いた併願状況・所感メモ・備考・架電メモの文から言葉で分類した「キーワードで推定」として、分けて数えます。1件の応募が複数の分類に入ることがあります。</p>
-    {collection.selections === null && <p className="jc-notice">この保存データには「応募理由の分類」の記録欄が含まれていません（未取得）。選択済みの件数は0件ではなく不明です。</p>}
+    {collection.selections === null && <p className="jc-notice">この保存データには「応募理由の分類」の記録欄が含まれていません。選択済みの件数は0件ではなく不明です。</p>}
     {reasons && <CategoryTable label="応募理由の分類の件数" classification={reasons} withSelected={collection.selections !== null} selectionsUnread={collection.selections === null} unread={unreadTexts(collection, APPLICATION_TEXT_SOURCES)} />}
     {reasons && reasons.unnamedApplications > 0 && <p className="jc-notice">{unnamedSelectionNote(collection.optionLabels, reasons.unnamedApplications)}</p>}
     {reasons && reasons.unsetOnly > 0 && (collection.truncated
@@ -119,7 +119,7 @@ export const ReasonCategorySummary = memo(function ReasonCategorySummary({ colle
     <section className="ar-category-group" aria-label="今の仕事・前の仕事から転職する理由の分類">
     <h3>今の仕事・前の仕事から転職する理由の分類</h3>
     <p>応募理由とは別に、文から言葉で分類しています（すべて「キーワードで推定」）。</p>
-    {transfer ? <><CategoryTable label="転職理由の分類の件数" classification={transfer} withSelected={false} unread={unreadTexts(collection, [TRANSFER_TEXT_SOURCE])} /><Unclassified classification={transfer} /></> : <p>未取得です（0件という意味ではありません）。</p>}
+    {transfer ? <><CategoryTable label="転職理由の分類の件数" classification={transfer} withSelected={false} unread={unreadTexts(collection, [TRANSFER_TEXT_SOURCE])} /><Unclassified classification={transfer} /></> : <p>読めていません（0件ではありません）。</p>}
     </section>
     <details className="ar-keywords"><summary>分類に使う言葉の一覧</summary>
       <p>文にこれらの言葉が含まれると、その分類に入れます。言葉が含まれるかどうかだけで分けるため、読み違えることがあります。</p>

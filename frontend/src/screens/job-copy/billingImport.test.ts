@@ -41,12 +41,12 @@ describe('billing CSV import', () => {
     const result = importBillingCsv(csv('HRハッカー,SHOP-B,00123456,2026-09-01,2026-09-14,30000'), records);
     expect(result.counts).toMatchObject({ matched: 0, notFound: 1 });
     expect(result.notFound[0]?.message).toBe('HRハッカー の求人は一覧にありますが、媒体の店舗番号が違います');
-    // 求人側の店舗IDが未取得なら結びつけない
+    // 求人側の店舗IDが不明なら結びつけない
     const noAccount: JobCopyRecord = { ...job1, mediaJobId: '00123456' };
     delete noAccount.accountId;
     const unknownShop = importBillingCsv(csv('HRハッカー,SHOP-A,00123456,2026-09-01,2026-09-14,30000'), [noAccount]);
     expect(unknownShop.counts.matched).toBe(0);
-    expect(unknownShop.notFound[0]?.message).toBe('HRハッカー の求人は一覧にありますが、求人の媒体の店舗番号が未取得のため結びつけません');
+    expect(unknownShop.notFound[0]?.message).toBe('HRハッカー の求人は一覧にありますが、求人の媒体の店舗番号を読めていないため結びつけません');
   });
 
   it('rejects an HRハッカー job ID that is not 8 digits and hints when leading zeros look stripped', () => {

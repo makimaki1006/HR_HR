@@ -84,3 +84,34 @@
 .jc-app .db-view-switch button{border:1px solid #b9cfdd;border-radius:6px;padding:4px 12px;background:#fff;color:#0a5fb4;font:inherit;font-size:12px;cursor:pointer}
 .jc-app .db-view-switch button:hover{background:#eef5fb}
 .jc-app .db-view-switch button[aria-pressed=true]{border-color:#0a5fb4;background:#0a5fb4;color:#fff;font-weight:700;cursor:default}
+
+/* 一覧のタグ（短い名前）。急ぐものだけ赤、ほかは控えめな灰色。長い文は title と「数字を見る」に出す。 */
+.db-reasons{display:flex;flex-wrap:wrap;gap:4px}
+.db-reason-item{display:inline-flex;flex-wrap:wrap;align-items:center;gap:4px}
+.db-reason{display:inline-block;border:1px solid #d8dee6;border-radius:10px;padding:2px 7px;font-size:11px;line-height:1.4;color:#475569;background:#f4f6f8;white-space:nowrap;cursor:default}
+.db-reason.db-reason-urgent{color:#991b1b;background:#fee2e2;border-color:#fca5a5;font-weight:600}
+.db-board .db-table .db-reasons .nt-unlinked{font-size:11px}
+.jc-app .db-reason-filters button.db-filter-urgent{border-color:#fca5a5;color:#991b1b}
+.jc-app .db-reason-filters button.db-filter-urgent::before{content:"";width:6px;height:6px;border-radius:50%;background:#dc2626;flex:none}
+.db-board .db-table td.db-nowrap,.db-board .db-table td.db-nowrap small{white-space:nowrap;overflow-wrap:normal}
+.db-detail-reasons{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.db-board .db-board-scroll>.db-table:not(.db-launch-table)>thead>tr>th:nth-child(2){min-width:340px}
+/* 右に詳しい欄を開いている間は、表を残りの幅に収める（タグと案件名の列を細くし、横スクロールを出さない）。 */
+.cr-split .db-board .db-board-scroll>.db-table{min-width:0}
+.cr-split .db-board .db-board-scroll>.db-table>thead>tr>th{min-width:0}
+.cr-split .db-board .db-board-scroll>.db-table>thead>tr>th:first-child{min-width:150px}
+.cr-split .db-board .db-board-scroll>.db-table:not(.db-launch-table)>thead>tr>th:nth-child(2){min-width:200px}
+.cr-split .db-board .db-board-scroll>.db-table>thead>tr>th.db-toggle-column{min-width:0;white-space:normal}
+.cr-split .db-board .db-table .db-toggle-cell{white-space:normal}
+.cr-split .db-board .db-table .db-toggle-cell .jc-open+.jc-open{margin-left:0;margin-top:4px}
+.cr-split .db-board .db-table .db-toggle-cell .jc-open{display:block;margin-left:auto}
+.cr-split .db-board .db-board-scroll>.db-table>thead>tr>th:first-child,.cr-split .db-board .db-board-scroll>.db-table>tbody>tr>th:first-child{width:170px;max-width:170px}
+.cr-split .db-board .db-table td.db-nowrap small{white-space:normal}
+.cr-split .db-board .db-board-scroll>.db-table:not(.db-launch-table)>thead>tr>th:nth-child(2){min-width:180px}
+.cr-split .db-board .db-board-scroll>.db-table:not(.db-launch-table)>thead>tr>th:nth-child(3){min-width:70px}
+.cr-split .db-board .db-board-scroll>.db-table:not(.db-launch-table)>thead>tr>th:nth-child(7){min-width:44px}
+.cr-split .db-board .db-board-scroll>.db-table:not(.db-launch-table)>thead>tr>th:nth-child(8){min-width:64px}
+.cr-split .db-board .db-board-scroll>.db-table>thead>tr>th:first-child,.cr-split .db-board .db-board-scroll>.db-table>tbody>tr>th:first-child{width:150px;max-width:150px;min-width:150px}
+.cr-split .db-board .db-board-scroll>.db-table:not(.db-launch-table)>thead>tr>th:nth-child(2){min-width:170px}
+.cr-split .db-board .db-board-scroll>.db-table>thead>tr>th:first-child,.cr-split .db-board .db-board-scroll>.db-table>tbody>tr>th:first-child{width:144px;max-width:144px;min-width:144px}
+.cr-split .db-board .db-board-scroll>.db-table:not(.db-launch-table)>thead>tr>th:nth-child(2){min-width:230px}

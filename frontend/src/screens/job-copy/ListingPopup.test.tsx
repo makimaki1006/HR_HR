@@ -60,7 +60,7 @@ it('keeps numeric codes as review-needed, and never turns missing salaries or co
   expect(model.sections.find(section => section.heading === 'その他')?.entries.find(item => item.key === '雇用形態')?.value).toBe('確認が必要');
   expect(model.publication).toBe('掲載中');
   const missing = record({ 給与形態: '', '基本給与 最小': '', '基本給与 最大': '' }); missing.listingApplicationCount = null;
-  expect(listingPopupModel(missing, missing.versions[0])).toMatchObject({ salary: '記載なし', applications: '未取得' });
+  expect(listingPopupModel(missing, missing.versions[0])).toMatchObject({ salary: '記載なし', applications: '不明' });
   missing.listingApplicationCount = 0;
   expect(listingPopupModel(missing, missing.versions[0]).applications).toBe('0件');
 });
@@ -72,10 +72,10 @@ it('shows AirWork independent conditions only with its latest body, retaining hi
   const old = listingPopupModel(job, job.versions[0]);
   expect(old.sections[0]).toEqual({ heading: '仕事内容', entries: [{ key: '仕事内容', label: '仕事内容', value: '過去の仕事内容。\n最後の文章。' }] });
   expect(old.sections.slice(1).flatMap(section => section.entries).map(entry => entry.value)).toEqual(Array(6).fill('取得できていません'));
-  expect(old).toMatchObject({ location: '取得できていません', publication: '未取得', hasCurrentConditions: false });
+  expect(old).toMatchObject({ location: '取得できていません', publication: '不明', hasCurrentConditions: false });
   const current = listingPopupModel(job, job.versions[1]);
   expect(current.sections.flatMap(section => section.entries).map(item => item.value)).toContain('社会保険');
-  expect(current).toMatchObject({ location: '東京都江東区', salary: '月給 金額は未取得', hasCurrentConditions: true });
+  expect(current).toMatchObject({ location: '東京都江東区', salary: '月給 金額は不明', hasCurrentConditions: true });
   const { rerender } = render(<ListingPopup job={job} version={job.versions[1]} onClose={vi.fn()} />);
   rerender(<ListingPopup job={job} version={job.versions[0]} onClose={vi.fn()} />);
   expect(screen.getByRole('dialog').textContent).toContain('過去の仕事内容。\n最後の文章。');
@@ -147,7 +147,7 @@ it('excludes acquired summary values from the exact missing names and count', ()
   const dialog = screen.getByRole('dialog');
   expect(within(dialog).getByText('記載のない任意項目（1件）')).toBeTruthy();
   expect(dialog.querySelector('.jc-listing-popup-missing')?.textContent).not.toMatch(/公開状況|求人名|勤務地|給与/);
-  job.listingPublicationStatus = null; job.location = ''; job.title = '求人名未取得';
+  job.listingPublicationStatus = null; job.location = ''; job.title = '求人名なし';
   expect(listingPopupModel(job, job.versions[0]).missing).toEqual(['仕事の案内4の本文']);
 });
 
@@ -170,7 +170,7 @@ it.each(['list-first', 'detail-first'])('shows zero applications from a direct l
   fireEvent.click(await screen.findByRole('button', { name: '求人の内容' }));
   const applications = () => screen.getByRole('dialog', { name: listing.title }).querySelector('.jc-listing-popup-summary')?.textContent;
   if (order === 'detail-first') {
-    expect(applications()).toContain('応募数未取得');
+    expect(applications()).toContain('応募数不明');
     await act(async () => { resolveList(listResult); await listResponse; });
   }
   await waitFor(() => { expect(applications()).toContain('応募数0件'); });
@@ -187,7 +187,7 @@ it.each([0, 7, null])('uses the detail count %s for a direct link outside the fi
   await screen.findByRole('button', { name: '架空求人2の本文を見る' });
   expect(screen.queryByRole('button', { name: `${listing.title}の本文を見る` })).toBeNull();
   fireEvent.click(await screen.findByRole('button', { name: '求人の内容' }));
-  expect(screen.getByRole('dialog', { name: listing.title }).querySelector('.jc-listing-popup-summary')?.textContent).toContain(`応募数${count === null ? '未取得' : `${String(count)}件`}`);
+  expect(screen.getByRole('dialog', { name: listing.title }).querySelector('.jc-listing-popup-summary')?.textContent).toContain(`応募数${count === null ? '不明' : `${String(count)}件`}`);
 });
 
 it.each([0, 7, null])('refreshes only the acquired count %s after a cold index is ready, retaining the popup and selected body', async count => {
@@ -211,7 +211,7 @@ it.each([0, 7, null])('refreshes only the acquired count %s after a cold index i
   const opener = await screen.findByRole('button', { name: '求人の内容' });
   fireEvent.click(opener);
   const dialog = screen.getByRole('dialog', { name: listing.title });
-  expect(dialog.querySelector('.jc-listing-popup-summary')?.textContent).toContain('応募数未取得');
+  expect(dialog.querySelector('.jc-listing-popup-summary')?.textContent).toContain('応募数不明');
   expect(api.mock.calls.filter(call => String(call[0]).endsWith('/applications'))).toHaveLength(0);
   // Finish preparation through the same list reload used by the automatic poll.
   ready = true;
@@ -219,7 +219,7 @@ it.each([0, 7, null])('refreshes only the acquired count %s after a cold index i
   await waitFor(() => { expect(api.mock.calls.filter(call => String(call[0]).endsWith('/applications'))).toHaveLength(1); });
   await act(async () => { resolveCount({ ok: true, data: { listing_id: '1', application_count: count } }); await countResponse; });
   expect(screen.getByRole('dialog', { name: listing.title })).toBe(dialog);
-  expect(dialog.querySelector('.jc-listing-popup-summary')?.textContent).toContain(`応募数${count === null ? '未取得' : `${String(count)}件`}`);
+  expect(dialog.querySelector('.jc-listing-popup-summary')?.textContent).toContain(`応募数${count === null ? '不明' : `${String(count)}件`}`);
   expect(dialog.textContent).toContain('現在の本文です。');
   fireEvent.click(screen.getByRole('button', { name: '求人の内容を閉じる' }));
   const drawer = openOtherAnalysis('本文と画像');
@@ -227,7 +227,7 @@ it.each([0, 7, null])('refreshes only the acquired count %s after a cold index i
   fireEvent.click(within(drawer).getByRole('button', { name: '閉じる' }));
   fireEvent.click(opener);
   expect(screen.getByRole('dialog', { name: listing.title }).textContent).toContain('以前の本文です。');
-  expect(screen.getByRole('dialog', { name: listing.title }).querySelector('.jc-listing-popup-summary')?.textContent).toContain('応募数未取得');
+  expect(screen.getByRole('dialog', { name: listing.title }).querySelector('.jc-listing-popup-summary')?.textContent).toContain('応募数不明');
   fireEvent.click(screen.getByRole('button', { name: '求人の内容を閉じる' }));
   fireEvent.click(screen.getByRole('button', { name: '求人を読み込む' }));
   await waitFor(() => { expect(screen.queryByText('求人の一覧を準備しています')).toBeNull(); });

@@ -15,7 +15,7 @@ const body = (salary: string) => `求人id：raw-id-secret\n案件名：配送�
 it('formats exact salaries and never infers prose conditions', () => {
   expect(salaryAmount('月給', '250000')).toBe('月給 250,000円');
   expect(salaryAmount('時給', '1,200')).toBe('時給 1,200円');
-  expect(salaryAmount('月給', null)).toBe('未取得');
+  expect(salaryAmount('月給', null)).toBe('不明');
   expect(salaryAmount(null, '250000')).toBe('給与形態不明 250,000円');
   const result = compareJobs([{ id: 'hrh', title: 'A', media: 'HRハッカー', body: body('250000') }, { id: 'aw', title: 'B', media: 'AirWork', body: body('280000') }]);
   expect(result.fullDifferent).toBe(true);
@@ -91,7 +91,7 @@ it('limits selection to five jobs and keeps unknown counts separate from zero', 
   render(<DealComparison deal={{ id: '901', name: '合成配送', prefecture: '', title: '', media: '' }} onOpen={vi.fn()} />);
   const table = await screen.findByRole('table', { name: '案件の求人一覧表' });
   expect(within(table).getByText('0件')).toBeTruthy();
-  expect(within(table).getAllByText('未取得')).toHaveLength(5);
+  expect(within(table).getAllByText('不明')).toHaveLength(5);
   for (let index = 1; index <= 5; index++) fireEvent.click(within(table).getByLabelText(`比較求人${String(index)}を比較に選ぶ`));
   expect(within(table).getByLabelText<HTMLInputElement>('比較求人6を比較に選ぶ').disabled).toBe(true);
   fireEvent.click(within(table).getByLabelText('比較求人1を比較に選ぶ'));
@@ -108,7 +108,7 @@ it('renders real-shaped AirWork fields beside HRハッカー with bounded cells 
   expect(container.textContent).toContain('8:00〜17:00');
   expect(container.textContent).toContain('月給 213,000円');
   const locationRow = [...container.querySelectorAll('tr')].find(tr => tr.querySelector('th')?.textContent === '勤務地');
-  expect(locationRow?.textContent).toContain('未取得');
+  expect(locationRow?.textContent).toContain('記載なし');
   expect(locationRow?.querySelector('mark')).toBeNull();
   const button = screen.getByRole('button', { name: '全文を見る' });
   expect(button.getAttribute('aria-expanded')).toBe('false');
@@ -132,7 +132,7 @@ it('reads only displayed rows for dates, preserves unknowns and drops a previous
   const table = await screen.findByRole('table', { name: '案件の求人一覧表' });
   await waitFor(() => { expect(oldResolve).toBeTruthy(); });
   expect(table.querySelector('[data-column="body_changed_at"]')?.textContent).toBe('本文の最終変更日');
-  expect(table.querySelector('tbody [data-column="body_changed_at"]')?.textContent).toBe('未取得');
+  expect(table.querySelector('tbody [data-column="body_changed_at"]')?.textContent).toBe('不明');
   fireEvent.click(screen.getByRole('button', { name: '次の50件' }));
   await waitFor(() => { expect(table.querySelector('tbody [data-column="body_changed_at"]')?.textContent).toContain('2026/10/09'); });
   oldResolve?.({ ok: true, data: { dates: { '1': '2026-01-01T00:00:00Z' } } });

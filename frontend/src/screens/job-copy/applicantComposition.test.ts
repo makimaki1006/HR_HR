@@ -23,11 +23,11 @@ describe('applicant distributions', () => {
     const zeroMarkup = renderToStaticMarkup(createElement(ApplicantComposition, { job: zero }));
     const overall = zeroMarkup.split('<section class="ac-overall"')[1]?.split('<header>')[0] ?? '';
     expect(overall.match(/求人全体の応募は0件です。割合は算出できません。/g)).toHaveLength(4);
-    expect(overall).not.toContain('この属性は未取得です');
+    expect(overall).not.toContain('この属性は読めていません');
     const positive = { ...zero, overallApplications: { total: 2, missingDate: 0, fetchedAt: '2026-10-05T00:00:00Z', distributions: {} } };
     const positiveMarkup = renderToStaticMarkup(createElement(ApplicantComposition, { job: positive }));
     const positiveOverall = positiveMarkup.split('<section class="ac-overall"')[1]?.split('<header>')[0] ?? '';
-    expect(positiveOverall.match(/この属性は未取得です/g)).toHaveLength(4);
+    expect(positiveOverall.match(/この属性は読めていません/g)).toHaveLength(4);
     expect(positiveOverall).not.toContain('求人全体の応募は0件です');
   });
   it('orders age bands independently of incoming applicant order', () => {
@@ -127,8 +127,8 @@ describe('composition fixture boundary and UI', () => {
 
   it('shows unavailability rather than synthetic graphs for imported records', () => {
     const html = renderToStaticMarkup(createElement(ApplicantComposition, { job: { ...driver, id: 'imported-private-job' } }));
-    expect(html).toContain('応募者の属性データは未取得');
-    expect(html).toContain('0件・0%とは判定していません');
+    expect(html).toContain('応募者の属性データは読めていません');
+    expect(html).toContain('（0件・0%ではありません）');
     expect(html).not.toContain('class="ac-chart"');
   });
 });

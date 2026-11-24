@@ -5,7 +5,7 @@ import './applicant-reasons.css';
 
 export function SelectedReasonTables({ job, rows = job.applicationRows ?? [] }: { job: JobCopyRecord; rows?: readonly ApplicationRow[] }) {
   const definitions = job.overallApplications?.selectionOptions;
-  if (!definitions || !job.applicationRows) return <p>選択式の応募理由は未取得です。</p>;
+  if (!definitions || !job.applicationRows) return <p>選択式の応募理由は読めていません。</p>;
   const total = job.overallApplications?.total ?? job.applicationRows.length;
   const table = (title: string, properties: readonly string[], labels: readonly string[]) => {
     const options = definitions[properties[0] ?? ''];

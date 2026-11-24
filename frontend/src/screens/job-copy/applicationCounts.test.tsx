@@ -60,7 +60,7 @@ describe('application count model', () => {
     expect(jobApplicationTotal(live)).toBe(34);
     expect(unmatchedApplicationCount({ ...live, overallApplications: undefined } as unknown as JobCopyRecord)).toBeNull();
     expect(noLinkedApplicationsMessage(34)).toBe('この本文に結びつく応募はまだありません（求人全体では34件）');
-    expect(noLinkedApplicationsMessage(null)).toBe('この本文に結びつく応募はまだありません（求人全体の件数は未取得）');
+    expect(noLinkedApplicationsMessage(null)).toBe('この本文に結びつく応募はまだありません（求人全体の件数は不明）');
     expect(noLinkedApplicationsMessage(34)).not.toMatch(/効果|確実に|必ず|100%/u);
   });
 });

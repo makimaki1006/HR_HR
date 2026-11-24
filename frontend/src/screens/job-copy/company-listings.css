@@ -1,0 +1,23 @@
+/* 会社の画面の求人：上の説明と並べ替えを 1 行にまとめ、表は 1 行ずつ読みやすくする。 */
+.jh-home.cl-view { gap: 14px; }
+.cl-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 24px; }
+.cl-toolbar .jh-listing-tools { margin: 0; }
+.cl-toolbar .jh-listings-scope { margin: 0; }
+.cl-view .jh-live-listings { padding: 18px 20px; }
+.cl-view .jh-live-listings h2 { font-size: 20px; margin-bottom: 8px; }
+.cl-view .jh-flag-summary { margin-bottom: 10px; }
+.jh-home table.cl-table th, .jh-home table.cl-table td { vertical-align: top; }
+.jh-home table.cl-table thead th { vertical-align: bottom; }
+.cl-table .cl-title { width: 30%; }
+.cl-table tbody th > .jc-go { font-size: 14px; text-decoration: none; }
+.cl-table tbody th > .jc-go:hover { text-decoration: underline; }
+/* 案件名とステージは小さく控えめに（必要なときに読む）。 */
+.cl-table .jh-listing-deals small { margin-top: 3px; line-height: 1.45; }
+.cl-table .jh-listing-deals .jc-go { font-weight: 400; color: #3f6f97; text-decoration: none; }
+.cl-table .jh-listing-deals .jc-go:hover { text-decoration: underline; }
+.cl-table td.cl-nowrap { white-space: nowrap; }
+.cl-table td.cl-nowrap small { white-space: nowrap; }
+.cl-table td.cl-tags { min-width: 280px; }
+/* 表の中の札は色を抑える（色は上のまとめの札に任せる）。 */
+.cl-table .cl-tags .jh-change-chip { background: #f1f5f8; color: #34495a; border: 1px solid #dfe7ec; margin: 0 4px 4px 0; }
+.cl-table td.num { font-variant-numeric: tabular-nums; }

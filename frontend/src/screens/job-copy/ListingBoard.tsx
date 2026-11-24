@@ -70,19 +70,19 @@ export function ListingBoard() {
     {page?.status === 'preparing' && <p role="status">求人の一覧を準備しています。しばらくお待ちください。</p>}
     <section className="ob-table-wrap" aria-label="求人の一覧" aria-busy={busy}>
       <table className="ob-table lb-table">
-        <thead><tr><th scope="col">求人 ／ 顧客</th><th scope="col">媒体</th><th scope="col">状況</th><th scope="col">勤務地</th><th scope="col" className="ob-num">応募（HubSpot）</th><th scope="col" className="ob-num">媒体の応募（直近 4 週）</th><th scope="col">比べる職種</th><th scope="col">案</th></tr></thead>
+        <thead><tr><th scope="col" className="lb-title">求人 ／ 顧客</th><th scope="col">媒体</th><th scope="col">状況</th><th scope="col">勤務地</th><th scope="col" className="ob-num">応募（HubSpot）</th><th scope="col" className="ob-num">媒体の応募（直近 4 週）</th><th scope="col">比べる職種</th><th scope="col">求人の案</th></tr></thead>
         <tbody>
           {rows.map(row => {
             const recent = row.recent_performance;
             return <tr key={row.id} onClick={event => { if (!(event.target as HTMLElement).closest('button, a')) open(row.id); }}>
-              <th scope="row"><button type="button" className="jc-row-name" onClick={() => { open(row.id); }}>{row.title ?? '求人名未取得'}</button><div className="ob-sub">{peekCompany(row.id) ?? '顧客名を確認中'}</div></th>
-              <td>{mediaLabel(row.media)}</td>
-              <td>{publicationLabel(row.publication_status)}</td>
+              <th scope="row"><button type="button" className="jc-row-name" onClick={() => { open(row.id); }}>{row.title ?? '求人名なし'}</button><div className="ob-sub">{peekCompany(row.id) ?? '顧客名を確認中'}</div></th>
+              <td className="lb-nowrap">{mediaLabel(row.media)}</td>
+              <td className="lb-nowrap">{publicationLabel(row.publication_status)}</td>
               <td>{row.prefecture ?? '不明'}{row.municipality ?? ''}</td>
-              <td className="ob-num">{row.application_count === null ? '未取得' : `${String(row.application_count)} 件`}</td>
+              <td className="ob-num">{row.application_count === null ? '不明' : `${String(row.application_count)} 件`}</td>
               <td className="ob-num lb-media">{recent?.applications == null ? '—' : <>{String(recent.applications)} 件<span className="ob-period">（{periodLabel(recent.period_start, recent.period_end)}）</span></>}</td>
-              <td>{row.indeed_title_state === 'set' ? row.indeed_title : row.indeed_title_state === 'none' ? '市場と比べない' : '未指定'}</td>
-              <td>{row.draft_status ? draftStateLabel(row.draft_status) : '—'}</td>
+              <td className={row.indeed_title_state === 'set' ? undefined : 'lb-muted'}>{row.indeed_title_state === 'set' ? row.indeed_title : row.indeed_title_state === 'none' ? '市場と比べない' : '未指定'}</td>
+              <td className={row.draft_status ? 'lb-nowrap' : 'lb-muted'}>{row.draft_status ? draftStateLabel(row.draft_status) : '—'}</td>
             </tr>;
           })}
           {!rows.length && page?.status === 'ready' && !busy && <tr><td colSpan={8} className="ob-empty">{q ? '一致する求人はありません。' : '担当の求人はありません。'}</td></tr>}

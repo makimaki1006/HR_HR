@@ -91,11 +91,11 @@ export function publicationLane(publication: MediaPublicationState, range: Timel
   if (publication === 'unavailable') return { bar: null, startsBefore: null, label: '媒体の公開状況は取得できませんでした（時間をおいて開き直してください）', title: '媒体の公開状況は取得できませんでした。' };
   const { start, status, lastInCsv, privateRecordedOn } = publication;
   const clipped = start !== null && start < range.start;
-  const startText = start ? `公開開始 ${formatDay(start)}${clipped ? '（表示期間より前）' : ''}` : '公開開始日は未取得';
+  const startText = start ? `公開開始 ${formatDay(start)}${clipped ? '（表示期間より前）' : ''}` : '公開開始日は不明';
   // The status first: a short bar cuts the end of the text.
-  const statusText = status === 'public' ? lastInCsv ? `${formatDay(lastInCsv)}時点で掲載中` : '掲載中（確認した日は未取得）'
+  const statusText = status === 'public' ? lastInCsv ? `${formatDay(lastInCsv)}時点で掲載中` : '掲載中（確認した日は不明）'
     : status === 'private' ? privateRecordedOn ? `掲載終了（${formatDay(privateRecordedOn)}までに終了）` : '掲載終了（終了した日は不明）'
-      : status === 'scheduled' ? '掲載前' : status === 'unknown' ? '公開状況は不明' : '公開状況は未取得';
+      : status === 'scheduled' ? '掲載前' : status === 'unknown' ? '公開状況は不明' : '公開状況を読めていません';
   const label = `${statusText}・${startText}`;
   const title = publicationNotes(publication).join('\n');
   // From the start to the last day it was seen published (公開), or up to the day the stop was
@@ -112,7 +112,7 @@ export function publicationNotes(publication: MediaPublicationState): string[] {
   if (publication === 'unavailable') return ['媒体の公開状況は取得できませんでした。時間をおいて開き直してください。'];
   const { start, plannedEnd, lastInCsv } = publication;
   return [
-    start ? `公開開始日: ${formatDay(start)}。` : '公開開始日は未取得です。',
+    start ? `公開開始日: ${formatDay(start)}。` : '公開開始日は不明です。',
     lastInCsv ? `HRハッカーの求人一覧に最後に載っていた日: ${formatDay(lastInCsv)}。` : '',
     plannedEnd ? `媒体に設定された公開終了日: ${formatDay(plannedEnd)}（予定の日付で、実際に終わった日ではありません）。` : '',
     '最新の状態だけを表示しています。帯は公開開始日から最後に公開を確認した日までで、その間ずっと公開していたか（途中で止めて再開したか）は分かりません。',

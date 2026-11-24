@@ -34,7 +34,7 @@ describe('多い応募理由 in the cross-job overview', () => {
     expect(header.at(-1)).toBe('多い応募理由');
     const values = within(table).getAllByRole('row').slice(1).map(row => row.querySelectorAll('td')[row.querySelectorAll('td').length - 1]?.textContent);
     // 職種興味 is also 2件: the cut tie is named, never dropped silently.
-    expect(values).toEqual(['給与 2件（選択1件・推定1件）・勤務地 2件（選択1件・推定1件）・ほかに同じ件数の分類1つ／n=9', '未取得']);
+    expect(values).toEqual(['給与 2件（選択1件・推定1件）・勤務地 2件（選択1件・推定1件）・ほかに同じ件数の分類1つ／n=9', '不明']);
   });
 
   it('marks an old stored file: texts counted as 記述, choices 未取得, and no 記録なし without texts', () => {
@@ -44,10 +44,10 @@ describe('多い応募理由 in the cross-job overview', () => {
     const legacy = { ...reasons, selections: null, items: [], sourceCounts: Object.fromEntries(Object.entries(reasons.sourceCounts).filter(([property]) => ['oubodouki', 'ouboriyuu_baitaikisai', 'ouboriyuu_hiaringu'].includes(property))) };
     render(<JobOverview records={[{ ...job, applicantReasons: legacy }]} onChoose={() => undefined} now={new Date('2026-10-05T12:00:00+09:00')} />);
     const table = within(screen.getByRole('region', { name: '求人の横断比較の表' })).getByRole('table');
-    expect(table.querySelector('td.jo-reasons')?.textContent).toBe('文の記録なし（分類の選択は未取得）');
+    expect(table.querySelector('td.jo-reasons')?.textContent).toBe('文の記録なし（分類の選択は不明）');
     cleanup();
     render(<JobTimeline job={{ ...job, applicantReasons: legacy }} marketMode="demo" />);
-    expect(within(screen.getByRole('group', { name: '応募理由' })).getByText('選択式の応募理由は未取得です。')).toBeTruthy();
+    expect(within(screen.getByRole('group', { name: '応募理由' })).getByText('選択式の応募理由は読めていません。')).toBeTruthy();
   });
 
   it('says when the texts were cut, in the overview and under the timeline lane', () => {
@@ -59,7 +59,7 @@ describe('多い応募理由 in the cross-job overview', () => {
     expect(screen.getByRole('region', { name: '求人の横断比較の表' }).querySelector('td.jo-reasons')?.textContent).toBe('給与 2件（選択1件・推定1件）・勤務地 2件（選択1件・推定1件）・ほかに同じ件数の分類1つ／n=9（記述の一部だけで集計）');
     cleanup();
     render(<JobTimeline job={{ ...job, applicantReasons: cut }} marketMode="demo" />);
-    expect(screen.getByRole('group', { name: '応募理由' }).textContent).toContain('選択式の応募理由は未取得です。');
+    expect(screen.getByRole('group', { name: '応募理由' }).textContent).toContain('選択式の応募理由は読めていません。');
   });
 });
 
@@ -68,7 +68,7 @@ describe('listing detail with legacy reasons', () => {
   it('shows selected reasons as unread rather than inferring from old categories and text', () => {
     render(<ApplicantReasons job={demo()} />);
     const section = screen.getByRole('region', { name: '応募理由の集計' });
-    expect(section.textContent).toContain('選択式の応募理由は未取得です。');
+    expect(section.textContent).toContain('選択式の応募理由は読めていません。');
     expect(section.textContent).not.toContain('推定');
     expect(section.querySelectorAll('table')).toHaveLength(0);
   });
@@ -128,7 +128,7 @@ describe('応募理由 lane and the per-period table', () => {
   it('keeps unread selected reasons distinct from zero in both the lane and period tables', () => {
     render(<JobTimeline job={demo()} marketMode="demo" />);
     const lane = screen.getByRole('group', { name: '応募理由' });
-    expect(lane.textContent).toContain('選択式の応募理由は未取得です。');
+    expect(lane.textContent).toContain('選択式の応募理由は読めていません。');
     expect(lane.querySelectorAll('button')).toHaveLength(0);
     const table = screen.getByRole('region', { name: '期間ごとの応募理由の数値' });
     expect(within(table).queryAllByRole('table')).toHaveLength(0);

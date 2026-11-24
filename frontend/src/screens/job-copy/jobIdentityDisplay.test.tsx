@@ -53,7 +53,7 @@ describe('媒体名と求人名で示す', () => {
     fireEvent.click(screen.getByRole('button', { name: '関連する求人を読み込む' }));
     await waitFor(() => { expect(screen.getByLabelText('契約で絞り込む')).toBeTruthy(); });
     expect(container.textContent).not.toMatch(forbidden);
-    expect(screen.getByRole('option', { name: '契約名未取得' })).toBeTruthy();
+    expect(screen.getByRole('option', { name: '契約名なし' })).toBeTruthy();
   });
 
 });
