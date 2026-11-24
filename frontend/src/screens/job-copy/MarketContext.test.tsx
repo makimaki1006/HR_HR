@@ -20,7 +20,7 @@ describe('market UI evidence and recovery', () => {
     view.rerender(<ApplicationTrend job={{ ...job, id: 'missing', overallApplications: { total: 3, missingDate: 3, fetchedAt: '2026-10-05T00:00:00Z', distributions: {}, byDate: {} } }} />);
     expect(screen.getByText(/応募日も作成日もすべて不明/)).toBeTruthy();
     view.rerender(<ApplicationTrend job={{ ...job, id: 'uncollected' }} />);
-    expect(screen.getByText(/応募日別集計が未取得/)).toBeTruthy();
+    expect(screen.getByText(/応募日別集計を読めていない/)).toBeTruthy();
     expect(api).not.toHaveBeenCalled();
   });
   const designated: JobCopyRecord = { ...job, indeedTitle: '合成職種', indeedTitleState: 'set' };

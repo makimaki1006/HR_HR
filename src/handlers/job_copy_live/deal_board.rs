@@ -344,7 +344,7 @@ impl<'a> Metrics<'a> {
             .collect();
         let population: Vec<_> = deals
             .values()
-            .filter(|d| d.is_active && !d.is_excluded())
+            .filter(|d| d.is_active && !cs::is_excluded_deal(&d.name, &d.stage))
             .cloned()
             .collect();
         Self {
@@ -455,7 +455,7 @@ impl<'a> Metrics<'a> {
         period: Option<(NaiveDate, NaiveDate)>,
     ) -> Vec<DealBoardRow> {
         let (owner, _) = snapshot.selection(query, email);
-        snapshot.deals.iter().filter(|(id, work)| snapshot.matches(id, query.field(), owner.as_deref()) && listings::is_delivery(work.record.value("pipeline")) && !self.deals[*id].is_referral()).map(|(id, work)| {
+        snapshot.deals.iter().filter(|(id, work)| snapshot.matches(id, query.field(), owner.as_deref()) && listings::is_delivery(work.record.value("pipeline")) && !cs::is_excluded_deal(work.record.value("dealname").unwrap_or(""), work.record.value("dealstage").unwrap_or(""))).map(|(id, work)| {
             let windows = application_windows(snapshot.facts.get(id), today);
             let d = &self.deals[id];
             let company = snapshot.companies.get(id);

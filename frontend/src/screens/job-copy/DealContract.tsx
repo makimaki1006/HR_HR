@@ -12,6 +12,12 @@ import { contractWriteApi } from './dealContractApi';
 import { CONTRACT_FIELDS, DISPLAY_FIELDS, DELIVERY_PIPELINES, HEADER_FIELDS, contractLabel, contractRequest, displayValue, inputValue } from './dealContractModel';
 import './deal-contract.css';
 
+/** 表示の並び。成果（数字の要点）を先に大きく、契約の条件はその下に控えめに出す。DISPLAY_FIELDS の全項目を 1 回ずつ含む。 */
+const FIELD_GROUPS = [
+  { key: 'result', label: '成果', names: ['oubo', 'mensetu', 'naite', 'syoudaku', 'sales_amount', 'split_sales_amount'] },
+  { key: 'contract', label: '契約', names: ['contract_plan', 'contract_type', 'contract_period', 'contract_start_date', 'contract_expiration_date', 'amount', 'discount_amount'] },
+] as const satisfies readonly { key: string; label: string; names: readonly (typeof DISPLAY_FIELDS)[number][] }[];
+
 export function SaveStatus({ statuses }: { statuses: FieldStatus[] }) {
   const status = statuses.find(item => item.phase === 'error' || item.phase === 'invalid')
     ?? statuses.find(item => item.phase === 'saving')
@@ -83,7 +89,7 @@ export function DealContract({ dealId, onSaved, onQueued, onDetail }: { dealId: 
   const request = { ...contractRequest(dealId, writable, base, draft), fetchedAt: data?.detail.fetched_at };
   const statuses = savedFields.flatMap(name => { const status = write.statuses[name === 'dealstage' ? stageKey(dealId) : fieldKey(dealId, 'deal', name)]; return status ? [status] : []; });
   return <section className="dc-root" aria-label="契約・成果">
-    <header><h2>契約・成果</h2>{canEdit && !editing && <button className="jc-button" disabled={locked} onClick={startEdit}>編集</button>}</header>
+    <header className="dc-head"><h2>契約・成果</h2>{canEdit && !editing && <button className="jc-button" disabled={locked} onClick={startEdit}>編集</button>}</header>
     {!data && !error && <p role="status">契約・成果を読み込んでいます…</p>}
     {error && <p role="alert">{error} <button className="jc-button" onClick={() => { setRevision(value => value + 1); }}>再読み込み</button></p>}
     {refreshError && <p role="alert">{refreshError}</p>}
@@ -96,23 +102,26 @@ export function DealContract({ dealId, onSaved, onQueued, onDetail }: { dealId: 
       {targeted && write.writesEnabled === true && schema && schema.stages.length > 0
         ? <DealStageMove dealId={dealId} write={write} detail={data.detail} props={data.props} request={editing ? request : { dealId, changes: [], fetchedAt: data.detail.fetched_at }} locked={locked}
             onStart={names => { stageSaving.current = true; setSavedFields([...names, 'dealstage']); }} onDone={() => { setEditing(false); }} />
-        : <p className="dc-stage">ステージ：<strong>{data.detail.deal.stage_label ?? '未取得'}</strong><small>（ここでは変更できません）</small></p>}
+        : <p className="dc-stage">ステージ：<strong>{data.detail.deal.stage_label ?? '不明'}</strong><small>（ここでは変更できません）</small></p>}
       {write.writesEnabled === false ? <p>{WRITES_OFF_NOTE}</p> : write.schema.phase === 'error' ? <p>編集できるか確認できないため、見るだけです。</p> : !targeted ? <p>この案件の契約・成果は、ここでは変更できません。</p> : schema && writable.length < CONTRACT_FIELDS.length ? <p>HubSpotで編集が許可された項目だけ変更できます。</p> : null}
       {DISPLAY_FIELDS.some(name => !data.props.some(prop => prop.name === name)) && <p>一部の項目を取得できないため、確認できた項目だけ表示しています。</p>}
-      <div className="dc-fields">{DISPLAY_FIELDS.map(name => {
+      {FIELD_GROUPS.map(group => <div className={`dc-group dc-group-${group.key}`} key={group.key} role="group" aria-label={group.label}>
+        <h3>{group.label}</h3>
+        <div className="dc-fields">{group.names.map(name => {
         const prop = data.props.find(item => item.name === name);
         if (!prop) return null;
         const key = fieldKey(dealId, 'deal', name);
         const editable = editing && canEdit && writable.some(item => item.name === name);
         const value = draft[name] ?? '';
         const change = (next: string) => { setDraft(prev => ({ ...prev, [name]: next })); write.dismiss(key); };
-        return <div className={`dc-field${name === 'oubo' ? ' dc-ref' : ''}${savedFields.includes(name) && write.statuses[key]?.phase === 'saved' ? ' dc-written' : ''}`} key={name}><label htmlFor={`dc-${name}`}>{contractLabel(prop)}</label>{!editable && <strong>{displayValue(prop, values[name])}</strong>}
-          {editable && (prop.property_type === 'enumeration' ? <select id={`dc-${name}`} disabled={locked} value={value} onChange={event => { change(event.target.value); }}><option value="">未入力</option>{value && !prop.options.some(option => option.value === value) && <option value={value}>{displayValue(prop, value)}</option>}{prop.options.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select> : <input id={`dc-${name}`} disabled={locked} type={prop.property_type === 'date' ? 'date' : prop.property_type === 'number' ? 'number' : 'text'} step="any" value={value} onChange={event => { change(event.target.value); }} />)}
-          {!CONTRACT_FIELDS.some(field => field === name) && <small>（ここでは変更できません）</small>}
-          {name === 'oubo' && !editable && <small>参考。応募の判断には HubSpot の応募の記録を使います</small>}
+        return <div className={`dc-field${name === 'oubo' ? ' dc-ref' : ''}${savedFields.includes(name) && write.statuses[key]?.phase === 'saved' ? ' dc-written' : ''}`} key={name}><label htmlFor={`dc-${name}`}>{name === 'oubo' ? '応募数' : contractLabel(prop)}</label>{!editable && <strong>{displayValue(prop, values[name])}</strong>}
+          {editable && (prop.property_type === 'enumeration' ? <select id={`dc-${name}`} aria-label={name === 'oubo' ? contractLabel(prop) : undefined} disabled={locked} value={value} onChange={event => { change(event.target.value); }}><option value="">未入力</option>{value && !prop.options.some(option => option.value === value) && <option value={value}>{displayValue(prop, value)}</option>}{prop.options.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select> : <input id={`dc-${name}`} aria-label={name === 'oubo' ? contractLabel(prop) : undefined} disabled={locked} type={prop.property_type === 'date' ? 'date' : prop.property_type === 'number' ? 'number' : 'text'} step="any" value={value} onChange={event => { change(event.target.value); }} />)}
+          {name === 'oubo' && <small>担当者の入力・参考</small>}
           {editable && request.changes.some(change => change.name === name) && <small className="dc-original">元: {displayValue(prop, base[name])}</small>}
         </div>;
       })}</div>
+        {(() => { const fixed = group.names.flatMap(name => { const prop = data.props.find(item => item.name === name); return prop && !CONTRACT_FIELDS.some(field => field === name) ? [contractLabel(prop)] : []; }); const oubo = group.names.some(name => name === 'oubo') && data.props.some(prop => prop.name === 'oubo'); return (fixed.length > 0 || oubo) && <p className="dc-fixed-note">{oubo && '応募数（担当者の入力）は参考の数字です。応募の判断には HubSpot の応募の記録を使います。'}{fixed.length > 0 && `${fixed.join('・')}は、ここでは変更できません（HubSpot の値を表示しています）。`}</p>; })()}
+      </div>)}
       {editing && canEdit && <div className="dc-actions"><button className="jc-button" disabled={locked || !request.changes.length} onClick={() => { setSavedFields(request.changes.map(change => change.name)); void write.save(request).then(outcome => { if (outcome.kind === 'saved' || outcome.kind === 'queued') setEditing(false); }); }}>保存</button><button className="jc-button" disabled={locked} onClick={() => { setEditing(false); }}>キャンセル</button></div>}
 
     </>}

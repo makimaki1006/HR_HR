@@ -108,12 +108,12 @@ export function imageChangeKind(previous: ImageVersion | undefined, current: Ima
 /** The short mark and the spoken text of the 画像 lane, from the same kind. */
 export const IMAGE_CHANGE_MARK: Record<ImageChangeKind, { text: string; spoken: string }> = {
   initial: { text: '最初', spoken: '最初の本文' },
-  missing: { text: '未取得', spoken: 'この本文に対応する画像は未取得です' },
+  missing: { text: '読めず', spoken: 'この本文に対応する画像を読めていません' },
   replaced: { text: '差し替え', spoken: '画像の差し替えがあります' },
   reordered: { text: '並び順', spoken: '画像の並び順が変わりました' },
   content: { text: '中身', spoken: '同じ場所の画像の中身が変わりました' },
   same: { text: '同じ', spoken: '画像の参照先と並び順は前回と同じです' },
-  unknown: { text: '不明', spoken: '前回の画像の情報が未取得のため比べられません' },
+  unknown: { text: '不明', spoken: '前回の画像の情報を読めていないため比べられません' },
 };
 
 /** No claim about why a public page failed; ended status comes from the listing. */

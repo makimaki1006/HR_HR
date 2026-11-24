@@ -1,4 +1,5 @@
 //! 更新候補だけの履歴を背景で取得。本文は集計後に捨て、求人ごとの結果だけを保持する。
+use super::listings::AW_BODY;
 use super::*;
 use chrono::{DateTime, NaiveDate, Utc};
 use std::time::Instant;
@@ -6,6 +7,7 @@ use std::time::Instant;
 const PROPERTIES: &[&str] = &[
     "hrh_kyuujinhyou_honbun",
     "shigotonaiyou",
+    AW_BODY,
     "kyuuyokeitai",
     "hs_name",
 ];
@@ -133,6 +135,8 @@ fn changes<T: PartialEq>(
     }
     history
         .windows(2)
+        // 空から初めて値が入った回は変更に数えない (AirWork の本文は最初の取得で全件に入る)。
+        .filter(|w| key != AW_BODY || !w[0].1.trim().is_empty())
         .filter(|w| w[1].0 >= start && w[1].0 < end && project(w[0].1) != project(w[1].1))
         .map(|w| w[1].0)
         .max()
@@ -157,6 +161,7 @@ fn detect(
     for (key, label) in [
         ("hrh_kyuujinhyou_honbun", "本文"),
         ("shigotonaiyou", "本文"),
+        (AW_BODY, "本文"),
         ("hs_name", "求人名"),
         ("kyuuyokeitai", "給与"),
     ] {

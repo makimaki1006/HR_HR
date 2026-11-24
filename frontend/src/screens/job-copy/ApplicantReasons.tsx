@@ -10,7 +10,7 @@ import './applicant-reasons.css';
 export function ApplicationReasonTexts({ job, rows }: { job: JobCopyRecord; rows?: readonly ApplicationRow[] }) {
   const items = (job.applicantReasons?.items ?? []).filter(item => APPLICATION_TEXT_SOURCES.includes(item.sourceProperty) && (!rows || rows.some(row => row.key === item.applicant)));
   const recorded = APPLICATION_TEXT_SOURCES.reduce((sum, property) => sum + (job.applicantReasons?.sourceCounts[property]?.nonblank ?? 0), 0);
-  const emptyText = !job.applicantReasons?.available ? '応募理由の文章は未取得です。' : job.applicantReasons.truncated && recorded > 0 ? '読み込み上限により、表示できる応募理由の文章はありません。' : '応募理由の文章は記録されていません。';
+  const emptyText = !job.applicantReasons?.available ? '応募理由の文章は読めていません。' : job.applicantReasons.truncated && recorded > 0 ? '読み込み上限により、表示できる応募理由の文章はありません。' : '応募理由の文章は記録されていません。';
   const groups = new Map<string, typeof items>();
   for (const item of items) {
     const key = item.applicant ?? item.id;
@@ -26,11 +26,11 @@ export function ApplicantReasons({ job, before, after }: { job: JobCopyRecord; b
   const shared = job.applicantReasons?.multiListingApplicants;
   return <section className="ar-reasons" aria-label="応募理由の集計"><h2>応募理由</h2><p>{selectionNote}</p>
     <SelectedReasonTables job={job} /><ApplicationReasonTexts job={job} />
-    {shared == null ? <p>ほかの求人にも関連する応募を見分ける情報は未取得です。</p> : shared.length > 0 && <p>ほかの求人にも関連する応募 {shared.length}件は、本文ごとの応募数・理由から除いています。</p>}
+    {shared == null ? <p>ほかの求人にも関連する応募を見分ける情報は読めていません。</p> : shared.length > 0 && <p>ほかの求人にも関連する応募 {shared.length}件は、本文ごとの応募数・理由から除いています。</p>}
     <div className="ar-pair">{[{ title: '前の本文', version: before }, { title: '後の本文', version: after }].map(({ title, version }) => {
-      if (!version) return <section key={title}><h3>{title}</h3><p>本文未取得</p></section>;
+      if (!version) return <section key={title}><h3>{title}</h3><p>本文を読めていません</p></section>;
       const rows = versionApplications(job, version.id);
-      return <section key={title}><h3>{title}: {version.label}</h3><p>応募 {job.applicationRows ? `${String(rows.length)}件` : '未取得'}</p><SelectedReasonTables job={job} rows={rows} /><ApplicationReasonTexts job={job} rows={rows} /></section>;
+      return <section key={title}><h3>{title}: {version.label}</h3><p>応募 {job.applicationRows ? `${String(rows.length)}件` : '不明'}</p><SelectedReasonTables job={job} rows={rows} /><ApplicationReasonTexts job={job} rows={rows} /></section>;
     })}</div>
   </section>;
 }

@@ -130,7 +130,7 @@ describe('printable report billing', () => {
 
   it('reads the billing CSV rows the user applied, the same rows the timeline shows', () => {
     const csv = [{ source: 'csv' as const, start: '2026-08-01', end: '2026-08-15', amountYen: 31000 }, { source: 'csv' as const, start: '2026-08-16', end: '2026-08-31', amountYen: null }];
-    expect(reportBillingText(record, undefined).heading).toBe('課金情報は未取得');
+    expect(reportBillingText(record, undefined).heading).toBe('課金情報は読めていません');
     const text = reportBillingText(record, csv);
     expect(text.heading).toBe('読み込んだ課金CSVあり');
     expect(text.detail).toContain('2行・2026/08/01〜2026/08/31・金額の分かる行の合計 3万1,000円（金額の記載がない行あり）');

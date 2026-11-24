@@ -4,7 +4,7 @@ import { displayCode, holidayValue } from './copyDisplay';
 import { manualLabel } from './manualEditModel';
 export interface ComparedJob { id: string; title: string; media: string; body: string | null; fields?: Record<string, string> }
 export function salaryAmount(kind: string | null | undefined, value: string | null | undefined): string {
-  if (!value?.trim()) return '未取得';
+  if (!value?.trim()) return '不明';
   const normalized = value.normalize('NFKC').replaceAll(',', '').trim();
   const amount = /^\d+(?:\.\d+)?$/.test(normalized) ? `${Number(normalized).toLocaleString('ja-JP')}円` : value;
   return `${kind?.trim() ? displayCode('給与形態', kind) : '給与形態不明'} ${amount}`;
@@ -36,7 +36,7 @@ export function compareJobs(jobs: ComparedJob[]) {
   return { fullDifferent, rows, unstructured: jobs.filter((job, index) => job.body && !fields[index]?.size) };
 }
 export function comparisonValue(key: string, value: string, body: string | null, row?: Record<string, string>): string {
-  if (!value) return '未取得';
+  if (!value) return '不明';
   const fields = row ? new Map(Object.entries(row)) : parseHrhFields(body ?? '');
   if (key === '基本給与 最小' || key === '基本給与 最大') return salaryAmount(fields.get('給与形態'), value);
   if (key === '試用・研修期の基本給与 最小' || key === '試用・研修期の基本給与 最大') return salaryAmount(fields.get('試用・研修期の給与のタイプ'), value);

@@ -104,5 +104,5 @@ it('応募・課金を読めなかったら、表の真上に帯と「もう一�
   expect(band.closest('.jc-load-band')?.getAttribute('role')).toBe('alert');
   expect(screen.getByRole('button', { name: 'もう一度読み込む' })).toBeTruthy();
   const cells = [...screen.getByRole('table', { name: '掲載中の求人' }).querySelectorAll('td.jh-missing')].map(cell => cell.textContent);
-  expect(cells).toEqual(['未取得', '未取得', '未取得']);
+  expect(cells).toEqual(['不明', '不明', '不明']);
 });

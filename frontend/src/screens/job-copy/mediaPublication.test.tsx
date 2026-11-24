@@ -81,8 +81,8 @@ describe('publicationLane', () => {
   });
 
   it('missing values say 未取得 or 不明, never a made-up period', () => {
-    expect(publicationLane({ ...base, start: null }, range)).toMatchObject({ bar: null, label: '2026/10/07時点で掲載中・公開開始日は未取得' });
-    expect(publicationLane({ ...base, status: null }, range)).toMatchObject({ bar: null, label: '公開状況は未取得・公開開始 2026/09/10' });
+    expect(publicationLane({ ...base, start: null }, range)).toMatchObject({ bar: null, label: '2026/10/07時点で掲載中・公開開始日は不明' });
+    expect(publicationLane({ ...base, status: null }, range)).toMatchObject({ bar: null, label: '公開状況を読めていません・公開開始 2026/09/10' });
     expect(publicationLane({ ...base, status: 'unknown' }, range).label).toBe('公開状況は不明・公開開始 2026/09/10');
     expect(publicationLane('unavailable', range)).toMatchObject({ bar: null, label: '媒体の公開状況は取得できませんでした（時間をおいて開き直してください）' });
   });

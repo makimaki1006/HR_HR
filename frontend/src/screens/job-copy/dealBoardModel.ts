@@ -25,10 +25,10 @@ export function countDealReasons(rows: readonly DealRow[]): Record<string, numbe
   return counts;
 }
 
-export const launchGroups = [['warming', '立ち上がり中'], ['on_track', '目安どおり'], ['below', '目安より少ない'], ['unavailable', '未取得']] as const;
+export const launchGroups = [['warming', '立ち上がり中'], ['on_track', '目安どおり'], ['below', '目安より少ない'], ['unavailable', '不明']] as const;
 export function launchLabel(row: DealRow, preparing: boolean): string {
-  if (row.launch.status === 'unavailable') return preparing ? '集計中' : '未取得';
-  return (launchGroups.find(([key]) => key === row.launch.status)?.[1] ?? '未取得') + (row.launch.status === 'below' ? `（あと${String(row.launch.remaining)}件）` : '');
+  if (row.launch.status === 'unavailable') return preparing ? '集計中' : '不明';
+  return (launchGroups.find(([key]) => key === row.launch.status)?.[1] ?? '不明') + (row.launch.status === 'below' ? `（あと${String(row.launch.remaining)}件）` : '');
 }
 export function sortLaunch(rows: DealRow[]): DealRow[] {
   return [...rows].sort((a, b) => Number(b.launch.status === 'below') - Number(a.launch.status === 'below') || (b.launch.elapsed ?? -Infinity) - (a.launch.elapsed ?? -Infinity) || a.id.localeCompare(b.id));
@@ -78,5 +78,5 @@ export function summarizeApplications(rows: readonly DealRow[]) {
   return { recent: recent.size, previous: previous.size, change: recent.size - previous.size, unknown: unknown.size, missing, outOfScope };
 }
 export function applicationChange(value: number | null): string {
-  return value === null ? '未取得' : `${value > 0 ? '+' : ''}${String(value)}件`;
+  return value === null ? '不明' : `${value > 0 ? '+' : ''}${String(value)}件`;
 }

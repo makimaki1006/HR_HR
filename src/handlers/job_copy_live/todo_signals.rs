@@ -215,8 +215,8 @@ pub(super) fn reasons(
 pub(super) fn eligible(deal: &WorkDeal, today: NaiveDate) -> bool {
     let stage = deal.record.value("dealstage").unwrap_or("");
     listings::is_delivery(deal.record.value("pipeline"))
-        // 紹介料の取引は案件一覧にもやることにも出さないので、応募も読まない。
-        && !crate::handlers::cs_dashboard::is_referral_deal(
+        // 紹介料・オプション契約（求人追加・一次対応など）は案件一覧にもやることにも出さないので、応募も読まない。
+        && !crate::handlers::cs_dashboard::is_excluded_deal(
             deal.record.value("dealname").unwrap_or(""),
             stage,
         )

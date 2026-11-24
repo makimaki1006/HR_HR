@@ -45,10 +45,10 @@ export function monthlyApplications(job: JobCopyRecord): { month: string; count:
   return marketRows({ prefecture: '', months: keys, job_count: keys.map(key => months.get(key) ?? null), ctk_count: [], employer_count: [], seekers_per_posting: [] }).map(row => ({ month: row.month, count: row.jobs }));
 }
 
-export function trendOption(months: string[], values: (number | null)[], label: string, unit: string, color = '#2463a7', bar = false, missingLabel = '未取得'): EChartsCoreOption {
+export function trendOption(months: string[], values: (number | null)[], label: string, unit: string, color = '#2463a7', bar = false, missingLabel = '不明'): EChartsCoreOption {
   return {
     animation: false,
-    aria: { enabled: true, decal: { show: true }, description: `${label}。横軸は対象月、縦軸は${unit}。未取得は欠損として表示。下の数値表で実数を確認できます。` },
+    aria: { enabled: true, decal: { show: true }, description: `${label}。横軸は対象月、縦軸は${unit}。分からない月は欠けた形で表示。下の数値表で実数を確認できます。` },
     textStyle: { fontFamily: 'sans-serif', fontSize: 13, color: '#334155' },
     grid: { top: 36, left: 14, right: 18, bottom: months.length > 12 ? 76 : 30, containLabel: true },
     tooltip: { trigger: 'axis', renderMode: 'richText', confine: true, valueFormatter: (value: unknown) => typeof value === 'number' ? `${value.toLocaleString('ja-JP', { maximumFractionDigits: 2 })}${unit}` : missingLabel },

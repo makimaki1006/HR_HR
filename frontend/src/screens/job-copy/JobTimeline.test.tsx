@@ -125,7 +125,7 @@ describe('job timeline lanes', () => {
     delete job.overallApplications;
     render(<JobTimeline job={job} marketMode="demo" now={new Date('2026-10-05T03:00:00Z')} />);
     const rows = within(within(screen.getByRole('region', { name: '期間比較表の数値' })).getByRole('table')).getAllByRole('row').slice(1).map(row => [...row.querySelectorAll('td')].map(cell => cell.textContent));
-    expect(rows.map(row => row.slice(1, 3))).toEqual([['未取得', '未取得'], ['未取得', '未取得'], ['未取得', '未取得']]);
+    expect(rows.map(row => row.slice(1, 3))).toEqual([['不明', '不明'], ['不明', '不明'], ['不明', '不明']]);
     expect(within(screen.getByRole('region', { name: '期間比較表の数値' })).getByRole('table').textContent).not.toMatch(/0件|0\.00件\/日/);
   });
 

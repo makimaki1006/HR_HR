@@ -13,7 +13,7 @@ export function ApplicantReasonReview({ job, view = 'compare', onViewChange, onO
   if (view === 'changes') return <section className="jc-analysis" aria-label="応募理由の確認"><h2>応募理由を確認する</h2>{switcher}<ChangeReasons job={job} onOpenFactors={() => { onOpenFactors?.(); }} /></section>;
   return <section className="jc-analysis" aria-label="応募理由の確認"><h2>応募理由を確認する</h2>{switcher}
     <p>応募日に対応する本文ごとに、選択式の応募理由を比べます。変更当日は変更後の本文に含みます。</p>
-    <div className="jc-analysis-controls jc-no-print"><label>前の本文<select value={before} onChange={event => { setBefore(event.target.value); }}>{versions.length ? versions.map(version => <option key={version.id} value={version.id}>{version.label}</option>) : <option value="">掲載を確認できた本文未取得</option>}</select></label><label>後の本文<select value={after} onChange={event => { setAfter(event.target.value); }}>{versions.length ? versions.map(version => <option key={version.id} value={version.id}>{version.label}</option>) : <option value="">掲載を確認できた本文未取得</option>}</select></label></div>
+    <div className="jc-analysis-controls jc-no-print"><label>前の本文<select value={before} onChange={event => { setBefore(event.target.value); }}>{versions.length ? versions.map(version => <option key={version.id} value={version.id}>{version.label}</option>) : <option value="">掲載を確認できた本文なし</option>}</select></label><label>後の本文<select value={after} onChange={event => { setAfter(event.target.value); }}>{versions.length ? versions.map(version => <option key={version.id} value={version.id}>{version.label}</option>) : <option value="">掲載を確認できた本文なし</option>}</select></label></div>
     <ApplicantReasons job={job} before={versions.find(version => version.id === before)} after={versions.find(version => version.id === after)} />
   </section>;
 }

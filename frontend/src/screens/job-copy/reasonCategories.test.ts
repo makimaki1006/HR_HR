@@ -166,13 +166,13 @@ describe('shares, periods and the overview', () => {
     expect(overviewReasonText(clear)).toBe('給与 2件（推定2件）・勤務地 1件（推定1件）／n=3');
     expect(basisText({ category: '給与', selected: 2, estimated: 1, total: 3 })).toBe('選択2件・推定1件');
     expect(overviewReasonText(collection())).toBe('記録なし');
-    expect(overviewReasonText(undefined)).toBe('未取得');
+    expect(overviewReasonText(undefined)).toBe('不明');
   });
 
   it('marks an old stored file in the overview: texts as 記述n, choices 未取得, and no plain 記録なし', () => {
     const old = collection({ selections: null, items: [text(null, 'a1', '時給が高い'), text(null, 'a2', '月給が良い'), text(null, 'b1', '家から近い')] });
-    expect(overviewReasonText(old)).toBe('給与 2件（推定2件）・勤務地 1件（推定1件）／記述n=3（応募ごとではない）（分類の選択は未取得）');
-    expect(overviewReasonText(collection({ selections: null }))).toBe('文の記録なし（分類の選択は未取得）');
+    expect(overviewReasonText(old)).toBe('給与 2件（推定2件）・勤務地 1件（推定1件）／記述n=3（応募ごとではない）（分類の選択は不明）');
+    expect(overviewReasonText(collection({ selections: null }))).toBe('文の記録なし（分類の選択は不明）');
     expect(overviewReasonText(collection({ truncated: true, items: [text(1, 'a1', '時給が高い')] }))).toBe('給与 1件（推定1件）／n=1（記述の一部だけで集計）');
   });
 

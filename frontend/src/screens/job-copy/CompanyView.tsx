@@ -53,7 +53,7 @@ export function CompanyView({ company, billingByJob, onName, onOpenDeal, onOpenL
   };
   const visibleDeals = loadedScope === scope ? deals : null;
   const Container = embedded ? 'div' : 'main';
-  return <Container className="jc-detail jh-home" id={embedded ? undefined : "job-details"} tabIndex={-1}>
+  return <Container className="jc-detail jh-home cl-view" id={embedded ? undefined : "job-details"} tabIndex={-1}>
     <header className="jh-head"><div>{embedded ? <h3>{company.name || (visibleDeals?.company.name ?? '顧客')}</h3> : <h1>{company.name || (visibleDeals?.company.name ?? '顧客')}</h1>}</div></header>
     {error && loadedScope === scope && <p role="alert">{error}</p>}{busy && <p role="status">選んだ求人を読み込んでいます…</p>}
     {!visibleDeals && (!error || loadedScope !== scope) && <p role="status">求人を読み込んでいます…</p>}

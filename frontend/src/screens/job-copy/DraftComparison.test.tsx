@@ -26,7 +26,7 @@ describe('保存された求人の案', () => {
     expect(details?.querySelector('pre')?.textContent).toBe(source);
     expect(screen.queryByText('元データの事実と現在の文面の確認')).toBeNull();
     cleanup(); render(<DraftReview job={job} draft={draftFixture()} onSaved={vi.fn()} />);
-    expect(screen.getByText('未取得')).toBeTruthy();
+    expect(screen.getByText('不明')).toBeTruthy();
   });
   it('changing review sends explicit patch and applies returned status without changing published body', async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ status: 'saved', draft: { ...draftFixture(), review_status: 'adopted' }, revision: 'b'.repeat(64) }), { status:200, headers:{'Content-Type':'application/json'} })); vi.stubGlobal('fetch', fetchMock);

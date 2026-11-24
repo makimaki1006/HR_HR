@@ -354,6 +354,12 @@ function JobTimelineForJob({ job, heading = true, billing: injected, marketMode 
   const salaryKind = salaryValues.at(-1)?.kind;
   const sameKind = salaryValues.filter(info => info?.kind === salaryKind).map(info => info?.min ?? 0);
   const low = Math.min(...sameKind); const high = Math.max(...sameKind);
+  // 給与の名前は、最初の本文と、前の本文から給与が変わった本文にだけ出す（同じ給与を段ごとに繰り返さない）。
+  // 同じ給与の本文は線だけを続け、名前は線の title と読み上げ用の文に残す。
+  const salaryShown = changes.map((change, index) => [index === 0, Boolean(change.salaryDirection), Boolean(change.salaryChanged), salaryLabel(change.salary) !== salaryLabel(changes[index - 1]?.salary ?? null)].some(Boolean));
+  const salaryRowsOfShown = timelineLabelRows(changes.filter((_, index) => salaryShown[index]).map(change => change.date), range);
+  const salaryRows = changes.map((_, index) => salaryRowsOfShown[salaryShown.slice(0, index).filter(Boolean).length] ?? 0);
+  const salaryRowCount = Math.max(1, ...salaryRowsOfShown.map(row => row + 1));
   const csvBilling = billing.some(entry => entry.source === 'csv');
   const hasDummyBilling = billing.some(isDummyBilling);
   const hrhBilling = billing.some(entry => entry.source === 'hrhacker');
@@ -407,12 +413,12 @@ function JobTimelineForJob({ job, heading = true, billing: injected, marketMode 
           <span>{period.label}</span></button><span aria-hidden="true" className="jt-period-label" style={{ ...pinned(period.start, range), top: `${String(12 + (labelRows[periods.indexOf(period)] ?? 0) * 28)}px` }}>{period.label}</span></Fragment>)}
         {unpublishedRanges(periods, asOf).map(gap => <div key={`gap-${gap.start}`} className="jt-zone" style={{ ...span(range, gap.start, gap.end), top: `${String(8 + rowCount * 28)}px` }} title={`${formatDay(gap.start)}〜${formatDay(addDays(gap.end, -1))}（掲載が確認できない期間）`}><span>掲載が確認できない期間</span></div>)}
         {spans.map(item => <div key={`${item.kind}-${item.fromVersionId}`} className={item.kind === 'between' ? 'jt-zone' : 'jt-unacquired'} style={{ ...span(range, item.start, item.end), top: `${String(8 + rowCount * 28)}px` }}
-          title={item.kind === 'between' ? `文面を確認した日${formatDay(item.from)}〜${formatDay(item.to ?? item.from)}の間${item.reason === 'changed' ? 'に変化' : '（変化したか確認できない）'}。どちらの内容か分からない期間です` : `最後の確認（${formatDay(item.from)}）より後は未取得です`}>
-          <span>{item.kind === 'between' ? '文面を確認した日の間' : '未取得'}</span></div>)}
-        {!periods.length && <p className="jt-empty">掲載期間は未取得です</p>}
+          title={item.kind === 'between' ? `文面を確認した日${formatDay(item.from)}〜${formatDay(item.to ?? item.from)}の間${item.reason === 'changed' ? 'に変化' : '（変化したか確認できない）'}。どちらの内容か分からない期間です` : `最後の確認（${formatDay(item.from)}）より後は分かりません`}>
+          <span>{item.kind === 'between' ? '文面を確認した日の間' : '不明'}</span></div>)}
+        {!periods.length && <p className="jt-empty">掲載期間は分かりません</p>}
       </Lane>
 
-      <Lane rows={rowCount + 1} title="給与" source="本文の「給与」の行から読み取り">
+      <Lane rows={salaryRowCount + 1} title="給与" source="本文の「給与」の行から読み取り">
         {changes.map((change, index) => {
           const period = periods[index];
           if (!period) return null;
@@ -422,12 +428,14 @@ function JobTimelineForJob({ job, heading = true, billing: injected, marketMode 
           const className = `${readable ? '' : ' jt-salary-unknown'}${change.salaryChanged ? ' jt-salary-changed' : ''}`;
           // The line spans the period; the label starts at the period start and stays inside the
           // track even when the period is only a few days long (the latest version).
+          const salaryTitle = `${info ? `${change.label}: ${info.raw || '記載なし'}` : `${change.label}: 給与は不明`}${change.salaryDirection ? `（${salaryWord[change.salaryDirection]}）` : ''}`;
           return <div key={change.versionId} className="jt-salary-item">
-            <div className={`jt-salary${className}`} aria-hidden="true" style={{ ...span(range, period.start, period.end ?? addDays(asOf, 1)), bottom: `calc(${String(height)}% + 14px)` }} />
-            <div className={`jt-salary-label${className}`} style={{ ...pinned(period.start, range), top: `${String(8 + (labelRows[index] ?? 0) * 28)}px` }}
-              title={`${info ? `${change.label}: ${info.raw || '記載なし'}` : `${change.label}: 給与は未取得`}${change.salaryDirection ? `（${salaryWord[change.salaryDirection]}）` : ''}`}>
-              {change.salaryDirection && <i className={`jt-salary-dir jt-salary-${change.salaryDirection}`} role="img" aria-label={salaryWord[change.salaryDirection]}>{salaryMark[change.salaryDirection]}</i>}<span>{salaryLabel(info)}</span>
-            </div>
+            <div className={`jt-salary${className}`} aria-hidden="true" title={salaryShown[index] ? undefined : `${salaryTitle}（前の本文と同じ）`} style={{ ...span(range, period.start, period.end ?? addDays(asOf, 1)), bottom: `calc(${String(height)}% + 14px)` }} />
+            {salaryShown[index]
+              ? <div className={`jt-salary-label${className}`} style={{ ...pinned(period.start, range), top: `${String(8 + (salaryRows[index] ?? 0) * 28)}px` }} title={salaryTitle}>
+                {change.salaryDirection && <i className={`jt-salary-dir jt-salary-${change.salaryDirection}`} role="img" aria-label={salaryWord[change.salaryDirection]}>{salaryMark[change.salaryDirection]}</i>}<span>{salaryLabel(info)}</span>
+              </div>
+              : <span className="jc-visually-hidden">{change.label}：{salaryLabel(info)}（前の本文と同じ）</span>}
           </div>;
         })}
       </Lane>
@@ -464,7 +472,7 @@ function JobTimelineForJob({ job, heading = true, billing: injected, marketMode 
       {csvBilling && <p className="jt-volatile" role="note">読み込んだ課金CSVはこの画面を開いている間だけ表示します。再読み込みすると消えます。</p>}
 
       <Lane title="応募" source="応募日ごとの件数" className="jt-lane-chart">
-        {applicationOption ? <EChart option={applicationOption} testId="jt-applications" height={72} renderer="svg" /> : <p className="jt-empty">{!applications?.byDate ? '応募日別の件数は未取得です' : '応募日の分かる応募はありません'}</p>}
+        {applicationOption ? <EChart option={applicationOption} testId="jt-applications" height={72} renderer="svg" /> : <p className="jt-empty">{!applications?.byDate ? '応募日別の件数は読めていません' : '応募日の分かる応募はありません'}</p>}
       </Lane>
       <div className="jt-lane-tools">
         <div className="jt-granularity" role="group" aria-label="応募の集計単位">{(['day', 'week', 'month'] as const).map(value => <button type="button" key={value} aria-pressed={granularity === value} onClick={() => { setGranularity(value); }}>{granularityLabel[value]}ごと</button>)}</div>
@@ -477,7 +485,7 @@ function JobTimelineForJob({ job, heading = true, billing: injected, marketMode 
       </div>
 
       <Lane title="応募理由" source="ヒアリングで選んだ応募動機・勤務条件">
-        {!reasonsAvailable ? <p className="jt-empty">選択式の応募理由は未取得です。</p>
+        {!reasonsAvailable ? <p className="jt-empty">選択式の応募理由は読めていません。</p>
           : !reasonRows.length ? <p className="jt-empty">{reasonMulti ? `この求人だけに関連する選択式の応募理由の記録はありません（ほかの求人にも関連する${String(reasonMulti)}件を除く）` : '選択式の応募理由の記録はありません'}</p>
             : rows.length === 0 ? <p className="jt-empty">掲載期間が取得できていないため、期間ごとに分けられません（選択式の記録 {reasonRows.length}件 は「応募理由」で確認できます）</p>
               : !reasonInPeriods ? <p className="jt-empty">表の期間に入る応募理由はありません（選択式の記録 {reasonRows.length}件 は、日付が分からないか表の期間の外です）</p>
@@ -548,14 +556,14 @@ function JobTimelineForJob({ job, heading = true, billing: injected, marketMode 
         <tbody>{rows.map(row => <tr key={row.key} className={row.kind !== 'period' ? `jt-gap-row jt-row-${row.kind}` : selected === row.versionId ? 'jt-row-selected' : undefined} aria-current={row.kind === 'period' && selected === row.versionId ? 'true' : undefined}>
           <th scope="row">{row.versionId ? <button type="button" className="jc-text-button" aria-pressed={selected === row.versionId} onClick={() => { setSelected(row.versionId); }}>{row.label}</button> : row.label}{row.kind === 'period' && selected === row.versionId && <span className="jt-selected-tag">選択中</span>}<small>{row.detail}</small></th>
           <td>{row.afterCounts && row.days === 0 ? '—' : `${String(row.days)}日`}</td>
-          <td>{row.afterCounts ? '応募件数を確認した後に始まった期間' : row.applications === null ? '未取得' : row.kind === 'period' && row.days === 0 ? '別の行に数えます' : `${String(row.applications)}件`}</td>
-          <td>{row.afterCounts ? '—' : row.applications === null ? '未取得' : row.kind === 'between' || row.kind === 'unacquired' ? '比べません' : row.shortPeriod ? '期間が短いため比べません' : formatPerDay(row.perDay)}</td>
+          <td>{row.afterCounts ? '応募件数を確認した後に始まった期間' : row.applications === null ? '不明' : row.kind === 'period' && row.days === 0 ? '別の行に数えます' : `${String(row.applications)}件`}</td>
+          <td>{row.afterCounts ? '—' : row.applications === null ? '不明' : row.kind === 'between' || row.kind === 'unacquired' ? '比べません' : row.shortPeriod ? '期間が短いため比べません' : formatPerDay(row.perDay)}</td>
           <td>{billingText(row)}</td>
           <td>{marketText(row.market, market.state.status)}</td>
         </tr>)}</tbody>
       </table></div>}
       {rows.some(row => row.afterCounts) && <p className="jt-table-note">「応募件数を確認した後に始まった期間」は、応募件数を{formatDay(asOf)}に取得した後に始まった期間です。0件という意味ではありません。</p>}
-      {rows.some(row => !row.afterCounts && row.applications === null) && <p className="jt-table-note">「未取得」は応募日ごとの件数を取得していないという意味です。0件という意味ではありません。</p>}
+      {rows.some(row => !row.afterCounts && row.applications === null) && <p className="jt-table-note">「不明」は応募日ごとの件数を読めていないという意味です（0件ではありません）。</p>}
       {rows.some(row => row.kind === 'between' || row.kind === 'unacquired') && <p className="jt-table-note">「文面を確認した日の間」と「最後の確認より後」の行の応募は、どちらの内容を見た応募か分からないため、前後の期間に入れず別に数えています。応募は日付だけで記録されていて、文面を確認した日も文面を確認した時刻の前後で内容が変わった可能性があるため、文面を確認した日の応募もこれらの行に入れています。1日あたりは比べません。</p>}
       {rows.some(row => !row.afterCounts && row.applications !== null && row.shortPeriod && (row.kind === 'period' || row.kind === 'gap')) && <p className="jt-table-note">「期間が短いため比べません」は、{MIN_RATE_DAYS}日に満たない期間です。1日や2日の件数を1日あたりに直すと大きく振れるため、比べません。</p>}
       {rows.some(row => row.billing.connected && row.billing.prorated) && <p className="jt-table-note">「約」の付いた課金額は、課金の期間と本文の表示期間がずれているため、日数で割って配分した金額です。</p>}

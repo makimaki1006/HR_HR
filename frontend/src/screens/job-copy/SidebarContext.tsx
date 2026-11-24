@@ -20,6 +20,6 @@ export function SidebarDeals({ companyId, onOpenDeal }: { companyId: string; onO
   return <section className="jc-side-context" aria-label="この顧客の案件"><h3>この顧客の案件</h3>
     {state === null && <p role="status">案件を読み込んでいます…</p>}
     {state === 'error' && <p role="alert">案件を読み込めませんでした。時間を置いて再取得してください。</p>}
-    {state && state !== 'error' && (state.deals.length ? <ul>{state.deals.map(deal => <li key={deal.id}><button type="button" onClick={() => { onOpenDeal({ id: deal.id, name: dealName(deal) }); }}><strong>{dealName(deal)}</strong><small>{deal.stage_label ?? 'ステージ未取得'} · {listingsLabel(deal)}</small><small>契約 {contractLabel(deal)}</small></button></li>)}</ul> : <p>納品管理の案件はありません。</p>)}
+    {state && state !== 'error' && (state.deals.length ? <ul>{state.deals.map(deal => <li key={deal.id}><button type="button" onClick={() => { onOpenDeal({ id: deal.id, name: dealName(deal) }); }}><strong>{dealName(deal)}</strong><small>{deal.stage_label ?? 'ステージ不明'} · {listingsLabel(deal)}</small><small>契約 {contractLabel(deal)}</small></button></li>)}</ul> : <p>納品管理の案件はありません。</p>)}
   </section>;
 }

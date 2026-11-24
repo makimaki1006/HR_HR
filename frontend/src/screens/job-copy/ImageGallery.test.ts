@@ -7,7 +7,7 @@ describe('image gallery evidence states', () => {
   it('distinguishes unacquired images from a known zero-image observation', () => {
     const missing = renderToStaticMarkup(createElement(ImageGallery, { title: '取得状態', images: undefined }));
     const empty = renderToStaticMarkup(createElement(ImageGallery, { title: '取得状態', images: [] }));
-    expect(missing).toContain('画像は未取得です。画像なし・削除とは判定していません。');
+    expect(missing).toContain('画像を読めていません（画像なし・削除ではありません）。');
     expect(missing).not.toContain('画像は0点');
     expect(missing).not.toContain('この本文に対応する画像はありません。');
     expect(empty).toContain('この本文に対応する画像はありません。');
@@ -20,6 +20,6 @@ describe('image gallery evidence states', () => {
     expect(markup).toContain('alt="架空の掲載写真"');
     expect(markup).toContain('loading="lazy"');
     expect(markup).toContain('company_id=10&amp;listing_id=30&amp;manifest_id=synthetic_Manifest-123&amp;slot=2');
-    expect(markup).not.toContain('画像は未取得');
+    expect(markup).not.toContain('画像は不明');
   });
 });

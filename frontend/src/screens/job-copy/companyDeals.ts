@@ -19,7 +19,7 @@ export interface CompanyDeals {
   delivery_pipelines?: { id: string; label: string }[];
   index_ready?: boolean;
 }
-export const dealName = (deal: { name: string | null }) => deal.name ?? '案件名未取得';
+export const dealName = (deal: { name: string | null }) => deal.name ?? '案件名なし';
 /** 「掲載中 X ／ 全 Y」。索引の準備前は「集計中」。 */
 export const listingsLabel = (deal: Pick<CompanyDeal, 'listings_live' | 'listings_total'>) => deal.listings_total === null || deal.listings_live === null ? '集計中' : `掲載中 ${String(deal.listings_live)} ／ 全 ${String(deal.listings_total)}`;
 /** 契約の期間。片方だけ分かるときは分かる側だけ。 */

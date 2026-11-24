@@ -37,7 +37,7 @@ function WindowColumn({ title, window, job }: { title: string; window: ReasonWin
     <p className="cr-range">{rangeText(window)}</p>
     {limit && <p className="cr-limit">{limit}</p>}
     {window.days === 0 ? null : <>
-    <p className="cr-count">応募 {window.applications === null ? '未取得' : `${String(window.applications)}件`}</p>
+    <p className="cr-count">応募 {window.applications === null ? '不明' : `${String(window.applications)}件`}</p>
     {reasons && <p className="cr-count">選択式の記録 {reasons.n}件</p>}
     <SelectedReasonTables job={job} rows={reasons?.rows ?? []} />
     {window.texts.length > 0 && <details className="cr-texts"><summary>応募者が書いた文を開く（社内確認用）</summary>

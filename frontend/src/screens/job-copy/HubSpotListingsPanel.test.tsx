@@ -73,7 +73,7 @@ describe('HubSpot listing history', () => {
     await screen.findByRole('button', { name: '合成配送求人の本文を見る' });
     expect(screen.getByText('51件')).toBeTruthy();
     fireEvent.click(screen.getByText('絞り込み・並び順'));
-    expect(screen.getByRole('button', { name: '合成配送求人の本文を見る' }).textContent).toContain('応募の記録 未取得');
+    expect(screen.getByRole('button', { name: '合成配送求人の本文を見る' }).textContent).toContain('応募の記録 不明');
     fireEvent.change(screen.getByLabelText('都道府県'), { target: { value: '大分県' } });
     fireEvent.change(screen.getByLabelText('職種の分類'), { target: { value: 'ドライバー' } });
     fireEvent.change(screen.getByLabelText('媒体', { selector: 'select' }), { target: { value: 'airwork' } });

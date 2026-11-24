@@ -23,7 +23,7 @@ export function listedApplicationCount(job: JobCopyRecord): number | null {
 
 export function applicationCountLabel(job: JobCopyRecord): string {
   const total = listedApplicationCount(job);
-  if (total === null) return '応募未取得';
+  if (total === null) return '応募数不明';
   return job.dataSource === 'hubspot' ? `応募${String(total)}件` : `応募${String(total)}件（架空）`;
 }
 

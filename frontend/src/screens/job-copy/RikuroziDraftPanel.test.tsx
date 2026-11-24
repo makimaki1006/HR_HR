@@ -29,7 +29,7 @@ describe('リクロジメディア向けの案', () => {
     fireEvent.click(screen.getByRole('button', { name: 'リクロジメディア向けの案を作る' }));
     await screen.findByText('要確認の案');
     expect(container.textContent).toContain('掲載中か不明 ／ 文の一致率：20.0％ ／ 似すぎ・不合格（要確認）');
-    expect(container.textContent).toContain('文の一致率：未取得（要確認）');
+    expect(container.textContent).toContain('文の一致率：不明（要確認）');
     expect(container.textContent).toContain('時給 1,200円〜1,400円');
     expect(container.textContent).toContain('新しい求人として取り込むCSVを作成します。画像は元の求人と同じ順序で最大3枚を使います。');
     expect(container.textContent).toContain('元の求人から取得できない連絡先・フォーム設定・公開設定などの項目は空欄で出力します。');

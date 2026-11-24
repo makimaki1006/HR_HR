@@ -675,7 +675,7 @@ export function periodRows(job: JobCopyRecord, options: { asOf: string; billing?
     } else if (period.publicationEndKnown && from <= asOf) {
       rows.push(make(`gap-${period.versionId}`, 'gap', '掲載が確認できない期間', (start, lastDay) => `${formatDay(start)}〜${formatDay(lastDay)}`, null, from, addDays(asOf, 1), false, from));
     } else if (period.basis === 'captured' && !period.ongoing && from <= asOf) {
-      rows.push(make(`unacquired-${period.versionId}`, 'unacquired', `最後の確認（${formatDay(period.start)}）より後`, (start, lastDay) => `${formatDay(start)}〜${formatDay(lastDay)}（${start <= period.start ? '最後に文面を確認した日を含む。' : ''}未取得）`, null, from, addDays(asOf, 1), false, from));
+      rows.push(make(`unacquired-${period.versionId}`, 'unacquired', `最後の確認（${formatDay(period.start)}）より後`, (start, lastDay) => `${formatDay(start)}〜${formatDay(lastDay)}（${start <= period.start ? '最後に文面を確認した日を含む。' : ''}不明）`, null, from, addDays(asOf, 1), false, from));
     }
   });
   return rows;

@@ -333,7 +333,7 @@ export function eventWeekMarks(events: readonly Pick<DealEvent, 'n' | 'date' | '
   return [...marks.values()].sort((a, b) => a.index - b.index).map(mark => ({ ...mark, numbers: [...mark.numbers].sort((a, b) => a - b) }));
 }
 
-export interface MediaCutoff { media: 'hrh' | 'airwork' | 'reclogi'; lastApplication: string | null; lastBilling: string | null; /** 応募の記録を取得できた求人がある（最後の応募が無ければ「なし」、取得できていなければ「未取得」）。 */ fetched: boolean }
+export interface MediaCutoff { media: 'hrh' | 'airwork' | 'reclogi'; lastApplication: string | null; lastBilling: string | null; /** 応募の記録を取得できた求人がある（最後の応募が無ければ「なし」、取得できていなければ「不明」）。 */ fetched: boolean }
 
 /** 媒体ごとの、応募と課金がどの日まであるか。 */
 export function mediaCutoffs(listings: readonly DealListingInput[]): MediaCutoff[] {

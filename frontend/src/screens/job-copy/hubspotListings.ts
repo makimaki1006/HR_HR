@@ -58,7 +58,7 @@ export interface HubSpotVersions {
   draft_revision?: string;
   can_write_drafts?: boolean;
   draft_history_may_be_incomplete?: boolean;
-  current?: { checked_at: string; body: string; image_urls: string[] | null; images_registered?: boolean | null } | null;
+  current?: { checked_at: string; body: string; image_urls: string[] | null; images_registered?: boolean | null; full_body?: boolean } | null;
   current_images_registered?: boolean | null;
   current_images?: { observed_at: string; image_urls: string[] } | null;
   /** HRハッカー求人の Indeed 週ごとの実績（HubSpot の indeed_weekly_perf）。無い・読めないときは null。 */
@@ -72,7 +72,7 @@ export interface HubSpotVersions {
   /** 公開状況の履歴（欄ごと、古い順）。 */
   status_history?: Record<string, { timestamp: string; value: string }[]>;
   listing: HubSpotListing;
-  versions: { written_at: string; body: string; image_urls: string[] | null; images_registered?: boolean | null }[];
+  versions: { written_at: string; body: string; image_urls: string[] | null; images_registered?: boolean | null; full_body?: boolean }[];
   history_counts: Record<string, number>; history_may_be_incomplete: boolean;
 }
 export const draftStateLabel = (status: DraftSnapshot['review_status']) => ({ pending: '確認待ち', adopted: '採用', rejected: '見送り' })[status];
@@ -97,7 +97,8 @@ export function statusEntries(data: Pick<HubSpotVersions, 'status_history'>, med
 }
 export function listingRecord(data: HubSpotVersions, listedRow?: HubSpotListing): JobCopyRecord {
   const row = data.listing;
-  const copy = (body: string) => row.media === 'hrh' ? { comparisonBody: body, body: composeHrhBody(body), bodySections: hrhCopySections(body) } : { body, bodySections: body.trim() ? [{ heading: '仕事内容', text: body }] : [] };
+  // AirWork は本文の項目が入っていれば求人票の本文、無ければ仕事内容だけ。
+  const copy = (body: string, full?: boolean) => row.media === 'hrh' ? { comparisonBody: body, body: composeHrhBody(body), bodySections: hrhCopySections(body) } : { body, bodySections: body.trim() ? [{ heading: full ? '求人票の本文' : '仕事内容', text: body }] : [] };
   return {
     listingSummary: row.summary ?? listedRow?.summary, listingPrefecture: row.prefecture ?? listedRow?.prefecture ?? null, listingMunicipality: row.municipality ?? listedRow?.municipality ?? null, competitorMonthly: data.competitor_monthly ?? [], listingDealIds: listedRow?.deal_ids ?? row.deal_ids,
     currentImagesRegistered: data.current_images_registered ?? undefined,
@@ -107,19 +108,19 @@ export function listingRecord(data: HubSpotVersions, listedRow?: HubSpotListing)
     ...(data.current_fields ? { currentListingFields: data.current_fields } : {}),
     listingStartedOn: data.listing_started_on ?? row.listing_started_on ?? null, applicationDates: 'loading', statusHistory: statusEntries(data, row.media),
     listingPublicationStatus: row.publication_status, listingApplicationCount: row.application_count ?? (listedRow?.id === row.id ? listedRow.application_count : null),
-    title: row.title ?? '求人名未取得', company: data.company_name ?? '', media: mediaLabel(row.media),
+    title: row.title ?? '求人名なし', company: data.company_name ?? '', media: mediaLabel(row.media),
     mediaJobId: row.media_job_id, ...(row.account_id ? { accountId: row.account_id } : {}),
     location: [row.prefecture, row.municipality].filter(Boolean).join('') || '',
     indeedTitle: row.indeed_title ?? null, indeedTitleState: row.indeed_title_state ?? 'unset',
     ...(data.current_images ? { currentImageObservation: { observedAt: data.current_images.observed_at, images: data.current_images.image_urls.map((url, index) => ({ id: `observed-${String(index)}`, url, caption: `現在の画像${String(index + 1)}` })) } } : {}),
     versions: [...data.versions.map((version, index) => ({
       id: `hubspot-history-${row.id}-${String(index)}`, label: historyVersionLabel(version.written_at, data.versions.map(item => item.written_at), !data.current && index === data.versions.length - 1),
-      observedAt: version.written_at, ...copy(version.body), kind: 'published' as const, certainty: 'unknown' as const,
+      observedAt: version.written_at, ...copy(version.body, version.full_body), kind: 'published' as const, certainty: 'unknown' as const,
       source: 'HubSpotに記録された本文', applications: null,
       ...(version.image_urls !== null ? { images: version.image_urls.map((url, slot) => ({ id: `history-image-${String(slot)}`, url, caption: `画像${String(slot + 1)}` })) } : {}),
       imagesRegistered: version.images_registered ?? undefined,
       historicalImageBytesAvailable: false,
-      note: '本文がHubSpotに記録された日時です。画像は当時と異なる可能性があります。この本文への応募件数は未取得です。',
-    })), ...(data.current ? [{ id: `hubspot-current-${row.id}`, label: data.current.checked_at ? `今の本文（${historyVersionLabel(data.current.checked_at, [], false).replace(' の本文', '')} に確認）` : '今の本文', observedAt: data.current.checked_at, ...copy(data.current.body), imagesRegistered: data.current.images_registered ?? undefined, kind: 'published' as const, certainty: 'unknown' as const, source: 'HubSpotの現在の本文', applications: null, ...(data.current.image_urls !== null ? { images: data.current.image_urls.map((url, slot) => ({ id: `current-${String(slot)}`, url, caption: `画像${String(slot + 1)}` })) } : {}), historicalImageBytesAvailable: false, note: '以前の本文を確認できないため、現在の本文を表示しています。日時は今回本文を確認した日時です。本文が記録された日時は不明です。' }] : []), ...(data.drafts ?? []).map(draftVersion)],
+      note: '本文がHubSpotに記録された日時です。画像は当時と異なる可能性があります。この本文への応募件数は読めていません。',
+    })), ...(data.current ? [{ id: `hubspot-current-${row.id}`, label: data.current.checked_at ? `今の本文（${historyVersionLabel(data.current.checked_at, [], false).replace(' の本文', '')} に確認）` : '今の本文', observedAt: data.current.checked_at, ...copy(data.current.body, data.current.full_body), imagesRegistered: data.current.images_registered ?? undefined, kind: 'published' as const, certainty: 'unknown' as const, source: 'HubSpotの現在の本文', applications: null, ...(data.current.image_urls !== null ? { images: data.current.image_urls.map((url, slot) => ({ id: `current-${String(slot)}`, url, caption: `画像${String(slot + 1)}` })) } : {}), historicalImageBytesAvailable: false, note: '以前の本文を確認できないため、現在の本文を表示しています。日時は今回本文を確認した日時です。本文が記録された日時は不明です。' }] : []), ...(data.drafts ?? []).map(draftVersion)],
   };
 }

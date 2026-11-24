@@ -448,15 +448,11 @@
 .jc-band-name { flex: 1 1 220px; min-width: 0; display: grid; gap: 2px; }
 .jc-band-name h1 { margin: 0; font-size: 16px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .jc-band-name span { color: var(--jc-muted); font-size: 12px; }
-.jc-band-numbers { display: flex; gap: 22px; margin: 0; flex-wrap: wrap; }
-.jc-band-numbers dt { color: var(--jc-muted); font-size: 11px; }
-.jc-band-numbers dd { margin: 0; font-size: 22px; font-weight: 700; }
-.jc-band-numbers dd small { margin-left: 8px; font-size: 12px; font-weight: 400; color: var(--jc-muted); }
 .jc-detail-cols { display: grid; grid-template-columns: minmax(0, 1fr); gap: 22px; align-items: start; }
 .jc-detail-content { min-width: 0; }
 .jc-feature-primary { top: var(--jc-band-h, 0); }
 
-@media (max-width: 800px) { .jc-band { position: static; } .jc-feature-primary { top: 0; } .jc-band-numbers { gap: 14px; } }
+@media (max-width: 800px) { .jc-band { position: static; } .jc-feature-primary { top: 0; } }
 
 /* 長い事業所名・比較に選んだ求人名も、操作ボタンの枠内で読めるようにする。 */
 .ds-company-link .jc-button, .jc-deal-selection .jc-button {

@@ -7,14 +7,14 @@ import { DEMO_BILLING_NOTE, isDemoJob } from './dummyBilling';
 import { boundaryStatus, versionChanges, weekStraddlesChange } from './timelineModel';
 import './job-analysis.css';
 
-const number = (value: number | null, suffix = '') => value === null ? '算出不可・未取得' : `${value.toLocaleString('ja-JP', { maximumFractionDigits: 2 })}${suffix}`;
-const yen = (value: number | null) => formatYen(value, '算出不可・未取得');
+const number = (value: number | null, suffix = '') => value === null ? '算出できない・不明' : `${value.toLocaleString('ja-JP', { maximumFractionDigits: 2 })}${suffix}`;
+const yen = (value: number | null) => formatYen(value, '算出できない・不明');
 export function HrhPerformance({ job }: { job: JobCopyRecord }) {
   const changes = versionChanges(job).filter(change => boundaryStatus(change) === 'changed');
   const data = job.hrhPerformance;
   const [before, setBefore] = useState(0); const [after, setAfter] = useState(1);
   if (job.media !== 'HRハッカー') return <section className="jc-analysis"><h2>課金・クリック実績</h2><p>この連携はHRハッカー求人が対象です。</p></section>;
-  if (!data) return <section className="jc-analysis"><h2>課金・クリック実績</h2><p className="jc-notice">この求人の実績データは未接続です。クリック数・費用を0として扱いません。</p><p>{job.media} · {job.title}。対象期間の実績は未取得です。表示回数がなければクリック率は算出できません。</p></section>;
+  if (!data) return <section className="jc-analysis"><h2>課金・クリック実績</h2><p className="jc-notice">この求人の実績データは未接続です。クリック数・費用を0として扱いません。</p><p>{job.media} · {job.title}。対象期間の実績は読めていません。表示回数がなければクリック率は算出できません。</p></section>;
   const left = data.rows[before]; const right = data.rows[after];
   const comparison = left && right && before !== after ? comparePerformance(left, right) : null;
   return <section className="jc-analysis" aria-label={data.source === 'airwork' ? 'AirWork課金・クリック実績' : 'HRハッカー課金・クリック実績'}><h2>課金・クリック実績</h2><p>{isDemoJob(job) ? job.media : data.source === 'airwork' ? 'AirWork の実績（週ごと）' : 'Indeed の実績（週ごと）'} · {job.title} · 取得：{formatDateTimeJst(data.captured_at, data.captured_at)}</p>{isDemoJob(job) && <p className="jc-notice" role="note">{DEMO_BILLING_NOTE}表示回数・クリック数・媒体応募数も架空です。</p>}<AssumptionsNote className="jc-notice" includeHubSpot={false} summary="各行は媒体の対象期間の実績で、応募数は媒体が報告した値です。" items={['媒体が報告した応募数は、HubSpotに記録された応募数とは別に数えています。']} />

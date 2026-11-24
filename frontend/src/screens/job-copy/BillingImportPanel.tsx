@@ -146,7 +146,7 @@ export function BillingImportPanel({ records, applied, onApply, onClear }: {
                 <option value="">使わない</option>
                 {headers.map((header, index) => <option key={`${String(index)}-${header}`} value={String(index)}>{header || `（${String(index + 1)}列目・見出しなし）`}</option>)}
               </select></td>
-              <td>{spec.field === 'accountId' || spec.field === 'mediaJobId' ? sample ? '照合に使用（番号は表示しません）' : '未取得' : sample}</td>
+              <td>{spec.field === 'accountId' || spec.field === 'mediaJobId' ? sample ? '照合に使用（番号は表示しません）' : '不明' : sample}</td>
             </tr>;
           })}
         </tbody></table>

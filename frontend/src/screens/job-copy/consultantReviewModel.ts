@@ -25,7 +25,7 @@ export function reportBillingText(job: JobCopyRecord, billing: readonly BillingE
   const noUnitCost = '本文との対応は未確認で、HubSpotの応募総数から応募単価を作りません。';
   if (!csv.length) return hrh
     ? { heading: '媒体の期間別実績を取得済み', detail: `課金・クリック画面で確認できます。${noUnitCost}` }
-    : { heading: '課金情報は未取得', detail: '後日受領する課金情報を、対象求人・掲載期間と対応させます。' };
+    : { heading: '課金情報は読めていません', detail: '後日受領する課金情報を、対象求人・掲載期間と対応させます。' };
   const first = csv.reduce((day, entry) => entry.start < day ? entry.start : day, csv[0]?.start ?? '');
   const last = csv.reduce((day, entry) => entry.end > day ? entry.end : day, csv[0]?.end ?? '');
   const known = csv.filter(entry => entry.amountYen !== null);

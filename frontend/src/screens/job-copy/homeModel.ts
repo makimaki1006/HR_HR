@@ -21,7 +21,7 @@ export type HomeResponse =
 
 /** 'default' はサーバが返した順（契約中の案件がある顧客を先に、最新の案件の作成日が新しい順）。 */
 export type CustomerSort = 'default' | 'name' | 'latest' | 'deals' | 'live' | 'apps' | 'cost' | 'cpa';
-export const customerName = (customer: HomeCustomer) => customer.name ?? '顧客名未取得';
+export const customerName = (customer: HomeCustomer) => customer.name ?? '顧客名なし';
 const value = (customer: HomeCustomer, key: CustomerSort): number | string | null => {
   switch (key) {
     case 'default': return 0;

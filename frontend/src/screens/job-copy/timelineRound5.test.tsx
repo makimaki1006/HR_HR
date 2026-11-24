@@ -82,8 +82,8 @@ describe('explanations that can be read without hovering', () => {
     delete job.overallApplications;
     render(<JobTimeline job={job} marketMode="demo" now={new Date('2026-10-05T03:00:00Z')} />);
     const table = screen.getByRole('region', { name: '期間比較表の数値' });
-    expect(table.textContent).toContain('未取得');
-    expect(screen.getByText('「未取得」は応募日ごとの件数を取得していないという意味です。0件という意味ではありません。')).toBeTruthy();
+    expect(table.textContent).toContain('不明');
+    expect(screen.getByText('「不明」は応募日ごとの件数を読めていないという意味です（0件ではありません）。')).toBeTruthy();
   });
 
   it('explains short windows on the cross-job overview below the table', () => {

@@ -151,7 +151,7 @@ for (const [width, height] of [[1440, 900], [1440, 690], [1920, 900]]) {
       if (width === 1440 && height === 900 && pinned) await page.screenshot({ path: path.join(shots, 'after-scope-wording-1440.png') });
       await scope.locator('summary').click();
       await selectJobFeature(page, 'diff');
-      await expect(page.locator('.jc-image-comparison')).toContainText('前の本文または後の本文の画像が未取得のため、画像が変わったかどうかは不明です。');
+      await expect(page.locator('.jc-image-comparison')).toContainText('前の本文または後の本文の画像を読めていないため、画像が変わったかどうかは分かりません。');
       await expect(page.locator('.jc-image-comparison')).not.toContainText('版');
       await selectJobFeature(page, 'applicants');
       await expect(page.locator('.ac-overall')).toContainText('どの本文への応募か不明');

@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 /**
- * Review round 4 of the application reasons: a 未取得 選択済み count never shows as 0件, the lane
+ * Review round 4 of the application reasons: a 不明 選択済み count never shows as 0件, the lane
  * does not say 「記録はありません」 when the records were only left out, and a section whose texts
  * were cut by the read limit does not say there is nothing to classify.
  */
@@ -41,12 +41,12 @@ describe('legacy sources in the listing detail', () => {
   it('keeps unread selected reasons distinct from zero, on both the tab and timeline', () => {
     const job = { ...demo(), applicantReasons: legacy() };
     const { unmount } = render(<ApplicantReasons job={job} />);
-    expect(screen.getByText('選択式の応募理由は未取得です。')).toBeTruthy();
+    expect(screen.getByText('選択式の応募理由は読めていません。')).toBeTruthy();
     expect(screen.queryAllByRole('table')).toHaveLength(0);
     unmount();
     render(<JobTimeline job={job} marketMode="demo" />);
     const lane = screen.getByRole('group', { name: '応募理由' });
-    expect(lane.textContent).toContain('選択式の応募理由は未取得です。');
+    expect(lane.textContent).toContain('選択式の応募理由は読めていません。');
     expect(lane.querySelectorAll('button')).toHaveLength(0);
     expect(screen.getByRole('region', { name: '期間ごとの応募理由' }).textContent).not.toContain('推定');
   });

@@ -43,5 +43,5 @@ export function linkedApplicationCount(version: CopyVersion | undefined): number
 
 /** 本文に結びつく応募が 0 件のときの一文。 */
 export function noLinkedApplicationsMessage(jobTotal: number | null): string {
-  return jobTotal === null ? 'この本文に結びつく応募はまだありません（求人全体の件数は未取得）' : `この本文に結びつく応募はまだありません（求人全体では${String(jobTotal)}件）`;
+  return jobTotal === null ? 'この本文に結びつく応募はまだありません（求人全体の件数は不明）' : `この本文に結びつく応募はまだありません（求人全体では${String(jobTotal)}件）`;
 }

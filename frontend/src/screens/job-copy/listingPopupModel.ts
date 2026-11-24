@@ -80,7 +80,7 @@ export function listingPopupModel(job: JobCopyRecord, version?: CopyVersion) {
   const imageReason = images?.length || observedImages ? undefined : job.media === 'AirWork' && registered === false ? 'この求人には画像がありません' : airworkImageReason(job) ?? (hasImageReferences ? '画像はありますが、取得できていません' : imageValuesKnown || registered === false ? 'この求人には画像が登録されていません' : '画像の登録状況を取得できていません');
   const publication = current && !version.draft ? publicationLabel(job.listingPublicationStatus ?? null)
     : get('公開').trim() ? publicationLabel(get('公開'))
-    : version?.observedPublicationStatus ? publicationLabel(version.observedPublicationStatus) : !version ? publicationLabel(job.listingPublicationStatus ?? null) : '未取得';
+    : version?.observedPublicationStatus ? publicationLabel(version.observedPublicationStatus) : !version ? publicationLabel(job.listingPublicationStatus ?? null) : '不明';
   const title = get('案件名').trim() || job.title;
   const location = get('勤務地').trim() || (bodyAvailable && fields.has('勤務地') ? '記載なし' : '取得できていません');
   const mainKeys = new Set(['案件名', '公開', '仕事内容', '勤務地', '勤務時間', '応募資格', '休日・休暇', '福利厚生', '給与形態', '基本給与 最小', '基本給与 最大', ...imageKeys]);
@@ -89,7 +89,7 @@ export function listingPopupModel(job: JobCopyRecord, version?: CopyVersion) {
   const total = (current || !version) ? job.overallApplications?.total ?? job.listingApplicationCount : undefined;
   return { sections, missing, images, observedImages, imageReason, imageSignature, bodyAvailable, structured, optionalFieldsKnown, hasCurrentConditions, salary, publication,
     title, location,
-    applications: total == null ? '未取得' : `${String(total)}件`,
+    applications: total == null ? '不明' : `${String(total)}件`,
   };
 }
 

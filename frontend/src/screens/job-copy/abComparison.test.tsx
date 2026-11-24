@@ -73,9 +73,9 @@ describe('求人比較', () => {
     const zero = { ...job('c'), hrhPerformance: { ...performance(a), rows: weekly().map(r => ({ ...r, applications: 0 })) } };
     const missing = { ...job('d'), hrhPerformance: undefined };
     render(<AbComparison job={a} records={[a, noCost, zero, missing]} />);
-    expect(screen.getByRole('button', { name: '募集bを比較に追加' }).closest('li')?.textContent).toContain('直近4週の応募：20件 · 応募単価：未取得');
-    expect(screen.getByRole('button', { name: '募集cを比較に追加' }).closest('li')?.textContent).toContain('直近4週の応募：0件 · 応募単価：未取得');
-    expect(screen.getByRole('button', { name: '募集dを比較に追加' }).closest('li')?.textContent).toContain('直近4週の応募：未取得 · 応募単価：未取得');
+    expect(screen.getByRole('button', { name: '募集bを比較に追加' }).closest('li')?.textContent).toContain('直近4週の応募：20件 · 応募単価：不明');
+    expect(screen.getByRole('button', { name: '募集cを比較に追加' }).closest('li')?.textContent).toContain('直近4週の応募：0件 · 応募単価：不明');
+    expect(screen.getByRole('button', { name: '募集dを比較に追加' }).closest('li')?.textContent).toContain('直近4週の応募：不明 · 応募単価：不明');
   });
   it('marks only acquired fields that differ from the current job, including images', () => {
     const a = job('a'); const b = { ...job('b'), title: a.title, versions: [{ ...version(job('b')), images: [{ id: 'image-1', url: 'https://example.invalid/fictional.png', caption: '架空画像' }] }] };
@@ -132,7 +132,7 @@ describe('求人比較', () => {
     const table = within(screen.getByRole('region', { name: '成果の横並び比較' }));
     const values = within(parent(table.getByRole('rowheader', { name: '比べる期間' }))).getAllByRole('cell').map(el => el.textContent);
     expect(values).toEqual(['共通の4週分の実績がありません', '共通の4週分の実績がありません']);
-    expect(within(parent(table.getByRole('rowheader', { name: '費用' }))).getAllByRole('cell').map(el => el.textContent)).toEqual(['未取得', '未取得']);
+    expect(within(parent(table.getByRole('rowheader', { name: '費用' }))).getAllByRole('cell').map(el => el.textContent)).toEqual(['不明', '不明']);
   });
   it('keeps application reasons available in collapsed columns and excludes reasons for leaving a job', () => {
     const a: JobCopyRecord = { ...job('a'), applicantReasons: { available: true, basis: 'recorded_applicant_reason', fetchedAt: '2026-10-08T00:00:00Z', totalApplicants: 2, totalSourceValues: 2,

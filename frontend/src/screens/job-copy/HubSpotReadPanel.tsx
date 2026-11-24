@@ -72,10 +72,10 @@ export function HubSpotReadPanel({ onOpen }: { onOpen: (job: JobCopyRecord) => v
     if (!page) return;
     const request = ++generation.current;
     setBusy(true); setError(''); setApplications(null);
-    const name = customers.find(row => row.id === page.company_id)?.properties.name ?? '顧客名未取得';
+    const name = customers.find(row => row.id === page.company_id)?.properties.name ?? '顧客名なし';
     const body = record.properties.shigotonaiyou;
     const accountId = record.properties.id_hrhakkaa ? record.properties.id_shop_hrhakkaa : record.properties.id_airwork ? record.properties.airwork_account_login_id : null;
-    const selectedJob: JobCopyRecord = { id: `hubspot-${record.id}`, title: record.properties.hs_name ?? '求人名未取得', company: name,
+    const selectedJob: JobCopyRecord = { id: `hubspot-${record.id}`, title: record.properties.hs_name ?? '求人名なし', company: name,
       media: record.properties.id_hrhakkaa ? 'HRハッカー' : record.properties.id_airwork ? 'AirWork' : '媒体未対応',
       mediaJobId: record.properties.id_hrhakkaa ?? record.properties.id_airwork ?? '', location: record.properties.qinwude ?? '',
       // 媒体求人IDは店舗ID（Airワークは口座ログインID）と組で使う。ID だけで課金CSVと結びつけない。
@@ -123,12 +123,12 @@ export function HubSpotReadPanel({ onOpen }: { onOpen: (job: JobCopyRecord) => v
     <button className="jc-button" disabled={busy} onClick={() => { void loadCustomers(); }}>顧客を取得</button>
     {after && <button className="jc-button" disabled={busy} onClick={() => { void loadCustomers(true); }}>顧客をさらに取得</button>}
     <label>取得済みの顧客を検索<input value={search} onChange={event => { setSearch(event.target.value); }} /></label>
-    <label>HubSpotの顧客<select disabled={busy} value={customer} onChange={event => { ++generation.current; setCustomer(event.target.value); setPage(null); setApplications(null); }}><option value="">顧客を選択</option>{customers.filter(row => (row.properties.name ?? '').includes(search)).map(row => <option key={row.id} value={row.id}>{row.properties.name ?? '名称未取得'}</option>)}</select></label>
+    <label>HubSpotの顧客<select disabled={busy} value={customer} onChange={event => { ++generation.current; setCustomer(event.target.value); setPage(null); setApplications(null); }}><option value="">顧客を選択</option>{customers.filter(row => (row.properties.name ?? '').includes(search)).map(row => <option key={row.id} value={row.id}>{row.properties.name ?? '名称なし'}</option>)}</select></label>
     <button className="jc-button" disabled={busy || !customer} onClick={() => { void loadJobs(); }}>関連する求人を読み込む</button>
     {busy && <p role="status">HubSpotを読み取り中…</p>}{message && <p role="status">{message}</p>}{error && <p className="jc-error" role="alert">{error}</p>}
     {page && <><p>関連する求人は{page.total}件。このページは{page.jobs.length}件です。現契約・旧契約を含む現在の関連を使用しています。</p>
-      <label>契約で絞り込む<select value={contract} onChange={event => { setContract(event.target.value); }}><option value="">このページの全契約</option>{page.contracts.map(row => <option key={row.id} value={row.id}>{row.properties.dealname ?? '契約名未取得'}</option>)}</select></label>
-      <div className="jc-live-jobs">{page.jobs.filter(job => !contract || job.deal_ids.includes(contract)).map(({ record, deal_ids }) => <button className="jc-button" key={record.id} disabled={busy} onClick={() => { void open(record); }}>{record.properties.hs_name ?? '求人名未取得'}（関連契約{deal_ids.length}件）</button>)}</div>
+      <label>契約で絞り込む<select value={contract} onChange={event => { setContract(event.target.value); }}><option value="">このページの全契約</option>{page.contracts.map(row => <option key={row.id} value={row.id}>{row.properties.dealname ?? '契約名なし'}</option>)}</select></label>
+      <div className="jc-live-jobs">{page.jobs.filter(job => !contract || job.deal_ids.includes(contract)).map(({ record, deal_ids }) => <button className="jc-button" key={record.id} disabled={busy} onClick={() => { void open(record); }}>{record.properties.hs_name ?? '求人名なし'}（関連契約{deal_ids.length}件）</button>)}</div>
       {page.next_offset !== null && <button className="jc-button" disabled={busy} onClick={() => { void loadJobs(page.next_offset ?? 0); }}>次の20件</button>}
     </>}
     {applications && <section aria-label="実応募の読み取り結果"><h2>{plainWording(applications.metric)}: {applications.summary.total}件</h2><p>{plainWording(applications.version_attribution)}</p><p>{joinPresent([plainWording(applications.attribute_basis), `応募日も作成日も不明${String(applications.summary.missing_date)}件`, `取得${formatDateTimeJst(applications.fetched_at, applications.fetched_at)}`])}</p>

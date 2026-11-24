@@ -77,7 +77,7 @@ export function JobOverview({ records, billing, onChoose, now, showDummyBilling 
       <p>本文が記録された日で期間を区切っています。変更当日の応募は変更後の本文に含みます。</p>
       <p>複数の求人に関連する応募は、どの求人の応募か決められないため数えていません（見分ける情報がある場合）。</p>
       <p>並べて見るための表で、どの求人が良いかを決めるものではありません。</p>
-      <p>「多い応募理由」は、HubSpot に記録された応募理由を分類し、件数の多い2つを並べたものです。件数の後ろに、HubSpotで分類が選ばれた件数（選択）と、文から言葉で推定した件数（推定）を分けて書いています。nは応募理由の記録がある応募の件数です。古い保存データでは同じ応募の記述を見分けられないため、「記述n=」として記述ごとに数えています。「記録なし」は応募理由の記録が無いこと、「未取得」は応募理由を取得していないことです。「分類の選択は未取得」は、そのデータでは分類の選択を読んでいないことです。</p>
+      <p>「多い応募理由」は、HubSpot に記録された応募理由を分類し、件数の多い2つを並べたものです。件数の後ろに、HubSpotで分類が選ばれた件数（選択）と、文から言葉で推定した件数（推定）を分けて書いています。nは応募理由の記録がある応募の件数です。古い保存データでは同じ応募の記述を見分けられないため、「記述n=」として記述ごとに数えています。「記録なし」は応募理由の記録が無いこと、「不明」は応募理由を読めていないことです。「分類の選択は不明」は、そのデータでは分類の選択を読んでいないことです。</p>
       <p>変更の前後が{MIN_RATE_DAYS}日に満たないときは、1日あたりの数を比べず並び替えにも使いません。</p>
       <p>市場の動き（Indeed の求人数など）は月ごとのデータなので、この表には並べていません。求人名を選ぶと、タイムラインの「市場」の段で同じ時間軸で確認できます。</p>
     </InfoTip></div>
@@ -93,8 +93,8 @@ export function JobOverview({ records, billing, onChoose, now, showDummyBilling 
           <td className="jo-calendar">{range && <MiniCalendar row={row} range={range} />}</td>
           <td className="jo-change">{row.lastChange ? changeText(row.lastChange) : '変化は見つかっていません'}</td>
           <td className="jo-kinds">{row.kinds.length ? row.kinds.map(kind => <span key={kind}>{kind}</span>) : '—'}</td>
-          <td className="jo-rate">{row.applicationsAvailable ? rateText(row.before) : '応募未取得'}</td>
-          <td className="jo-rate">{row.applicationsAvailable ? rateText(row.after) : '応募未取得'}</td>
+          <td className="jo-rate">{row.applicationsAvailable ? rateText(row.before) : '応募数不明'}</td>
+          <td className="jo-rate">{row.applicationsAvailable ? rateText(row.after) : '応募数不明'}</td>
           <td className="jo-billing">{overviewBillingText(row)}</td>
           <td className="jo-reasons">{row.reasonText}</td>
         </tr>;

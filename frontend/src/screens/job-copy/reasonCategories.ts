@@ -266,10 +266,10 @@ export function reasonsByPeriod(applications: readonly ClassifiedApplication[], 
  */
 export function overviewReasonText(collection: ApplicantReasonCollection | undefined): string {
   const classified = classifyApplicationReasons(collection);
-  if (!collection || !classified) return '未取得';
+  if (!collection || !classified) return '不明';
   const result = tally(classified.applications);
   const notes = [
-    ...(collection.selections === null ? ['分類の選択は未取得'] : []),
+    ...(collection.selections === null ? ['分類の選択は不明'] : []),
     ...(collection.truncated ? ['記述の一部だけで集計'] : []),
     ...(classified.multiListing ? [`ほかの求人にも関連する応募${String(classified.multiListing)}件を除く`] : []),
   ];

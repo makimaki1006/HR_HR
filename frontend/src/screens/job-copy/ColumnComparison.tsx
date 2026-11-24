@@ -112,12 +112,12 @@ function displayLines(change: ColumnChange, result: ColumnResult): MarkedDiffLin
 }
 
 function Value({ line, hidden }: { line: MarkedDiffLine | undefined; hidden: boolean }) {
-  if (!line) return <span>未取得</span>;
+  if (!line) return <span>不明</span>;
   if (hidden) return <span>非表示</span>;
   return <pre>{line.segments ? line.segments.map((segment, index) => !segment.changed ? segment.text : line.kind === 'added' ? <ins key={index} className="jc-mark-added">{segment.text}</ins> : <del key={index} className="jc-mark-removed">{segment.text}</del>) : line.kind === 'added' ? <ins className="jc-mark-added">{line.text || '（空欄）'}</ins> : <del className="jc-mark-removed">{line.text || '（空欄）'}</del>}</pre>;
 }
 export function ColumnComparison({ result }: { result: ColumnResult }) {
-  if (result.status === 'unavailable') return <p>後の本文の本文は未取得です。</p>;
+  if (result.status === 'unavailable') return <p>後の本文の本文は読めていません。</p>;
   if (result.status === 'unchanged') return <p>変更なし</p>;
   return <section className="jc-column-comparison jc-diff-lines" aria-label="変わった項目"><h3>変わった項目</h3><table><thead><tr><th>項目</th><th>変更</th><th>前の本文の値</th><th>後の本文の値</th></tr></thead><tbody>{result.changes.map(change => <tr key={change.key}><th>{friendly[change.key] ?? 'その他'}</th><td>{change.kind}</td><td><Value line={displayLines(change, result).find(line => line.kind === 'removed')} hidden={change.key.toLowerCase().endsWith('id')} /></td><td><Value line={displayLines(change, result).find(line => line.kind === 'added')} hidden={change.key.toLowerCase().endsWith('id')} /></td></tr>)}</tbody></table></section>;
 }
