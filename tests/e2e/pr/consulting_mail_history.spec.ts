@@ -99,7 +99,8 @@ for (const view of ['risk', 'good']) test(`案件管理の${view === 'risk' ? '�
   await expect(dialog.getByRole('heading', { name: /^メール・電話・MTGの記録/ })).toBeVisible();
   // 記録は最新3件だけ出し、残りは押して開く。
   await dialog.getByRole('button', { name: /^残りを見る/ }).click();
-  await expect(dialog).toContainText('接触：2026/03/11 ／ MTG：2026/03/11');
+  await expect(dialog).toContainText('最後の接触2026/03/11');
+  await expect(dialog).toContainText('最後のMTG2026/03/11');
   const email = dialog.locator('article').filter({ has: page.getByRole('heading', { name: / メール / }) });
   await expect(email).toHaveCount(5);
   await expect(email.first()).toContainText('応募の報告');

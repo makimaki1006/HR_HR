@@ -158,7 +158,7 @@ await audit(page, `${prefix}-sort`);
   await page.goto('/app/job-copy?deal=100');
   await expect(page.locator('.jc-deal-head h1')).toBeVisible();
   await expect(page.getByRole('table', { name: '案件の求人一覧表' })).toBeVisible();
-  await expect(page.locator('.dc-fields')).toBeVisible();
+  await expect(page.locator('.dc-fields').first()).toBeVisible();
   await audit(page, `${prefix}-deal`);
   await page.locator('.dc-root').getByRole('button', { name: '編集', exact: true }).click();
   await audit(page, `${prefix}-contract-edit`);

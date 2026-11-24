@@ -106,7 +106,7 @@ for (const width of [1440, 1920]) test(`AirWorkの改行コードと空白だけ
     const dialog = page.getByRole('dialog');
     await expect(dialog.locator('.jc-listing-change-dot, mark')).toHaveCount(0);
     // 小窓は今の本文（後の本文）だけ
-    expect(await dialog.locator('.jc-listing-comparison-row').first().locator('section').last().locator('p').first().textContent()).toBe(after);
+    expect((await dialog.locator('section').filter({ has: page.getByRole('heading', { name: '仕事内容', exact: true }) }).locator('p').first().textContent())?.trim()).toBe(after.trim());
     await dialog.getByRole('button', { name: '前の本文と全文を比べる' }).click();
     const compare = page.getByRole('dialog', { name: '求人の全文を比べる' });
     await expect(compare.getByRole('status')).toContainText('項目のうち 0 項目が違います');

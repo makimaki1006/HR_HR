@@ -33,7 +33,7 @@ test('案件一覧の印・日付・並べ替え・絞り込み・20件送りと
   await rules.click();
   await expect(page.getByText(/2026\/10\/15 時点（前日の集計）/)).toBeVisible();
   await rules.click();
-  await expect(table.locator('.nt-strong')).toHaveText('MTGが60日以上空いている（最後のMTGから 107 日）');
+  await expect(table.locator('.db-reason-urgent', { hasText: 'MTGが60日以上' })).toHaveAttribute('title', 'MTGが60日以上空いている（最後のMTGから 107 日）');
   await expect(page.getByRole('checkbox', { name: '終わった案件も出す' })).not.toBeChecked();
   await expect(page.getByRole('combobox', { name: '並べ替え' })).toHaveCount(0);
   await expect(page.getByText('並び: タグが多い順', { exact: true })).toBeVisible();
@@ -133,8 +133,9 @@ test('案件一覧の印・日付・並べ替え・絞り込み・20件送りと
 test('シート未取得でも案件とHubSpotの値を表示する', async ({ page }) => {
   await page.route('**/api/job-copy/deals?*', route => route.fulfill({ json: { ...boardFixture, sheet_as_of: null, rows: [{ ...boardRows[0], mtg_status: 'unavailable', last_mtg: null, reasons: [{ kind: 'nps', text: '定期の満足度が4以下' }] }] } }));
   await login(page); await page.goto('/app/job-copy?view=deals&owner=11');
-  await expect(page.locator('.db-table')).toContainText('未取得');
-  await expect(page.locator('.db-table .nt-reason')).toHaveText('定期の満足度が4以下');
+  await expect(page.locator('.db-table')).toContainText('不明');
+  await expect(page.locator('.db-table .db-reason')).toHaveText('満足度が低い');
+  await expect(page.locator('.db-table .db-reason')).toHaveAttribute('title', '定期の満足度が4以下');
 });
 
 
@@ -157,7 +158,7 @@ test('初回案件の立ち上がり・要約・URL・ホームのカード', as
   await expect(table.locator('tbody > tr').nth(1)).toContainText('開始から8日目');
   await expect(table.getByRole('img').nth(1)).toHaveAttribute('aria-label', '1週目 0件、2週目 2件、3週目 1件、4週目 0件、5週目 1件、6週目 0件、7週目 0件、8週目 5件');
   const summary = page.getByRole('group', { name: '初回案件の応募で絞る' });
-  await expect(summary.getByRole('button')).toHaveText(['初回案件 5件：', '立ち上がり中 1', '目安どおり 1', '目安より少ない 2', '未取得 1']);
+  await expect(summary.getByRole('button')).toHaveText(['初回案件 5件：', '立ち上がり中 1', '目安どおり 1', '目安より少ない 2', '不明 1']);
   expect(await page.locator('.db-board').evaluate(el => el.scrollWidth > el.clientWidth)).toBe(false);
   const dir = process.env.BOARD_SCREENSHOT_DIR;
   if (dir) await page.screenshot({ path: `${dir}/first-contracts-1440.png`, fullPage: true });
@@ -177,8 +178,8 @@ test('初回案件の立ち上がり・要約・URL・ホームのカード', as
   await expect(page.getByRole('group', { name: '表示を切り替える' }).getByRole('button', { name: '初回案件の立ち上がり', exact: true })).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByText('2件・1 / 1ページ', { exact: true })).toBeVisible();
   if (dir) await page.screenshot({ path: `${dir}/first-from-home-1440.png`, fullPage: true });
-  await page.getByRole('group', { name: '初回案件の応募で絞る' }).getByRole('button', { name: '未取得 1', exact: true }).click();
-  await expect(table.locator('tbody > tr')).toContainText('未取得');
+  await page.getByRole('group', { name: '初回案件の応募で絞る' }).getByRole('button', { name: '不明 1', exact: true }).click();
+  await expect(table.locator('tbody > tr')).toContainText('不明');
   await expect(table.locator('tbody > tr')).not.toContainText('0件');
 });
 

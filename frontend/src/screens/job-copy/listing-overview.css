@@ -224,6 +224,8 @@ dialog.lo-drawer::backdrop { background: rgb(15 23 42 / 35%); }
 .jc-detail .jc-band-stats .jc-band-numbers dt { color: var(--jc-muted); font-size: 11.5px; white-space: nowrap; }
 .jc-detail .jc-band-stats .jc-band-numbers dd { margin: 0; font-weight: 700; font-size: 22px; line-height: 1.25; font-variant-numeric: tabular-nums; }
 .jc-detail .jc-band-stats .jc-band-numbers dd small { display: block; margin: 0; font-weight: 400; color: var(--jc-muted); min-height: 1.3em; font-size: 11px; }
+/* 狭い画面では数字の帯を折り返し、横にはみ出さない（スマホは後回しなので最低限）。 */
+@media (max-width: 800px) { .jc-detail .jc-band-stats .jc-band-numbers { flex-wrap: wrap; flex: 1 1 auto; row-gap: 8px; } .jc-detail .jc-band-stats .jc-band-numbers > div { flex: 1 1 120px; min-width: 0; } .jc-detail .jc-band-stats .jc-band-numbers dt { white-space: normal; } }
 .jc-detail .jc-band-stats .jc-band-latest.jc-open { flex: 0 1 auto; min-width: 200px; max-width: 480px; padding: 8px 12px; font-size: 13px; }
 .jc-detail .jc-band-stats .jc-band-data { flex: 1 1 260px; justify-content: flex-end; text-align: right; font-size: 12px; }
 

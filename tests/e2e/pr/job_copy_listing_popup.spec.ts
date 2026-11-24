@@ -94,8 +94,8 @@ for (const viewport of [{ width: 1440, height: 742 }, { width: 1920, height: 108
   await panel.getByRole('button', { name: `${aw.title}の本文を見る` }).click(); await opener.click();
   const awDialog = page.getByRole('dialog', { name: aw.title });
   expect(await awDialog.locator('.jc-listing-comparison-row').first().locator('.jc-listing-popup-section').last().locator('p').textContent()).toBe(awDescription);
-  await expect(awDialog.locator('.jc-listing-popup-summary')).toContainText('月給 金額は未取得');
-  await expect(awDialog.locator('.jc-listing-popup-summary')).toContainText('未取得');
+  await expect(awDialog.locator('.jc-listing-popup-summary')).toContainText('月給 金額は不明');
+  await expect(awDialog.locator('.jc-listing-popup-summary')).toContainText('不明');
   await expect(awDialog).toContainText('社会保険・交通費支給'); await expect(awDialog).toContainText('現在の取得値');
   if (viewport.width === 1440) await page.screenshot({ path: `${screenshots}/03-airwork-popup-1440.png` });
   await page.keyboard.press('Escape');
@@ -187,7 +187,7 @@ for (const viewport of [{ width: 1440, height: 742 }, { width: 1920, height: 108
   await page.getByRole('button', { name: '求人の内容', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: hrh.title });
   const applications = dialog.locator('.jc-listing-popup-summary > div').filter({ has: page.locator('dt', { hasText: '応募数' }) }).locator('dd');
-  await expect(applications).toHaveText('未取得');
+  await expect(applications).toHaveText('不明');
   expect(countReads).toBe(0);
   // Keep the popup open; the existing five-second list poll observes completion.
   ready = true;

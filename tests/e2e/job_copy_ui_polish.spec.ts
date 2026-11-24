@@ -94,7 +94,9 @@ test('近い3つの日時でも給与「不明」と本文「同じ」が重な�
   const body = page.getByRole('group', { name: '本文', exact: true }).locator('.jt-mark');
   await expect(body).toHaveCount(3);
   expect(await body.allTextContents()).toEqual(['最初', '同じ', '同じ']);
-  for (const locator of [body, page.getByRole('group', { name: '給与', exact: true }).locator('.jt-salary-label')]) {
+  // 給与は前の本文と同じなら名札を出さない（最初の1つだけ）。本文の名札3つが重ならないことを見る。
+  await expect(page.getByRole('group', { name: '給与', exact: true }).locator('.jt-salary-label')).toHaveCount(1);
+  for (const locator of [body]) {
     const boxes = await locator.evaluateAll(elements => elements.map(element => element.getBoundingClientRect().toJSON()));
     expect(boxes).toHaveLength(3);
     for (let i = 1; i < boxes.length; i++) expect(boxes[i].top).toBeGreaterThanOrEqual(boxes[i - 1].bottom);

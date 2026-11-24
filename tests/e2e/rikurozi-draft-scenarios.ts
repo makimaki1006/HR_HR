@@ -61,7 +61,7 @@ for (const width of [1440, 1920]) {
     const draft = page.getByRole('region', { name: 'リクロジメディア向けの案' });
     await expect(draft.getByText('要確認の案', { exact: true })).toBeVisible();
     await expect(draft).toContainText('掲載中 ／ 文の一致率：20.0％ ／ 似すぎ・不合格（要確認）');
-    await expect(draft).toContainText('掲載中か不明 ／ 文の一致率：未取得（要確認）');
+    await expect(draft).toContainText('掲載中か不明 ／ 文の一致率：不明（要確認）');
     await expect(draft).toContainText('月給 280,000円〜320,000円');
     await expect(draft).toContainText('原文にない数字の表記があるため空欄にしました。');
     await expect(draft).toContainText('日給1100円');
