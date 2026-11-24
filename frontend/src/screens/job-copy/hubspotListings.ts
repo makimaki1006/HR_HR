@@ -115,7 +115,7 @@ export function listingRecord(data: HubSpotVersions, listedRow?: HubSpotListing)
     ...(data.current_images ? { currentImageObservation: { observedAt: data.current_images.observed_at, images: data.current_images.image_urls.map((url, index) => ({ id: `observed-${String(index)}`, url, caption: `現在の画像${String(index + 1)}` })) } } : {}),
     versions: [...data.versions.map((version, index) => ({
       id: `hubspot-history-${row.id}-${String(index)}`, label: historyVersionLabel(version.written_at, data.versions.map(item => item.written_at), !data.current && index === data.versions.length - 1),
-      observedAt: version.written_at, ...copy(version.body, version.full_body), kind: 'published' as const, certainty: 'unknown' as const,
+      observedAt: version.written_at, ...copy(version.body, version.full_body), ...(row.media === 'airwork' && version.full_body && index > 0 && !data.versions[index - 1]?.full_body ? { fullBodyStart: true } : {}), kind: 'published' as const, certainty: 'unknown' as const,
       source: 'HubSpotに記録された本文', applications: null,
       ...(version.image_urls !== null ? { images: version.image_urls.map((url, slot) => ({ id: `history-image-${String(slot)}`, url, caption: `画像${String(slot + 1)}` })) } : {}),
       imagesRegistered: version.images_registered ?? undefined,

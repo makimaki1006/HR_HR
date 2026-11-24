@@ -5,7 +5,7 @@
  */
 import type { JobCopyRecord } from './data';
 import { billingInWindow } from './detailBandModel';
-import type { ListingEvent } from './listingEventsModel';
+import { FULL_BODY_START_TITLE, type ListingEvent } from './listingEventsModel';
 import { addDays, countApplications, daysBetween, todayJst } from './timelineModel';
 import type { BillingEntry } from './timelineModel';
 
@@ -109,6 +109,7 @@ export function changeMarkerLabel(events: readonly ListingEvent[]): string {
   if (events.length > 1) return `変更×${String(events.length)}`;
   const event = events[0];
   if (!event) return '';
+  if (event.title === FULL_BODY_START_TITLE) return '全文の記録開始';
   const title = event.title.replace(/（.*$/u, '');
   const kinds = ['本文', '給与', '画像'].filter(kind => title.includes(kind));
   return `${kinds.length ? kinds.join('・') : event.kind === 'image' ? '画像' : '本文'}変更`;

@@ -6,6 +6,7 @@ import { holidayValue, welfareValue } from './copyDisplay';
 import { comparisonWhitespace } from './diff';
 import { airworkImageReason, imagesByVersion } from './images';
 import { publicationLabel } from './hubspotListings';
+import { airworkBodyFields, type AirworkBodyLabel } from './airworkBody';
 
 export interface ListingEntry { key: string; label: string; value: string; unavailable?: boolean }
 export interface ListingSection { heading: string; entries: ListingEntry[] }
@@ -47,10 +48,14 @@ export function listingPopupModel(job: JobCopyRecord, version?: CopyVersion) {
   const salaryFieldKeys = ['給与形態', '基本給与 最小', '基本給与 最大'];
   const salaryKnown = bodyAvailable && (structured || salaryFieldKeys.every(key => fields.has(key)));
   const hasSalary = salaryFieldKeys.some(key => get(key).trim());
-  const salary = hasSalary ? composeSalary(get('給与形態').trim(), get('基本給与 最小').trim(), get('基本給与 最大').trim())
+  // AirWork の求人票の本文（全文）は見出しで項目に分け、給与・勤務地も本文の行から出す。
+  const airwork = job.media === 'AirWork' && !version?.draft ? airworkBodyFields(raw) : null;
+  const awSalary = airwork?.get('給与') ?? '';
+  const awLocation = airwork?.get('勤務地')?.split('\n')[0]?.trim() ?? '';
+  const salary = airwork ? awSalary === '' ? '記載なし' : awSalary : hasSalary ? composeSalary(get('給与形態').trim(), get('基本給与 最小').trim(), get('基本給与 最大').trim())
     : salaryKnown ? '記載なし' : '取得できていません';
   const consumed = new Set(['案件名', '公開', ...imageKeys]);
-  const sections: ListingSection[] = groups.map(([heading, keys]) => {
+  const sections: ListingSection[] = airwork ? airworkSections(airwork) : groups.map(([heading, keys]) => {
     keys.forEach(key => consumed.add(key));
     let entries = keys.filter(key => get(key).trim()).map(entry);
     if (heading === '給与') {
@@ -64,7 +69,7 @@ export function listingPopupModel(job: JobCopyRecord, version?: CopyVersion) {
     return { heading, entries };
   }).filter(section => section.entries.length);
   const other = [...fields.keys()].filter(key => !consumed.has(key) && !isManagement(key) && get(key).trim()).map(entry);
-  if (other.length) sections.push({ heading: 'その他', entries: other });
+  if (other.length && !airwork) sections.push({ heading: 'その他', entries: other });
   const fieldImages = imageKeys.flatMap((key, index) => {
     const url = get(key).trim();
     return /^https?:\/\//i.test(url) ? [{ id: key, url, caption: `画像${String(index + 1)}` }] : [];
@@ -82,15 +87,30 @@ export function listingPopupModel(job: JobCopyRecord, version?: CopyVersion) {
     : get('公開').trim() ? publicationLabel(get('公開'))
     : version?.observedPublicationStatus ? publicationLabel(version.observedPublicationStatus) : !version ? publicationLabel(job.listingPublicationStatus ?? null) : '不明';
   const title = get('案件名').trim() || job.title;
-  const location = get('勤務地').trim() || (bodyAvailable && fields.has('勤務地') ? '記載なし' : '取得できていません');
+  const location = awLocation !== '' ? awLocation : get('勤務地').trim() || (bodyAvailable && fields.has('勤務地') ? '記載なし' : '取得できていません');
   const mainKeys = new Set(['案件名', '公開', '仕事内容', '勤務地', '勤務時間', '応募資格', '休日・休暇', '福利厚生', '給与形態', '基本給与 最小', '基本給与 最大', ...imageKeys]);
-  const optionalFieldsKnown = bodyAvailable && structured;
+  const optionalFieldsKnown = bodyAvailable && structured && !airwork;
   const missing = optionalFieldsKnown ? columns.filter(key => !isManagement(key) && !mainKeys.has(key) && !get(key).trim()).map(comparisonLabel) : [];
   const total = (current || !version) ? job.overallApplications?.total ?? job.listingApplicationCount : undefined;
-  return { sections, missing, images, observedImages, imageReason, imageSignature, bodyAvailable, structured, optionalFieldsKnown, hasCurrentConditions, salary, publication,
+  return { sections, missing, airworkFullBody: airwork !== null, images, observedImages, imageReason, imageSignature, bodyAvailable, structured, optionalFieldsKnown, hasCurrentConditions, salary, publication,
     title, location,
     applications: total == null ? '不明' : `${String(total)}件`,
   };
+}
+
+/** AirWork の本文の見出しを、小窓の項目にまとめる（給与は給与の行と詳細、勤務地はアクセスと一緒）。 */
+const airworkGroups: [string, [AirworkBodyLabel, string][]][] = [
+  ['キャッチコピー', [['キャッチコピー', 'キャッチコピー']]], ['仕事内容', [['仕事内容', '仕事内容'], ['職種', '職種']]],
+  ['給与', [['給与', '給与'], ['給与の詳細', '給与の詳細']]], ['勤務地・アクセス', [['勤務地', '勤務地'], ['アクセス', 'アクセス']]],
+  ['勤務時間', [['勤務時間', '勤務時間']]], ['休日・休暇', [['休日休暇', '休日・休暇']]], ['応募資格', [['求める人材', '求める人材']]],
+  ['福利厚生', [['社会保険・福利厚生', '社会保険・福利厚生']]], ['試用・研修期間', [['試用・研修期間', '試用・研修期間']]],
+];
+function airworkSections(fields: Map<AirworkBodyLabel, string>): ListingSection[] {
+  return airworkGroups.map(([heading, items]) => ({ heading, entries: items.flatMap(([key, label]) => {
+    const value = fields.get(key) ?? '';
+    // 給与・仕事内容は前の本文（仕事内容だけ）と比べられるよう、HRハッカーと同じ鍵にする。
+    return value ? [{ key: key === '給与' ? 'salary' : key, label, value }] : [];
+  }) })).filter(section => section.entries.length);
 }
 
 export function listingComparisonRows(current: ReturnType<typeof listingPopupModel>, previous?: ReturnType<typeof listingPopupModel>) {

@@ -172,6 +172,9 @@ export function competitorEvents(job: Pick<JobCopyRecord, 'competitorMonthly'>):
 }
 
 /** 出来事を古い順に番号を付けて返す。billing は実際の課金（仮の金額は渡さない）。 */
+/** AirWork の求人票の本文（全文）を初めて記録した出来事の名前。 */
+export const FULL_BODY_START_TITLE = '求人票の本文を記録しはじめた';
+
 export function buildListingEvents(job: JobCopyRecord, billing: readonly BillingEntry[]): ListingEvent[] {
   const raw: RawEvent[] = [];
   const changes = versionChanges(job);
@@ -191,6 +194,7 @@ export function buildListingEvents(job: JobCopyRecord, billing: readonly Billing
       continue;
     }
     const kinds = changeKinds(change);
+    if (change.fullBodyStart) raw.push({ date: change.date, kind: 'content', title: FULL_BODY_START_TITLE, summary: 'この日から、仕事内容だけでなく求人票の全文（給与・勤務時間などを含む）を記録しています。前の本文との違いは記録の範囲の違いです。', versionId: change.versionId, previousVersionId: previous?.versionId ?? null, billingFrom: null, billingTo: null });
     if (!kinds.length) continue;
     const salaryText = change.salaryChanged && previous?.salary && change.salary ? `（${previous.salary.raw} → ${change.salary.raw}）` : '';
     const imageOnly = kinds.length === 1 && kinds[0] === '画像';

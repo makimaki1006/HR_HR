@@ -152,6 +152,15 @@ fn salary(body: &str, hrh: bool) -> Vec<Option<String>> {
         .map(|key| fields.get(key).filter(|v| !v.is_empty()).cloned())
         .collect()
 }
+/// AirWork の求人票の本文の「給与：」の行 (最初の 1 行。試用期間の「給与：本採用時と同じ」より前にある)。
+fn aw_salary(body: &str) -> Option<String> {
+    body.lines().find_map(|line| {
+        let line = line.trim();
+        line.strip_prefix("給与：")
+            .or_else(|| line.strip_prefix("給与:"))
+            .map(|value| value.split_whitespace().collect::<Vec<_>>().join(" "))
+    })
+}
 fn detect(
     data: &Value,
     start: DateTime<Utc>,
@@ -179,6 +188,12 @@ fn detect(
                 .and_modify(|old| *old = (*old).max(at))
                 .or_insert(at);
         }
+    }
+    if let Some(at) = changes(data, AW_BODY, start, end, aw_salary) {
+        found
+            .entry("給与")
+            .and_modify(|old| *old = (*old).max(at))
+            .or_insert(at);
     }
     found
 }
