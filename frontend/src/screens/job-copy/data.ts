@@ -34,6 +34,8 @@ export interface CopyVersion {
   observationDates?: string[];
   attributesFetchedAt?: string;
   observedPublicationStatus?: string;
+  /** AirWork で、求人票の本文（全文）を初めて記録した版。前の版までは仕事内容だけなので、本文・給与の変更に数えない。 */
+  fullBodyStart?: boolean;
 }
 
 /** 応募1件ぶんの、日付と分かる属性（HubSpot の応募記録）。key は応募理由と結ぶ印。 */

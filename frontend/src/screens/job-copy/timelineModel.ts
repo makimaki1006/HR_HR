@@ -310,6 +310,8 @@ export interface VersionChange {
   /** Lines other than the salary line were added or removed. */
   otherBodyChanged: boolean;
   imageChange: ImageChange;
+  /** 求人票の本文を初めて記録した版（AirWork）。本文・給与は変更に数えない。 */
+  fullBodyStart: boolean;
 }
 
 function direction(before: SalaryInfo | null, after: SalaryInfo | null): 'up' | 'down' | 'other' {
@@ -335,7 +337,8 @@ export function versionChanges(job: JobCopyRecord): VersionChange[] {
     // direction. Two different lines that read as the same amount ("月給25万円" → "月給250,000円", or a
     // misread) are still a change ('other'), never "no change".
     const lineChanged = salaryLineKey(previousSalary) !== salaryLineKey(salary);
-    const salaryChanged = !previous ? null : lineChanged;
+    const fullBodyStart = Boolean(previous && version.fullBodyStart);
+    const salaryChanged = !previous ? null : lineChanged && !fullBodyStart;
     const result = compareCopy(previous?.body ?? null, version.body);
     const salaryDirection = !salaryChanged ? null
       : salary?.kind === '不明' || previousSalary?.kind === '不明' || sameSalary(previousSalary, salary) ? 'other'
@@ -344,9 +347,10 @@ export function versionChanges(job: JobCopyRecord): VersionChange[] {
     return {
       versionId: version.id, label: version.label, date: versionStart(version), previousDate: previous ? versionStart(previous) : null, index, salary, salaryChanged, salaryDirection,
       bodyStatus: result.status,
-      bodyAdded: previous ? changed.filter(line => line.kind === 'added').length : 0,
-      bodyRemoved: previous ? changed.filter(line => line.kind === 'removed').length : 0,
-      otherBodyChanged: Boolean(previous) && result.status === 'changed' && changed.some(line => !isSalaryLine(line.text)),
+      bodyAdded: previous && !fullBodyStart ? changed.filter(line => line.kind === 'added').length : 0,
+      bodyRemoved: previous && !fullBodyStart ? changed.filter(line => line.kind === 'removed').length : 0,
+      otherBodyChanged: Boolean(previous) && !fullBodyStart && result.status === 'changed' && changed.some(line => !isSalaryLine(line.text)),
+      fullBodyStart,
       imageChange: imageChangeKind(previous, version),
     };
   });

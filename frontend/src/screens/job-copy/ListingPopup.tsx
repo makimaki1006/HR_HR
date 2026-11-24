@@ -69,7 +69,7 @@ export function ListingPopup({ job, version, onClose, returnFocus, navigation }:
     <h3>画像</h3>
     {item.images?.length ? <><ImageGallery failureMessage="画像はありますが、取得できていません" title="掲載画像" images={item.images} />{recorded?.historicalImageBytesAvailable === false && <p className="jc-listing-popup-note">画像は当時と異なる可能性があります。</p>}</> : item.observedImages ? <><p className="jc-listing-popup-note">現在取得できる画像（確認日時：{formatDateTimeJst(item.observedImages.observedAt, '不明')}）。本文の記録時点の画像とは限りません。</p><ImageGallery failureMessage="画像はありますが、取得できていません" title="掲載画像" images={item.observedImages.images} /></> : <p>{item.imageReason}</p>}
   </section>;
-  const missing = (item: typeof model) => !item.optionalFieldsKnown ? <p className="jc-listing-popup-note">任意項目の記載状況を取得できていません。</p> : <details className="jc-listing-popup-missing"><summary>記載のない任意項目（{item.missing.length}件）</summary><ul>{item.missing.map((name, i) => <li key={i}>{name}</li>)}</ul></details>;
+  const missing = (item: typeof model) => item.airworkFullBody ? null : !item.optionalFieldsKnown ? <p className="jc-listing-popup-note">任意項目の記載状況を取得できていません。</p> : <details className="jc-listing-popup-missing"><summary>記載のない任意項目（{item.missing.length}件）</summary><ul>{item.missing.map((name, i) => <li key={i}>{name}</li>)}</ul></details>;
   return <dialog ref={dialog} className="jc-listing-popup" role="dialog" aria-modal="true" aria-labelledby={headingId} tabIndex={-1}
     onKeyDown={event => {
       if (!(event.target instanceof HTMLElement) || event.target.closest('textarea, select, [contenteditable]:not([contenteditable="false"])') || event.target.matches('input:not([type="checkbox"]):not([type="radio"]):not([type="button"])') || event.target.closest('dialog') !== dialog.current) return;

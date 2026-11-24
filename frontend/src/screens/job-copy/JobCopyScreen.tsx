@@ -107,6 +107,8 @@ const latest = (job: JobCopyRecord) => published(job).at(-1);
 const versionImages = (version: CopyVersion | undefined) => version ? version.images ?? imagesByVersion[version.id] : undefined;
 const changeStatus = (job: JobCopyRecord) => {
   const versions = published(job);
+  // 求人票の本文（全文）を初めて記録した版は、比べる前の全文が無い。
+  if (versions.at(-1)?.fullBodyStart) return 'initial';
   return compareCopy(versions.at(-2)?.body ?? null, versions.at(-1)?.body ?? null).status;
 };
 
