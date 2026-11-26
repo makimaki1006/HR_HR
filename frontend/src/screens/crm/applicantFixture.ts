@@ -60,6 +60,8 @@ export function applicantDetailFixture(id: string, search = window.location.sear
     jobcopy_url: 'https://www.example.com/app/job-copy/fictional-posting',
     sheet_url: id === '90002' ? null : 'https://docs.google.com/spreadsheets/d/fictional-applicants-sheet/edit',
     sheet_embed: id !== '90002',
+    job_address: { address: '東京都千代田区丸の内1丁目', source: '求人票の勤務地' },
+    applicant_address: id === '90002' ? null : '東京都新宿区西新宿2丁目',
   };
 }
 /** 約束架電の通知の架空サンプル。1 件は 5 分前を過ぎ、もう 1 件はまだ先 (帯に出ない)。 */

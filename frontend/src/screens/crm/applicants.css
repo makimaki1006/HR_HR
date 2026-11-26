@@ -113,3 +113,11 @@
 .applicant-callback-actions { display: flex; gap: 8px; margin-top: 6px; }
 .applicant-callback-actions button[type=submit] { background: #2563eb; color: white; border-radius: 5px; }
 .applicant-callback .wr-status { display: inline-block; margin: 6px 0 0; padding: 3px 8px; font-size: 12px; }
+/* 地図のタブ: 上に住所 2 行、その下に表示の切り替えと地図。 */
+.applicant-map { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.applicant-map > .cq-linkview { flex: 1; min-height: 0; }
+.applicant-map-addresses { margin: 0; padding: 6px 8px; display: grid; gap: 2px; font-size: 12px; border-bottom: 1px solid var(--cq-line); }
+.applicant-map-addresses > div { display: flex; gap: 8px; }
+.applicant-map-addresses dt { flex: none; width: 3.5em; color: var(--cq-sub); }
+.applicant-map-addresses dd { margin: 0; }
+.applicant-map-addresses small { margin-left: 4px; color: var(--cq-sub); }
