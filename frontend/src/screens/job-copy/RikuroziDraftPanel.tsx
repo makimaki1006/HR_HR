@@ -143,7 +143,7 @@ export function RikuroziDraftPanel({ listingId }: { listingId: string }) {
       setExportMessage(result.error instanceof AuthRequiredError ? 'Googleでログインしてから、もう一度押してください。'
         : isHubSpotBusy(result.error) ? HUBSPOT_BUSY_MESSAGE
         : code === 'deal_relation_missing' ? '元の求人に関連する案件がないため、求人を作っていません。案件との関連を確認してください。'
-        : code === 'listing_title_missing' ? '案件名の案が空欄のため、求人を作っていません。案を作り直してください。'
+        : code === 'listing_title_missing' ? '求人情報タイトルの案が空欄のため、求人を作っていません。案を作り直してください。'
         : 'HubSpotに求人を作れなかったため、CSVは出していません。少し待ってからもう一度押してください。');
       return;
     }

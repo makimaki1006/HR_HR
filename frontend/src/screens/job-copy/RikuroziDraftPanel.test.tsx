@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { RikuroziDraftPanel } from './RikuroziDraftPanel';
 import type { RikuroziDraft } from './RikuroziDraftPanel';
-const draft: RikuroziDraft = { images: ['https://example.invalid/one.jpg', '', 'https://example.invalid/three.png'], review_required: true, threshold: 0.2, min_sentence_chars: 8, csv: '\ufeff求人id,店舗id\r\n,4081\r\n', generated_values: { 案件名: '新しい案件名', 仕事内容: '' }, comparisons: [{ title: '倉庫の仕分け', media: 'AirWork', publication: '掲載中か不明', ratio: 0.2, too_similar: true, whole_match: false, matched_sentences: ['配送の手順を研修で学びます'] }, { title: '基準の求人', media: 'HRハッカー', publication: '基準', ratio: null, too_similar: false, whole_match: false, matched_sentences: [] }], copied: [{ label: '給与', value: '時給 1,200円〜1,400円', review: false, reason: null, missing_chunks: [] }, { label: '休日・休暇', value: null, review: true, reason: '原本から取得できていません。', missing_chunks: [] }], generated: [{ label: '仕事内容', value: null, review: true, reason: '原文にない数字の表記があるため空欄にしました。', missing_chunks: ['日給1100円'] }] };
+const draft: RikuroziDraft = { images: ['https://example.invalid/one.jpg', '', 'https://example.invalid/three.png'], review_required: true, threshold: 0.2, min_sentence_chars: 8, csv: '\ufeff求人id,店舗id\r\n,4081\r\n', generated_values: { 求人情報タイトル: '新しい案件名', 職務内容: '' }, comparisons: [{ title: '倉庫の仕分け', media: 'AirWork', publication: '掲載中か不明', ratio: 0.2, too_similar: true, whole_match: false, matched_sentences: ['配送の手順を研修で学びます'] }, { title: '基準の求人', media: 'HRハッカー', publication: '基準', ratio: null, too_similar: false, whole_match: false, matched_sentences: [] }], copied: [{ label: '給与', value: '時給 1,200円〜1,400円', review: false, reason: null, missing_chunks: [] }, { label: '休日・休暇', value: null, review: true, reason: '原本から取得できていません。', missing_chunks: [] }], generated: [{ label: '仕事内容', value: null, review: true, reason: '原文にない数字の表記があるため空欄にしました。', missing_chunks: ['日給1100円'] }] };
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 /** 画面が呼ぶ口ごとに答える偽の fetch。呼ばれた (メソッド, URL, 本文) を記録する。 */
 function routed(handlers: { draft?: () => Response; job?: () => Response; create?: () => Response; list?: () => Response; put?: () => Response }) {
@@ -52,7 +52,7 @@ describe('リクロジメディア向けの案', () => {
     const create = calls.filter(c => c.method === 'POST' && c.url.endsWith('/rikurozi-listing'));
     expect(create).toHaveLength(1);
     expect(create[0]?.url).toBe('/api/job-copy/listings/654321/rikurozi-listing');
-    expect(create[0]?.body).toEqual({ generated: { 案件名: '新しい案件名', 仕事内容: '' } });
+    expect(create[0]?.body).toEqual({ generated: { 求人情報タイトル: '新しい案件名', 職務内容: '' } });
     expect((await screen.findByText(/HubSpotに新しい求人（公開前）を作りました。2件の案件に関連付けました。/)).textContent).toBeTruthy();
   });
   it('全文一致の不合格と短文設定を示す', async () => {
