@@ -218,6 +218,19 @@ pub struct ApplicantDetail {
     /// 折り返しの電話を Slack に知らせられるか (送り先のチャンネルと Bot のトークンが設定済み)
     #[serde(default)]
     pub callback_notify: bool,
+    /// 地図のタブに出す求人の住所 (無ければ None)
+    #[serde(default)]
+    pub job_address: Option<ApplicantAddress>,
+    /// 地図のタブに出す応募者の住所 (都道府県・市区町村・市区町村以下住所をつないだもの。無ければ None)
+    #[serde(default)]
+    pub applicant_address: Option<String>,
+}
+/// 地図に出す住所と、どの項目から取ったか
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+pub struct ApplicantAddress {
+    pub address: String,
+    /// 画面に出す出どころ (例: 「求人票の勤務地」)
+    pub source: String,
 }
 
 pub(super) struct ApplicantsState {
@@ -936,6 +949,73 @@ fn posting_url(p: &Value, jobs: &[crate::hubspot::HubSpotRecord]) -> Option<Stri
         .or_else(|| job_url(jobs, "url_hrhakkaa"))
         .or_else(|| job_url(jobs, "url_airwork"))
 }
+/// 都道府県の選択肢の「未設定」(値 `unset`) は空として扱う
+fn prefecture(v: &str) -> &str {
+    if v == "unset" {
+        ""
+    } else {
+        v
+    }
+}
+/// 応募者の住所: 都道府県 + 市区町村 + 市区町村以下住所。どれも空なら None
+fn applicant_address(p: &Value) -> Option<String> {
+    let parts = [
+        prefecture(&text(p, "todoufuken")).to_owned(),
+        text(p, "shikuchouson"),
+        text(p, "shikuchousonikajuusho"),
+    ];
+    let joined: String = parts.concat();
+    (!joined.is_empty()).then_some(joined)
+}
+/// 求人の住所。候補は 応募の「応募先勤務地」、求人票の「勤務地」、求人票の「都道府県」+「市区町村」。
+/// いちばん詳しい (文字数の多い) ものを使い、同じ長さなら先の候補を使う
+fn job_address(p: &Value, jobs: &[crate::hubspot::HubSpotRecord]) -> Option<ApplicantAddress> {
+    let get = |j: &crate::hubspot::HubSpotRecord, name: &str| {
+        j.properties
+            .get(name)
+            .and_then(|v| v.as_deref())
+            .unwrap_or("")
+            .trim()
+            .to_owned()
+    };
+    let mut candidates = vec![(text(p, "oubosaki_kinmuchi"), "応募の応募先勤務地")];
+    if let Some(v) = jobs
+        .iter()
+        .map(|j| get(j, "qinwude"))
+        .find(|v| !v.is_empty())
+    {
+        candidates.push((v, "求人票の勤務地"));
+    }
+    if let Some(v) = jobs
+        .iter()
+        .map(|j| {
+            format!(
+                "{}{}",
+                prefecture(&get(j, "todoufuken")),
+                get(j, "shikuchouson")
+            )
+        })
+        .find(|v| !v.is_empty())
+    {
+        candidates.push((v, "求人票の都道府県・市区町村"));
+    }
+    let mut best: Option<(String, &str)> = None;
+    for (address, source) in candidates {
+        if address.is_empty() {
+            continue;
+        }
+        if best
+            .as_ref()
+            .is_none_or(|(b, _)| address.chars().count() > b.chars().count())
+        {
+            best = Some((address, source));
+        }
+    }
+    best.map(|(address, source)| ApplicantAddress {
+        address,
+        source: source.into(),
+    })
+}
 /// 求人票ページの候補（ラベルと URL）。先頭は `posting_url` と同じ。URL の重複は 1 つにまとめる。
 fn job_pages(p: &Value, jobs: &[crate::hubspot::HubSpotRecord]) -> Vec<ApplicantLink> {
     let mut pages: Vec<ApplicantLink> = vec![];
@@ -1115,9 +1195,10 @@ pub(super) async fn detail(
                 // 求人票本体と取引関連は同じ ID から独立して読める。
                 let (jobs_and_defs, deal_sheet) = tokio::join!(
                     async {
-                        let jobs = client
-                            .batch_read("0-420", &ids, related::LISTING_PROPERTIES)
-                            .await?;
+                        // 地図のタブ用に都道府県・市区町村も読む (同じ 1 回の読み取り)
+                        let mut job_props = related::LISTING_PROPERTIES.to_vec();
+                        job_props.extend(["todoufuken", "shikuchouson"]);
+                        let jobs = client.batch_read("0-420", &ids, &job_props).await?;
                         let defs = if jobs.is_empty() {
                             Ok(Value::Null)
                         } else {
@@ -1216,6 +1297,8 @@ pub(super) async fn detail(
             sheet_embed: sheet_embeddable(sheet_url.as_deref()),
             sheet_url,
             callback_notify: callback::configured(),
+            job_address: job_address(p, &jobs),
+            applicant_address: applicant_address(p),
         })
     };
     match tokio::time::timeout(Duration::from_secs(20), work).await {
