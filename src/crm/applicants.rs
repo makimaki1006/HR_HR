@@ -967,7 +967,7 @@ fn applicant_address(p: &Value) -> Option<String> {
     let joined: String = parts.concat();
     (!joined.is_empty()).then_some(joined)
 }
-/// 求人の住所。候補は 応募の「応募先勤務地」、求人票の「勤務地」、求人票の「都道府県」+「市区町村」。
+/// 求人の住所。候補は 応募の「応募先勤務地」、求人票の「勤務地の住所（番地まで）」「勤務地」「都道府県」+「市区町村」。
 /// いちばん詳しい (文字数の多い) ものを使い、同じ長さなら先の候補を使う
 fn job_address(p: &Value, jobs: &[crate::hubspot::HubSpotRecord]) -> Option<ApplicantAddress> {
     let get = |j: &crate::hubspot::HubSpotRecord, name: &str| {
@@ -979,6 +979,13 @@ fn job_address(p: &Value, jobs: &[crate::hubspot::HubSpotRecord]) -> Option<Appl
             .to_owned()
     };
     let mut candidates = vec![(text(p, "oubosaki_kinmuchi"), "応募の応募先勤務地")];
+    if let Some(v) = jobs
+        .iter()
+        .map(|j| get(j, "kinmuchi_juusho"))
+        .find(|v| !v.is_empty())
+    {
+        candidates.push((v, "求人票の勤務地の住所"));
+    }
     if let Some(v) = jobs
         .iter()
         .map(|j| get(j, "qinwude"))
@@ -1197,7 +1204,7 @@ pub(super) async fn detail(
                     async {
                         // 地図のタブ用に都道府県・市区町村も読む (同じ 1 回の読み取り)
                         let mut job_props = related::LISTING_PROPERTIES.to_vec();
-                        job_props.extend(["todoufuken", "shikuchouson"]);
+                        job_props.extend(["todoufuken", "shikuchouson", "kinmuchi_juusho"]);
                         let jobs = client.batch_read("0-420", &ids, &job_props).await?;
                         let defs = if jobs.is_empty() {
                             Ok(Value::Null)
