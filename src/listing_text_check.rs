@@ -265,6 +265,15 @@ pub fn check(body: &str) -> Vec<Finding> {
         {
             continue;
         }
+        // 「当年度土曜日年間休日:37日」は土曜の休みの日数で、年間休日ではない。
+        // 後ろ側は「年間休日120日(土日祝日休み)」の「祝日」を拾うので、直前の語だけを見る。
+        let just_before = window(&body_half, whole.start(), whole.start(), 3, 0);
+        if ["土曜日", "日曜日", "土曜", "日曜", "祝日", "土日"]
+            .iter()
+            .any(|w| just_before.ends_with(w))
+        {
+            continue;
+        }
         if let Ok(d) = c[1].parse::<u32>() {
             days.insert(d);
         }
