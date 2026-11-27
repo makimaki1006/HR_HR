@@ -455,18 +455,27 @@ fn copied(source: &Source) -> Vec<Check> {
     .into_iter()
     .map(|(label, value)| Check {
         label: label.into(),
-        review: value
-            .as_ref()
-            .is_none_or(|v| v.contains("確認が必要") || v.contains("未取得")),
-        reason: value.is_none().then(|| {
-            if label == "最寄駅" {
-                "求人にも店舗一覧にも最寄り駅がありません。".into()
-            } else if label == "勤務先名" {
-                "店舗名が無いか、読めない字（?）が入っています。確認してください。".into()
-            } else {
-                "原本から取得できていません。確認してください。".into()
-            }
+        review: value.as_ref().is_none_or(|v| {
+            v.contains("確認が必要")
+                || v.contains("未取得")
+                || (label == "勤務地" && v.contains('?'))
         }),
+        reason: if label == "勤務地" && value.as_ref().is_some_and(|v| v.contains('?')) {
+            Some(
+                "店舗一覧の書き出しで読めなくなった字（?）が住所に入っています。確認してください。"
+                    .into(),
+            )
+        } else {
+            value.is_none().then(|| {
+                if label == "最寄駅" {
+                    "求人にも店舗一覧にも最寄り駅がありません。".into()
+                } else if label == "勤務先名" {
+                    "店舗名が無いか、読めない字（?）が入っています。確認してください。".into()
+                } else {
+                    "原本から取得できていません。確認してください。".into()
+                }
+            })
+        },
         value,
         missing_chunks: Vec::new(),
     })
