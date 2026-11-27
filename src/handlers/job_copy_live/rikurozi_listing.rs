@@ -8,7 +8,11 @@
 //! 3. 作った直後は検索の反映が遅れるので、作った求人のIDを10分だけプロセス内に覚えて同じ扱いにする。
 //!    (単一インスタンス前提。複数台になる場合は検索だけが頼りになる。)
 use super::{authorized_user, drafts, valid_id, Access, JobReadService, ReadError, Record};
-use crate::{hubspot::HubSpotError, job_gen::rikurozi::GENERATED, AppState};
+use crate::{
+    hubspot::HubSpotError,
+    job_gen::rikurozi::{DUTIES_COLUMN, GENERATED},
+    AppState,
+};
 use axum::{
     extract::{Path, State},
     http::{header, HeaderMap, StatusCode},
@@ -45,9 +49,9 @@ const COPY_FROM_HR: [&str; 12] = [
 ];
 /// AIが書いた列 → 求人の項目。ほかのAI列はCSVだけに使う。
 const GENERATED_TO_PROPERTY: [(&str, &str); 3] = [
-    ("案件名", "hs_name"),
-    ("仕事内容", "shigotonaiyou"),
-    ("応募資格", "hissushikaku_shousai"),
+    ("求人情報タイトル", "hs_name"),
+    ("職務内容", "shigotonaiyou"),
+    ("必要資格について", "hissushikaku_shousai"),
 ];
 const REMEMBER: Duration = Duration::from_secs(10 * 60);
 const MAX_VALUE_CHARS: usize = 20_000;
@@ -244,8 +248,12 @@ async fn create_inner(
             Json(json!({"status":"skipped","listing_id":null,"linked_deals":0,"unlinked_deals":0})),
         ));
     }
-    let known: BTreeSet<&str> = GENERATED.iter().map(|(_, column, _)| *column).collect();
-    if req.generated.len() > GENERATED.len()
+    let known: BTreeSet<&str> = GENERATED
+        .iter()
+        .map(|(_, column, _)| *column)
+        .chain([DUTIES_COLUMN])
+        .collect();
+    if req.generated.len() > known.len()
         || req
             .generated
             .iter()
@@ -255,7 +263,7 @@ async fn create_inner(
     }
     if req
         .generated
-        .get("案件名")
+        .get("求人情報タイトル")
         .is_none_or(|v| v.trim().is_empty())
     {
         return Err(err(
@@ -617,10 +625,16 @@ mod tests {
     fn request() -> CreateRequest {
         CreateRequest {
             generated: BTreeMap::from([
-                ("案件名".to_owned(), "新しい案件名".to_owned()),
-                ("仕事内容".to_owned(), "AIが書いた仕事内容".to_owned()),
-                ("応募資格".to_owned(), "AIが書いた応募資格".to_owned()),
-                ("キャッチコピー".to_owned(), "CSVだけに使う".to_owned()),
+                ("求人情報タイトル".to_owned(), "新しい案件名".to_owned()),
+                ("職務内容".to_owned(), "AIが書いた仕事内容".to_owned()),
+                (
+                    "必要資格について".to_owned(),
+                    "AIが書いた応募資格".to_owned(),
+                ),
+                (
+                    "求職者へのメッセージ".to_owned(),
+                    "CSVだけに使う".to_owned(),
+                ),
             ]),
         }
     }
@@ -797,7 +811,9 @@ mod tests {
         assert_eq!(v["status"], "skipped");
         assert!(remote.lock().unwrap().calls.is_empty());
         let mut no_title = request();
-        no_title.generated.insert("案件名".into(), "  ".into());
+        no_title
+            .generated
+            .insert("求人情報タイトル".into(), "  ".into());
         let e = create_inner(&service, "1", no_title, true)
             .await
             .unwrap_err();

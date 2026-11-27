@@ -15,6 +15,24 @@ const PROPERTIES: &[&str] = &[
     "todoufuken",
     "shikuchouson",
 ];
+/// 店舗の住所・店舗名は HRハッカーの店舗一覧（店舗管理の書き出し）から入れる。
+/// 置き場所は環境変数 `RIKUROZI_BRANCHES_CSV`（ファイルのパス）。無い・読めない・店舗が無いときは
+/// 住所を空にし、画面で「勤務先名」を要確認として出す。
+fn store(shop: &str) -> Option<draft::Store> {
+    let path = std::env::var("RIKUROZI_BRANCHES_CSV")
+        .ok()
+        .filter(|p| !p.trim().is_empty())?;
+    match std::fs::read(path.trim())
+        .map_err(anyhow::Error::from)
+        .and_then(|b| draft::find_store(&b, shop))
+    {
+        Ok(found) => found,
+        Err(_) => {
+            tracing::warn!("rikurozi branches csv could not be read");
+            None
+        }
+    }
+}
 fn publication(value: Option<&str>, normalized: Option<&str>) -> Option<&'static str> {
     match crate::job_gen::publication::label(normalized, value, "airwork") {
         "掲載中" => Some("掲載中"),
@@ -134,6 +152,7 @@ impl JobReadService {
             body: body.into(),
             comparisons,
             location: (!location.is_empty()).then_some(location),
+            store: store(shop),
         })
     }
 }

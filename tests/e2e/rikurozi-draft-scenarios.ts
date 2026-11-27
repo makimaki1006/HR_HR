@@ -13,7 +13,7 @@ async function routeDraft(page: Page, status: number, json: unknown) {
 }
 const csv = '\ufeff求人id,店舗id,画像1,画像2,画像3\r\n,4081,https://example.invalid/one.jpg,,https://example.invalid/three.png\r\n';
 const result = {
-  generated_values: { 案件名: '日用品を届ける配送スタッフ', 仕事内容: '' },
+  generated_values: { 求人情報タイトル: '日用品を届ける配送スタッフ', 職務内容: '' },
   images: ['https://example.invalid/one.jpg', '', 'https://example.invalid/three.png'],
   review_required: true, threshold: 0.2, min_sentence_chars: 8, csv,
   comparisons: [
