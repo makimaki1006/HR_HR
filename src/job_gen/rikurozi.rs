@@ -438,7 +438,11 @@ fn copied(source: &Source) -> Vec<Check> {
         ("勤務地", address.or_else(|| source.location.clone())),
         (
             "最寄駅",
-            store.map(|st| st.station.clone()).filter(|v| !v.is_empty()),
+            Some(station(
+                r.get("最寄り駅").map(String::as_str).unwrap_or(""),
+                &store.cloned().unwrap_or_default(),
+            ))
+            .filter(|v| !v.is_empty()),
         ),
         ("勤務時間", joined(r, &["勤務時間", "勤務時間帯"])),
         (
@@ -456,7 +460,7 @@ fn copied(source: &Source) -> Vec<Check> {
             .is_none_or(|v| v.contains("確認が必要") || v.contains("未取得")),
         reason: value.is_none().then(|| {
             if label == "最寄駅" {
-                "店舗一覧に最寄り駅がありません。".into()
+                "求人にも店舗一覧にも最寄り駅がありません。".into()
             } else if label == "勤務先名" {
                 "店舗名が無いか、読めない字（?）が入っています。確認してください。".into()
             } else {
@@ -516,8 +520,8 @@ pub fn media_row(source: &Source, generated: &Row) -> Row {
         ("市区町村", st.city.trim().to_owned()),
         ("町域", st.town.trim().to_owned()),
         ("番地・建物", banchi),
-        ("最寄駅", st.station.trim().to_owned()),
-        ("最寄駅からのアクセス", st.access.trim().to_owned()),
+        ("最寄駅", station(&get("最寄り駅"), &st)),
+        ("最寄駅からのアクセス", access(&get("通勤経路"), &st)),
     ] {
         row.insert(column.into(), value);
     }
@@ -549,6 +553,25 @@ fn duties(generated: &Row) -> String {
     } else {
         format!("{}\n\n{DUTIES_FIXED_LINES}", parts.join("\n\n"))
     }
+}
+/// HRハッカーは、求人に書いた最寄り駅・アクセスを店舗の値より優先して表示する（空なら店舗の値）。
+fn station(job: &str, st: &Store) -> String {
+    let job = job.trim();
+    if job.is_empty() {
+        st.station.trim()
+    } else {
+        job
+    }
+    .to_owned()
+}
+fn access(job: &str, st: &Store) -> String {
+    let job = job.trim();
+    if job.is_empty() {
+        st.access.trim()
+    } else {
+        job
+    }
+    .to_owned()
 }
 /// 店舗名から社内用の「_番号」「_メモ」を除く。書き出しで読めなくなった字（?）が残る名前は使わない。
 pub fn workplace_name(name: &str) -> Option<String> {
