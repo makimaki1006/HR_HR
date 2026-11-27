@@ -593,8 +593,12 @@ pub fn workplace_name(name: &str) -> Option<String> {
     (!out.is_empty() && !out.contains('?')).then_some(out)
 }
 /// 郵便番号はメディアの書き方（123-4567）にそろえる。7桁でなければそのまま。
+/// 店舗一覧の書き出しは郵便番号の頭の0が落ちる（003-0029 → 30029）ので、7桁に戻してからつなぐ。
 fn zip(value: &str) -> String {
-    let digits: String = value.nfkc().filter(char::is_ascii_digit).collect();
+    let mut digits: String = value.nfkc().filter(char::is_ascii_digit).collect();
+    if (5..7).contains(&digits.len()) {
+        digits = format!("{digits:0>7}");
+    }
     if digits.len() == 7 {
         format!("{}-{}", &digits[..3], &digits[3..])
     } else {
