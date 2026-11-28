@@ -48,6 +48,7 @@
 .jh-home thead th { font-size: 12px; color: var(--jc-muted, #52697a); font-weight: 600; white-space: nowrap; }
 .jh-home tbody th { font-weight: 700; }
 .jh-home .num { text-align: right; white-space: nowrap; }
+.jh-home .jh-nowrap { white-space: nowrap; }
 .jh-home thead button { background: none; border: 0; padding: 0; font: inherit; color: inherit; cursor: pointer; white-space: nowrap; }
 .jh-link { background: none; border: 0; padding: 0; font: inherit; font-weight: 700; color: var(--jc-accent, #007c91); text-decoration: underline; cursor: pointer; text-align: left; }
 .jh-customers { background: var(--jc-paper, #fff); border: 1px solid var(--jc-border, #d4dfe7); border-radius: 8px; padding: 16px; }

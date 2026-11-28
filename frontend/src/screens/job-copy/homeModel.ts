@@ -9,7 +9,9 @@ export interface HomeData { cards: HomeCard[]; customers: HomeCustomer[]; live_w
 /** 媒体ごとの実績の時点。最新の週が同じ求人が最も多い週と、それより新しい・古い・実績なしの件数（掲載中の求人）。 */
 export interface MediaWeek { label: string; week_end: string | null; listings: number; newer: number; older: number; no_data: number; total: number }
 /** 例「Indeed：最新の週が 10/11 の求人が最も多い（98件）・それより新しい 12件・実績なし 10件」。 */
-export function mediaWeekText(week: MediaWeek, format: (day: string) => string): string {
+export function mediaWeekText(source: MediaWeek, format: (day: string) => string): string {
+  // HRハッカーの求人は Indeed に出ている。表の媒体名（HRハッカー）と同じものだと分かるように書く。
+  const week = { ...source, label: source.label === 'Indeed' ? 'HRハッカー（Indeed）' : source.label };
   if (week.total === 0) return `${week.label}：掲載中の求人なし`;
   if (week.week_end === null) return `${week.label}：実績なし`;
   const rest = [week.newer > 0 && `それより新しい ${String(week.newer)}件`, week.older > 0 && `それより古い ${String(week.older)}件`, week.no_data > 0 && `実績なし ${String(week.no_data)}件`].filter(Boolean);
@@ -51,9 +53,9 @@ export function filterCustomers(customers: readonly HomeCustomer[], query: strin
   const text = query.trim().toLocaleLowerCase('ja-JP');
   return customers.filter(customer => (!onlyActive || customer.active_deals > 0) && (!text || customerName(customer).toLocaleLowerCase('ja-JP').includes(text)));
 }
-export const dealCountLabel = (customer: HomeCustomer) => `${String(customer.active_deals)} ／ 全 ${String(customer.deals)}`;
-export const listingCountLabel = (customer: HomeCustomer) => `${String(customer.live_listings)} ／ 全 ${String(customer.total_listings)}`;
+export const dealCountLabel = (customer: HomeCustomer) => `${customer.active_deals.toLocaleString('ja-JP')} ／ 全 ${customer.deals.toLocaleString('ja-JP')}`;
+export const listingCountLabel = (customer: HomeCustomer) => `${customer.live_listings.toLocaleString('ja-JP')} ／ 全 ${customer.total_listings.toLocaleString('ja-JP')}`;
 export const yen = (amount: number | null) => amount === null ? '—' : `¥${amount.toLocaleString('ja-JP')}`;
 /** 「前の 4 週 → 直近 4 週」。 */
-export const appsChange = (prev: number | null, recent: number | null) => prev === null || recent === null ? '—' : `${String(prev)} → ${String(recent)} 件`;
-export const mediaName = (media: HomeRowData['media']) => media === 'hrh' ? 'HRハッカー' : 'AirWork';
+export const appsChange = (prev: number | null, recent: number | null) => prev === null || recent === null ? '—' : `${prev.toLocaleString('ja-JP')} → ${recent.toLocaleString('ja-JP')} 件`;
+export const mediaName = (media: HomeRowData['media']) => media === 'hrh' ? 'HRハッカー（Indeed）' : 'AirWork';

@@ -62,9 +62,12 @@ fn signals(
         }
     }
     if let Some(text) = positive {
-        add(
-            "positive",
-            format!("MTG：{}", text.chars().take(30).collect::<String>()),
+        // 一覧の札は 30 文字までにし、切ったときは「…」を付ける。全文は full で返す（画面の小窓とマウスを重ねたときに出す）。
+        let short: String = text.chars().take(30).collect();
+        let cut = if text.chars().count() > 30 { "…" } else { "" };
+        flags.push(
+            json!({"key":"positive","label":format!("MTG：{short}{cut}"),
+            "full":format!("MTG：{text}"),"new":false,"since":null}),
         );
     }
     flags
@@ -199,7 +202,7 @@ mod tests {
             vec![
                 "応募 3 → 7",
                 "採用単価 5.0万円（区分の中央値 10.0万円）",
-                &format!("MTG：{}", text.chars().take(30).collect::<String>())
+                &format!("MTG：{}…", text.chars().take(30).collect::<String>())
             ]
         );
         for (prev, recent, yes) in [

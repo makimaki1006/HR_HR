@@ -47,11 +47,11 @@ const names = () => within(screen.getByRole('table')).getAllByRole('row').slice(
 it('既定の列は8つで、採用・採用単価・金額・採用目標は行の「詳しい数字」を開くと見られる', async () => {
   stub(); await open();
   const headers = [...screen.getByRole('table').querySelectorAll('thead th')].map(th => th.textContent.replace(/ ⇅| ▼| ▲/gu, ''));
-  expect(headers).toEqual(['案件・顧客', 'タグ', '応募（直近4週）', '満了まで', '最後の接触', '最後のMTG', '満足度', '担当', '詳しい数字・詳細']);
+  expect(headers).toEqual(['案件・顧客', 'タグ', '応募（HubSpot・直近4週）', '満了まで', '最後の接触', '最後のMTG', '満足度', '担当', '詳しい数字・詳細']);
   expect(screen.queryByRole('button', { name: /^(採用|採用単価|金額|採用目標に対して) / })).toBeNull();
   fireEvent.click(screen.getByRole('button', { name: `${row(0).name ?? ''}の詳しい数字を開く` }));
   const detail = within(screen.getByRole('table', { name: `${row(0).name ?? ''}の詳しい数字` }));
-  expect(detail.getAllByRole('columnheader').map(th => th.textContent.replace(/ ⇅/u, ''))).toEqual(['顧客名', 'ステージ', '何ヶ月目', '定期の満足度', '案件に記録された応募', '面接', '採用', '採用単価', '金額', '採用目標に対して']);
+  expect(detail.getAllByRole('columnheader').map(th => th.textContent.replace(/ ⇅/u, ''))).toEqual(['顧客名', 'ステージ', '何ヶ月目', '定期の満足度', '案件に記録された応募（累計）', '面接', '採用', '採用単価', '金額', '採用目標に対して']);
   const cells = detail.getAllByRole('cell').map(td => td.textContent);
   expect(cells).toContain(yen(100_000));
   expect(cells).toContain(yen(50_000));

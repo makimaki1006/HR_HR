@@ -134,7 +134,7 @@ it("顧客の全節と数字・案件の詳細・条件のURLを表示", async (
     "hj-contracts",
   ]);
   expect(
-    screen.getByRole("link", { name: "他の顧客と比べる（コンサルKPI）" }).getAttribute("href"),
+    screen.getByRole("link", { name: "コンサルKPIの画面で他の顧客と比べる" }).getAttribute("href"),
   ).toBe("/consulting#research/customer?houjin=sample-a");
   const fold = screen.getByText(/^分析の図と事業所の比較/).closest("details");
   if (!fold) throw new Error("fold missing");
@@ -233,7 +233,7 @@ it("案件一覧の新しい列を両方向に並べ替える", async () => {
   }
   for (const [key, label] of [
     ["nps", "満足度"],
-    ["recent_applications", "応募（直近4週）"],
+    ["recent_applications", "応募（HubSpot・直近4週）"],
   ] as const) {
     const button = screen.getByRole("button", { name: label });
     fireEvent.click(button);
@@ -299,14 +299,14 @@ it("担当変更後も絞り込みを保ち、0社なら顧客を出さない", 
   await screen.findByText("条件に合う顧客がありません");
   expect(screen.queryByRole("region", { name: "顧客の数字" })).toBeNull();
 });
-it("最初は一覧を開いて先頭の顧客と理由を出し、案件と求人は稼働中だけ・日付は1行で出す", async () => {
+it("最初は一覧を畳んで既定の顧客と理由を出し、案件と求人は稼働中だけ・日付は1行で出す", async () => {
   window.history.replaceState(null, "", "/app/job-copy?view=houjin&owner=11");
   mock();
   render(<HoujinView />);
   await screen.findByRole("region", { name: "顧客の数字" });
   const list = screen.getByRole("table", { name: "顧客の一覧" }).closest("details");
-  expect(list?.open).toBe(true);
-  expect(screen.getByText(/の先頭の顧客を表示しています/).textContent).toContain("これまでの売上が大きい順");
+  expect(list?.open).toBe(false);
+  expect(screen.getByText(/案件がいちばん多い顧客を表示しています/)).toBeTruthy();
   // 条件が無いときは「条件を戻す」を出さない。よく使う条件は畳まずに出す。
   expect(screen.queryByRole("button", { name: "条件を戻す" })).toBeNull();
   expect(screen.getByText("条件で絞る").closest("details")?.open).toBe(false);

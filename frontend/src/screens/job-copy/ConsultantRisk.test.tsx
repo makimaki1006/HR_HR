@@ -83,7 +83,7 @@ it('既定はタグ2本以上。1本だけの案件は件数を添えて外し�
   expect(within(fresh).getByRole('heading', { level: 2 }).textContent).toBe('新しくタグが付いた案件 1件');
   expect(screen.getByRole('region', { name: '前回から続いている案件' }).textContent).toContain('該当する案件はありません。');
   expect(screen.queryByRole('link', { name: '架空の採用支援C' })).toBeNull();
-  expect(screen.getByRole('note').textContent).toContain('タグが2つ以上の案件 1件を出しています（コンサルKPIの「今日」と同じ基準）。タグが1つだけの案件 2件は出していません。');
+  expect(screen.getByRole('note').textContent).toContain('タグが2つ以上の案件 1件を出しています（コンサルKPIの画面にある「今日」と同じ基準）。タグが1つだけの案件 2件は出していません。');
   fireEvent.click(screen.getByRole('checkbox', { name: 'タグが1つだけの案件も出す' }));
   expect(new URLSearchParams(window.location.search).get('risk_all')).toBe('1');
   expect((await screen.findByRole('link', { name: '架空の採用支援C' })).textContent).toBe('架空の採用支援C');

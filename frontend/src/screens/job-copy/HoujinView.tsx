@@ -178,6 +178,8 @@ export function HoujinView() {
     : 0;
   const choose = (houjin: string, scroll = false) => {
     setUserChosen(houjin);
+    // 選んだ顧客がすぐ見えるよう、顧客の一覧は畳む。
+    setListOpen(false);
     scrollAfterLoad.current = scroll ? houjin : null;
     updateJobCopyQuery({ houjin, houjin_site: null, risk_deal: null });
   };
@@ -189,6 +191,8 @@ export function HoujinView() {
     }
   }, [loadedHoujin]);
   const [showEnded, setShowEnded] = useState(false);
+  /** 顧客の一覧（数百社）は初めは畳み、選んだ顧客の中身を先に見せる。探す・絞るときは開く。 */
+  const [listOpen, setListOpen] = useState(false);
   const activeDeals = deals.filter((d) => d.is_active);
   const endedCount = deals.length - activeDeals.length;
   const hasConditions =
@@ -247,9 +251,9 @@ export function HoujinView() {
               </td>
               <td className="hj-num">{d.renewal_no ?? "—"}</td>
               <td className="hj-num">{yen(d.amount)}</td>
-              <td className="hj-num">{d.oubo ?? "—"}</td>
-              <td className="hj-num">{d.mensetu ?? "—"}</td>
-              <td className="hj-num">{d.syoudaku ?? "—"}</td>
+              <td className="hj-num">{d.oubo?.toLocaleString("ja-JP") ?? "—"}</td>
+              <td className="hj-num">{d.mensetu?.toLocaleString("ja-JP") ?? "—"}</td>
+              <td className="hj-num">{d.syoudaku?.toLocaleString("ja-JP") ?? "—"}</td>
               <td className={d.is_active ? "hj-nowrap hj-active" : "hj-nowrap hj-ended"}>
                 {d.is_active ? "稼働中" : "終了"}
                 {d.right_censored && "・未確定"}
@@ -311,6 +315,7 @@ export function HoujinView() {
                   <input
                     value={query.get("houjin_search") ?? ""}
                     onChange={(e) => {
+                      setListOpen(true);
                       updateJobCopyQuery(
                         { houjin_search: e.target.value || null },
                         "replace",
@@ -348,6 +353,7 @@ export function HoujinView() {
                       className="jc-chip"
                       aria-pressed={pressed}
                       onClick={() => {
+                        setListOpen(true);
                         updateJobCopyQuery(
                           presetQuery(pressed ? {} : p.values),
                           "replace",
@@ -453,7 +459,13 @@ export function HoujinView() {
                   </p>
                 ) : null,
               )}
-              <details className="hj-customer-list" open>
+              <details
+                className="hj-customer-list"
+                open={listOpen}
+                onToggle={(e) => {
+                  setListOpen(e.currentTarget.open);
+                }}
+              >
                 <summary>顧客の一覧（{rows.length}社）</summary>
                 <div className="hj-scroll">
                   <table aria-label="顧客の一覧">
@@ -501,9 +513,9 @@ export function HoujinView() {
                           <td className="hj-num">{yen(r.monthly_amount_max)}</td>
                           <td className="hj-num">{yen(r.ltv)}</td>
                           <td className="hj-num">{r.max_renewal_no ?? "—"}</td>
-                          <td className="hj-num">{r.oubo_total ?? "—"}</td>
-                          <td className="hj-num">{r.mensetu_total ?? "—"}</td>
-                          <td className="hj-num">{r.syoudaku_total ?? "—"}</td>
+                          <td className="hj-num">{r.oubo_total?.toLocaleString("ja-JP") ?? "—"}</td>
+                          <td className="hj-num">{r.mensetu_total?.toLocaleString("ja-JP") ?? "—"}</td>
+                          <td className="hj-num">{r.syoudaku_total?.toLocaleString("ja-JP") ?? "—"}</td>
                           <td className="hj-num">{r.active ?? "—"}</td>
                           <td className="hj-nowrap">{formatDateJst(r.last_expiration, "—")}</td>
                         </tr>
@@ -516,7 +528,10 @@ export function HoujinView() {
             {!rows.length && <p role="status">条件に合う顧客がありません</p>}
             {showingAuto && data?.customer && (
               <p className="hj-auto-note">
-                一覧の並び（{sortLabel}）の先頭の顧客を表示しています。ほかの顧客は一覧の社名を押してください。
+                {ready.selected_houjin === ready.default_houjin
+                  ? "案件がいちばん多い顧客を表示しています。"
+                  : `一覧の並び（${sortLabel}）の先頭の顧客を表示しています。`}
+                ほかの顧客は上の「顧客を選ぶ」か、一覧の社名を押してください。
               </p>
             )}
             {data?.customer && (
@@ -524,7 +539,7 @@ export function HoujinView() {
                 <section aria-label="顧客の数字" id="hj-customer" className="hj-card">
                   <div className="hj-card-head">
                     <h2>{data.customer.name}</h2>
-                    <a className="jc-go" href={kpiHref}><span aria-hidden="true">→ </span>他の顧客と比べる（コンサルKPI）</a>
+                    <a className="jc-go" href={kpiHref}><span aria-hidden="true">→ </span>コンサルKPIの画面で他の顧客と比べる</a>
                   </div>
                   <div className="hj-kpis">
                     {(
@@ -536,10 +551,16 @@ export function HoujinView() {
                             ? `追加契約を含むと${String(pickedIndex.deals)}件`
                             : null,
                         ],
-                        ["稼働中", `${String(activeDeals.length)}件`, null],
+                        [
+                          "稼働中（追加契約を除く）",
+                          `${String(activeDeals.length)}件`,
+                          pickedIndex?.active != null && pickedIndex.active !== activeDeals.length
+                            ? `追加契約を含むと${String(pickedIndex.active)}件`
+                            : null,
+                        ],
                         ["事業所", `${String(data.customer.sites ?? "—")}事業所`, null],
                         [
-                          "これまでの売上",
+                          "これまでの売上（追加契約を除く）",
                           yen(sumKnown(deals, (d) => d.amount)),
                           data.customer.ltv !== sumKnown(deals, (d) => d.amount)
                             ? `追加契約を含むと${yen(data.customer.ltv)}`
