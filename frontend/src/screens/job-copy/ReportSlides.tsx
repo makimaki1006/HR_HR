@@ -23,7 +23,10 @@ export function ReportSlides({ target }: { target: ReportTarget }) {
   useEffect(() => {
     const controller = new AbortController();
     // 開き直しはこのタブで読んだ結果を使う。「最新にする」（revision > 0）だけ読み直す。
-    void loadReportInput({ scope: target.scope, id: target.id }, controller.signal, { fresh: revision > 0 }).then(result => {
+    const onUpdate = (input: ReportInput) => {
+      if (!controller.signal.aborted) setLoaded({ key: `${target.scope}:${target.id}`, revision, source: { status: 'ready', input } });
+    };
+    void loadReportInput({ scope: target.scope, id: target.id }, controller.signal, { fresh: revision > 0, onUpdate }).then(result => {
       if (controller.signal.aborted) return;
       setLoaded({ key: `${target.scope}:${target.id}`, revision, source: result.ok ? { status: 'ready', input: result.input } : { status: 'error', message: result.message || '読み込めませんでした。' } });
     });
@@ -101,6 +104,8 @@ function ReportEditor({ input, back, onRefresh }: { input: ReportInput; back: Re
     const frame = requestAnimationFrame(() => { setOverflow(overflowing(deck.current)); });
     return () => { cancelAnimationFrame(frame); };
   }, [result, draft.off]);
+  // 下の表示は左の番号・スライド右下の番号と同じ、PDF のページ番号にする。
+  const shownPage = shown ? pageOf(shown) : null;
   const status = shown ? draft.off.includes(shown.id) ? '（出力しない）' : shown.blank ? '（未記入のため出力しない）' : '' : '';
 
   return <main className="rs-root" aria-label="報告のスライドを作る">
@@ -164,7 +169,7 @@ function ReportEditor({ input, back, onRefresh }: { input: ReportInput; back: Re
       </aside>
       <section className="rs-stage" aria-label="スライド">
         {shown && <div className={draft.off.includes(shown.id) || shown.blank ? 'rs-big rs-dim' : 'rs-big'}><SlideView slide={shown} page={pageOf(shown)} /></div>}
-        <div className="rs-nav"><button type="button" className="jc-button" onClick={() => { move(-1); }}>‹ 前</button><span>{String(index + 1)} / {String(result.slides.length)}{status}</span><button type="button" className="jc-button" onClick={() => { move(1); }}>次 ›</button></div>
+        <div className="rs-nav"><button type="button" className="jc-button" onClick={() => { move(-1); }}>‹ 前</button><span>{shownPage === null ? '－' : String(shownPage)} / {String(included.length)} ページ{status}</span><button type="button" className="jc-button" onClick={() => { move(1); }}>次 ›</button></div>
         {shown && <SlideInputs slide={shown} texts={draft.texts} setTexts={setTexts} />}
       </section>
     </div>
