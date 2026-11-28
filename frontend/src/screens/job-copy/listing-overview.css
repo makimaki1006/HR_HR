@@ -276,3 +276,10 @@ dialog.lo-drawer::backdrop { background: rgb(15 23 42 / 35%); }
 .jc-history > p.jc-history-common { margin: -6px 0 12px; padding: 6px 8px; border-radius: 6px; background: #f3f6f8; color: var(--jc-muted); font-size: 11px; line-height: 1.6; }
 .jc-history .jc-version { padding: 8px 11px; gap: 2px; margin-bottom: 6px; }
 .jc-history .jc-version time { color: var(--jc-muted); font-size: 11px; }
+
+/* 2026-11-28 記録が無い・職種が未指定の欄は1行に畳む。 */
+.lo-collapsed { padding: 10px 18px; }
+.lo-collapsed > summary { cursor: pointer; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; }
+.lo-collapsed > summary span, .lo-line span[role="status"] { color: var(--jc-muted); font-size: 13px; }
+.lo-collapsed[open] > summary { margin-bottom: 10px; }
+.lo-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; margin: 0; }

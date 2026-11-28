@@ -417,6 +417,8 @@
 .jc-filter-summary { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--jc-muted); }
 .jc-list-actions { display:flex; gap:6px; flex-wrap:wrap; align-items:center; }
 .jc-management-fields { margin-bottom:16px; }
+.jc-manual-more { margin-top:16px; }
+.jc-manual-more > summary { cursor:pointer; font-weight:600; margin-bottom:12px; }
 @media (min-width:801px) { .jc-hubspot-filter-details[open] { max-height:250px; overflow-y:auto; } }
 .jc-deal-table th, .jc-deal-table td, .jc-parallel-table th, .jc-parallel-table td { border:1px solid #dbe3ec; padding:8px 5px; text-align:left; vertical-align:top; }
 .jc-deal-table th { background:#edf3f8; white-space:normal; }

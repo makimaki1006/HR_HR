@@ -17,10 +17,12 @@ export interface BandNumbers {
   recent: number | null;
   /** その前の4週の応募。 */
   previous: number | null;
+  /** 直近4週の始まりの日（終わりは asOf）。asOf が無いとき null。 */
+  recentStart: string | null;
   /** 課金 ÷ 応募（直近4週）。課金が不明、または応募が0件のとき null。 */
   perApplicationYen: number | null;
-  /** 最新の課金期間の金額を4週あたりにした額。不明なとき null。 */
-  billingPer4WeeksYen: number | null;
+  /** 直近4週（応募と同じ28日）の課金を日割りで足した額。窓に課金の記録が無い・金額が不明なとき null。 */
+  billingRecentYen: number | null;
   /** 応募データのある最後の日。 */
   lastApplicationDate: string | null;
   /** 課金データの最後の日。 */
@@ -31,18 +33,10 @@ export function formatBandYen(value: number | null): string {
   return value === null ? '—' : `¥${Math.round(value).toLocaleString('ja-JP')}`;
 }
 
-/** 最新の課金期間を4週あたりに直す。同じ最終日で金額が違う行が並ぶときは決められないので null。 */
-function latestBilling(entries: readonly BillingEntry[]): { per4Weeks: number | null; lastDate: string | null } {
-  const valid = entries.filter(entry => DATE.test(entry.start) && DATE.test(entry.end) && entry.start <= entry.end);
-  const lastDate = valid.reduce<string | null>((max, entry) => (max === null || entry.end > max ? entry.end : max), null);
-  if (!lastDate) return { per4Weeks: null, lastDate: null };
-  const latest = valid.filter(entry => entry.end === lastDate && entry.amountYen !== null);
-  const amounts = new Set(latest.map(entry => {
-    const days = daysBetween(entry.start, entry.end) + 1;
-    return Math.round((entry.amountYen ?? 0) * WINDOW_DAYS / days);
-  }));
-  const only = amounts.size === 1 ? [...amounts][0] : undefined;
-  return { per4Weeks: only ?? null, lastDate };
+/** 課金データの最後の日。 */
+function lastBillingDay(entries: readonly BillingEntry[]): string | null {
+  return entries.filter(entry => DATE.test(entry.start) && DATE.test(entry.end) && entry.start <= entry.end)
+    .reduce<string | null>((max, entry) => (max === null || entry.end > max ? entry.end : max), null);
 }
 
 /**
@@ -78,16 +72,16 @@ export function bandNumbers(job: JobCopyRecord, billing: readonly BillingEntry[]
   const asOf = applicationsCutoffDate(job);
   const byDate = job.overallApplications?.byDate;
   const dates = Object.keys(byDate ?? {}).filter(date => DATE.test(date)).sort();
-  const { per4Weeks, lastDate } = latestBilling(billing ?? []);
-  const base = { asOf, billingPer4WeeksYen: per4Weeks, lastApplicationDate: dates.at(-1) ?? null, lastBillingDate: lastDate };
-  if (!asOf) return { ...base, recent: null, previous: null, perApplicationYen: null };
+  const base = { asOf, lastApplicationDate: dates.at(-1) ?? null, lastBillingDate: lastBillingDay(billing ?? []) };
+  if (!asOf) return { ...base, recentStart: null, recent: null, previous: null, perApplicationYen: null, billingRecentYen: null };
   const recentStart = addDays(asOf, -(WINDOW_DAYS - 1));
   const previousStart = addDays(recentStart, -WINDOW_DAYS);
   const recent = byDate ? countApplications(byDate, recentStart, addDays(asOf, 1)) : null;
   const previous = byDate ? countApplications(byDate, previousStart, recentStart) : null;
   const windowBilling = billingInWindow(billing ?? [], recentStart, asOf);
   const perApplicationYen = windowBilling !== null && recent ? Math.round(windowBilling / recent) : null;
-  return { ...base, recent, previous, perApplicationYen };
+  // 3 枚のカード（応募・応募1件の費用・課金）は同じ28日で数え、割り算が表示どうしで合うようにする。
+  return { ...base, recentStart, recent, previous, perApplicationYen, billingRecentYen: windowBilling };
 }
 
 /**

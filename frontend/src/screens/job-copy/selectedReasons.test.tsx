@@ -103,13 +103,16 @@ it('compares selected reasons around changes and shows all versions on the timel
   const { unmount } = render(<ChangeReasons job={job} onOpenFactors={() => undefined} />);
   const blocks = screen.getAllByTestId('change-reason-block');
   expect(blocks).toHaveLength(2);
-  expect(within(at(blocks, 0)).getAllByRole('table')).toHaveLength(4);
+  // 聞けた応募が0件の項目は表を出さず1行にする。
+  expect(within(at(blocks, 0)).getAllByRole('table')).toHaveLength(3);
+  expect(within(at(blocks, 0)).getAllByTestId('selected-reasons-empty')).toHaveLength(1);
   expect(within(at(blocks, 0)).getByRole('group', { name: '変更前 1日' }).textContent).toContain('応募 1件');
   expect(within(at(blocks, 0)).getByRole('group', { name: '変更後 3日' }).textContent).toContain('応募 1件');
   unmount();
   render(<JobTimeline job={{ ...job, indeedTitleState: 'none' }} marketMode="demo" />);
   const reasons = screen.getByRole('region', { name: '期間ごとの応募理由' });
-  expect(within(reasons).getAllByRole('table')).toHaveLength(6);
+  expect(within(reasons).getAllByRole('table')).toHaveLength(5);
+  expect(within(reasons).getAllByTestId('selected-reasons-empty')).toHaveLength(1);
   expect(reasons.textContent).not.toContain('推定');
   expect(within(screen.getByRole('region', { name: '期間比較表' })).getByRole('table').textContent).toContain('2件');
 });

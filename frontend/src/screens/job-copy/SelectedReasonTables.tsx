@@ -21,6 +21,8 @@ export function SelectedReasonTables({ job, rows = job.applicationRows ?? [] }: 
     const denominator = properties[0] === MOTIVE
       ? `応募動機を聞けた応募 ${String(results[0]?.answered ?? 0)}件／この求人の全応募 ${String(total)}件`
       : `①を聞けた応募 ${String(results[0]?.answered ?? 0)}件・②${String(results[1]?.answered ?? 0)}件・③${String(results[2]?.answered ?? 0)}件／この求人の全応募 ${String(total)}件`;
+    // 聞けた応募が0件なら、0件だけの表は出さず1行で伝える。
+    if (unknown.size === 0 && results.every(result => result.answered === 0)) return <p key={title} className="ar-selection-empty" data-testid="selected-reasons-empty"><strong>{title}</strong>：記録はありません（<span className="ar-selection-denominator">{denominator}</span>）</p>;
     return <section key={title}><h3>{title}</h3><p className="ar-selection-denominator">{denominator}</p>
       <div className="ar-table-scroll"><table className="ar-table ar-selection-table"><caption>{title}の選択件数</caption>
         <colgroup><col />{properties.map(property => <col key={property} className="ar-selection-count" />)}</colgroup>

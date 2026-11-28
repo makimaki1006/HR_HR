@@ -20,7 +20,7 @@ export function ImageGallery({ images, title, marks = [], failureMessage, unavai
   return <section className="jc-image-section" aria-label={title}><h3>{title}</h3>
     {images === undefined ? <p className="jc-muted">{unavailableMessage ?? '画像を読めていません（画像なし・削除ではありません）。'}</p> : images.length === 0 ? <p className="jc-muted">{emptyMessage ?? 'この本文に対応する画像はありません。'}</p> : <div className="jc-image-grid">{images.map((image, index) => <figure key={`${image.id}-${String(index)}`} className={marks.includes(image.sourceReferenceHash ?? image.url) ? 'jc-image-marked' : ''}>
       <RetryableImage failureMessage={failureMessage} key={image.url} image={image} slot={image.sourceSlot ?? index + 1} onOpen={() => { setSelected(image); dialog.current?.showModal(); }} />
-      <figcaption><strong>画像{image.sourceSlot ?? index + 1}</strong> {image.caption}{marks.includes(image.sourceReferenceHash ?? image.url) && <span>変更対象</span>}</figcaption>
+      <figcaption><strong>画像{image.sourceSlot ?? index + 1}</strong>{/* 説明が「画像1」のように番号と同じなら、二重に出さない。 */}{image.caption !== `画像${String(image.sourceSlot ?? index + 1)}` && <> {image.caption}</>}{marks.includes(image.sourceReferenceHash ?? image.url) && <span>変更対象</span>}</figcaption>
     </figure>)}</div>}
     <dialog ref={dialog} className="jc-image-dialog" aria-labelledby={headingId} onClose={() => { setSelected(null); }}><div className="jc-image-dialog-heading"><h3 id={headingId}>{selected?.caption ?? '画像の拡大表示'}</h3><button className="jc-button" onClick={() => { dialog.current?.close(); }}>閉じる</button></div>{selected && <RetryableImage key={selected.url} image={selected} />}<p className="jc-muted">表示用画像の拡大です。Escキーでも閉じられます。</p></dialog>
   </section>;

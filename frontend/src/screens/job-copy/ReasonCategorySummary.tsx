@@ -56,12 +56,12 @@ function CategoryTable({ label, classification, withSelected, selectionsUnread =
   const result = tally(classification.applications);
   const unit = classification.unit === 'text' ? '記述' : '応募';
   return <>
-    <p>n={result.n}（{unit}{result.n}件）{withSelected && <> · 選択済み{result.selectedN}件</>}{selectionsUnread && <> · 分類の選択件数は不明</>} · キーワードで推定{result.estimatedN}件 · 分類できない{result.unclassified}件</p>
+    <p>記録のある{unit} {result.n}件{withSelected && <> · 選択済み{result.selectedN}件</>}{selectionsUnread && <> · 分類の選択件数は不明</>} · キーワードで推定{result.estimatedN}件 · 分類できない{result.unclassified}件</p>
     {result.n === 0 ? <p>{unread > 0 ? `読み込めた記述がありません（記入あり ${String(unread)}件 は読み込める上限を超えたため読み込んでいません。0件という意味ではありません）。` : '分類できる記録はありません。'}</p> : <div className="ar-table-scroll" role="region" aria-label={label} tabIndex={0}><table className="ar-table">
-      <thead><tr><th scope="col">分類</th><th scope="col">{withSelected ? '合計' : '件数（キーワードで推定）'}</th>{withSelected && <><th scope="col">選択済み</th><th scope="col">キーワードで推定</th></>}<th scope="col">nに対する割合</th></tr></thead>
-      <tbody>{result.counts.map(row => <tr key={row.category}><th scope="row">{row.category}</th><td>{row.total}件</td>{withSelected && <><td>{row.selected}件</td><td>{row.estimated}件</td></>}<td>{shareText(row.total, result.n) ?? `n=${String(result.n)}のため出しません`}</td></tr>)}</tbody>
+      <thead><tr><th scope="col">分類</th><th scope="col">{withSelected ? '合計' : '件数（キーワードで推定）'}</th>{withSelected && <><th scope="col">選択済み</th><th scope="col">キーワードで推定</th></>}<th scope="col">割合（5件以上で表示）</th></tr></thead>
+      <tbody>{result.counts.map(row => <tr key={row.category}><th scope="row">{row.category}</th><td>{row.total}件</td>{withSelected && <><td>{row.selected}件</td><td>{row.estimated}件</td></>}<td>{shareText(row.total, result.n) ?? '—'}</td></tr>)}</tbody>
     </table></div>}
-    {result.n > 0 && result.n < 5 && <p className="ar-note">nが5件に満たないため、割合は出さず件数だけを示します。</p>}
+    {result.n > 0 && result.n < 5 && <p className="ar-note">記録のある{unit}が5件に満たないため、割合は出さず件数だけを示します。</p>}
   </>;
 }
 
@@ -101,8 +101,8 @@ export const ReasonCategorySummary = memo(function ReasonCategorySummary({ colle
   const transfer = useMemo(() => classifyTransferReasons(collection), [collection]);
   const multiListing = reasons?.multiListing ?? transfer?.multiListing ?? 0;
   return <div className="ar-categories">
-    <h3>記録欄ごとの件数</h3>
-    <SourceCounts collection={collection} />
+    {/* 記録欄ごとの件数は社内で記録の入り方を確かめるときだけ見るので畳む。 */}
+    <details className="ar-source-counts"><summary>記録欄ごとの件数（社内確認用）</summary><SourceCounts collection={collection} /></details>
     {multiListing > 0 && <p className="ar-note">複数の求人に関連する応募 {multiListing}件 は、ほかの求人と重ねて数えないよう、下の分類の数に入れていません（記録欄ごとの件数には入っています）。</p>}
     <section className="ar-category-group" aria-label="応募理由の分類">
     <h3>応募理由の分類</h3>
