@@ -48,7 +48,7 @@ it('常に出すカードは2枚まで。残りは件数付きの札で、押す
   expect(at(cards, 0).className).toBe('jh-card jh-zero');
   expect(document.querySelector('.jh-rule')).toBeNull();
   expect(moreChips()).toEqual(['直近4週の応募が、前の4週より多い求人 1件', '応募はあるが、前の4週とほぼ同じ求人 0件（薄）', '直近4週の応募が、前の4週より少ない求人 130件', 'データが止まっている求人 0件（薄）', '直近7日に変更 0件（薄）']);
-  expect([...document.querySelectorAll('.jh-note')].map(el => el.textContent)).toContain('掲載中の求人の応募・課金を、媒体（Indeed・AirWork）の週ごとの実績で数えています。媒体の実績：Indeed：最新の週が 10/11 の求人が最も多い（98件）・それより新しい 12件・実績なし 10件 ／ AirWork：実績なし。増減は並べて見るためのもので、原因とは限りません。');
+  expect([...document.querySelectorAll('.jh-note')].map(el => el.textContent)).toContain('掲載中の求人の応募・課金を、媒体（HRハッカー（Indeed）・AirWork）の週ごとの実績で数えています。媒体の実績：HRハッカー（Indeed）：最新の週が 10/11 の求人が最も多い（98件）・それより新しい 12件・実績なし 10件 ／ AirWork：実績なし。増減は並べて見るためのもので、原因とは限りません。');
   // 求人の一覧を読み込んだ時刻は「ⓘ 数え方を見る」の中に置く（媒体の実績の時点とは別）。
   expect(document.querySelector('section[aria-labelledby="jh-look"] .jh-section-head .jc-infotip-body')?.textContent).toContain('求人の一覧を読み込んだ時刻：2026/10/14 10:00。媒体の実績はこの時刻ではなく、週ごとに届いた分までです。');
   expect(screen.queryByText(/効果あり|効果なし|成功|失敗/)).toBeNull();
@@ -179,8 +179,8 @@ it('demo: 常に2枚のカード、残り5枚と直近7日の変更は件数だ�
   expect(within(list).getByRole('columnheader', { name: '課金（直近 4 週）' })).toBeTruthy();
   const rows = within(list).getAllByRole('row').slice(1);
   expect(rows.map(row => row.textContent)).toEqual([
-    '合成求人・配送合成事業所HRハッカー0 → 0 件¥24,0002026/10/11',
-    '合成求人・清掃合成事業所HRハッカー0 → 0 件¥02026/10/11',
+    '合成求人・配送合成事業所HRハッカー（Indeed）0 → 0 件¥24,0002026/10/11',
+    '合成求人・清掃合成事業所HRハッカー（Indeed）0 → 0 件¥02026/10/11',
   ]);
 });
 
@@ -343,18 +343,18 @@ it.each(['ready', 'preparing', 'failed'] as const)('その他が0件で変更が
 });
 
 it.each([
-  { refreshing: true, refresh_failed: false, label: '集計中' },
-  { refreshing: false, refresh_failed: true, label: '取得できませんでした' },
-  { refreshing: true, refresh_failed: true, label: '集計中' },
-])('前回0件でも変更の入口を「$label」で残す（%#）', async ({ refreshing, refresh_failed, label }) => {
+  { refreshing: true, refresh_failed: false },
+  { refreshing: false, refresh_failed: true },
+  { refreshing: true, refresh_failed: true },
+])('前回の集計が0件なら、作り直し中・作り直しの失敗の間も変更の入口を0件で出す（%#）', async ({ refreshing, refresh_failed }) => {
   api.mockResolvedValue({ ok: true, data: { ...response, home: { ...response.home, cards: response.home.cards.map(item => ({ ...item, count: 0, listings: [] })) } } });
   recentApi.mockResolvedValue({ ok: true, data: { status: 'ready', report: { count: 0, listings: [] }, refreshing, refresh_failed } });
   renderHome();
   await screen.findByRole('button', { name: /課金が高いまま応募が少ない求人/ });
   await waitFor(() => {
-    expect(moreChips().at(-1)).toBe(`直近7日に変更 ${label}`);
+    expect(moreChips().at(-1)).toBe('直近7日に変更 0件（薄）');
   });
-  fireEvent.click(screen.getByRole('button', { name: `直近7日に変更 ${label}` }));
+  fireEvent.click(screen.getByRole('button', { name: /^直近7日に変更/ }));
   expect(screen.getByRole('region', { name: '直近7日に変更の一覧' }).querySelector('h3')?.textContent).toBe('直近7日に変更（0件）');
   if (refresh_failed) expect(screen.getByText('最新の情報を読み込めなかったため、前回取得した件数を表示しています。時間を置いて再読み込みしてください。').textContent).toContain('前回取得した件数');
 });

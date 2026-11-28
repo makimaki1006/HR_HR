@@ -8,8 +8,8 @@ export type DealBoardResponse = { status: 'preparing' | 'failed' } | {
 export const dealSorts = [
   ['priority', 'タグが多い順 → 金額が多い順'], ['name', '案件名'], ['company', '顧客名'], ['reasons', 'タグ'],
   ['consultant', '担当'], ['stage', 'ステージ'], ['months', '何ヶ月目'], ['days_left', '満了まで'],
-  ['last_contact', '最後の接触'], ['last_mtg', '最後のMTG'], ['nps', '定期の満足度'], ['applications', '案件に記録された応募'],
-  ['recent_applications', '応募（直近4週）'], ['interviews', '面接'], ['hires', '採用'], ['achievement', '採用目標に対して'], ['cpa', '採用単価'], ['amount', '金額'],
+  ['last_contact', '最後の接触'], ['last_mtg', '最後のMTG'], ['nps', '定期の満足度'], ['applications', '案件に記録された応募（累計）'],
+  ['recent_applications', '応募（HubSpot・直近4週）'], ['interviews', '面接'], ['hires', '採用'], ['achievement', '採用目標に対して'], ['cpa', '採用単価'], ['amount', '金額'],
 ] as const;
 export type DealSort = typeof dealSorts[number][0];
 export function sortDeals(rows: DealRow[], sort: DealSort, descending: boolean): DealRow[] {

@@ -194,7 +194,7 @@ pub(super) fn reasons(
             add(
                 "stalled",
                 format!(
-                    "直近{APPLICATION_DAYS}日の応募 0 件（掲載中 {} 件）",
+                    "直近{APPLICATION_DAYS}日の応募 0 件（掲載中の求人 {} 件）",
                     facts.live
                 ),
             );

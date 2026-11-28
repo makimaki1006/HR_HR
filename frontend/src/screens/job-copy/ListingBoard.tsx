@@ -91,6 +91,6 @@ export function ListingBoard() {
       </table>
     </section>
     <PageNav className="ob-paging" label="求人のページ送り" size={PAGE} hasPrev={!busy && offset > 0} hasNext={!busy && page?.status === 'ready' && page.next_offset !== null} onPrev={() => { setOffset(Math.max(0, offset - PAGE)); }} onNext={() => { if (page?.status === 'ready' && page.next_offset !== null) setOffset(page.next_offset); }}>{page?.status === 'ready' ? total ? `${String(offset + 1)}〜${String(offset + rows.length)} 件目 ／ ${String(total)} 件` : '0 件' : ''}</PageNav>
-    <p className="ob-note">応募（HubSpot）は、求人に記録された応募の全期間の件数です。媒体の応募は Indeed・AirWork の週ごとの実績で、参考に出しています。並びは掲載中の求人を先に、媒体の直近 4 週の応募が多い順です。</p>
+    <p className="ob-note">応募（HubSpot）は、求人に記録された応募の全期間の件数です。媒体の応募は HRハッカー（Indeed）・AirWork の週ごとの実績で、参考に出しています。並びは掲載中の求人を先に、媒体の直近 4 週の応募が多い順です。</p>
   </div>;
 }

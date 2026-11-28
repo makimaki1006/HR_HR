@@ -13,7 +13,7 @@ const week = (index: number, value: number | null): LifelineWeek => ({
 });
 const lifeline = (count: number, value: number | null = 12): Lifeline => ({
   weeks: Array.from({ length: count }, (_, index) => week(index, value)),
-  startIndex: 0, endIndex: null, todayIndex: count - 1, hasPerformance: true, mediaLabel: 'Indeed',
+  startIndex: 0, endIndex: null, todayIndex: count - 1, hasPerformance: true, mediaLabel: 'HRハッカー（Indeed）',
 });
 
 describe('列の幅の決まり', () => {
