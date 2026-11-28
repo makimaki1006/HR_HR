@@ -228,5 +228,5 @@ a.jc-row-name, .jc-app a.jc-row-name { color: #0a5fb4; text-decoration: none; }
 .jh-home .jh-customers-head > .jc-open { margin: 0; }
 
 /* 求人の画面の上の「顧客：○○ ・ 案件：○○」 */
-.jc-listing-parents { margin: 2px 0 10px; font-size: 13px; color: #52697a; }
+.jc-listing-parents { margin: 2px 0 10px; padding: 0 32px; font-size: 13px; color: #52697a; }
 .jc-listing-parents .jc-go { font-size: 13px; }
