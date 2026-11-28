@@ -68,7 +68,7 @@ test('案件一覧の印・日付・並べ替え・絞り込み・20件送りと
   await marks.getByRole('button', { name: 'すべて 23', exact: true }).click();
   // 既定の列は 8 つ。採用・採用単価・金額・採用目標は「詳しい数字」を開くと出る
   await expect(page.getByRole('region', { name: '絞り込み中の応募数' }).locator('strong')).toHaveText(['24件', '1件', '+23件']);
-  await expect(table.locator('thead th')).toHaveText(['案件・顧客 ⇅', 'タグ ⇅', '応募（直近4週） ⇅', '満了まで ⇅', '最後の接触 ⇅', '最後のMTG ⇅', '満足度 ⇅', '担当 ⇅', '詳しい数字・詳細']);
+  await expect(table.locator('thead th')).toHaveText(['案件・顧客 ⇅', 'タグ ⇅', '応募（HubSpot・直近4週） ⇅', '満了まで ⇅', '最後の接触 ⇅', '最後のMTG ⇅', '満足度 ⇅', '担当 ⇅', '詳しい数字・詳細']);
   // 「順調」は印の先頭（すべての次）に並ぶ
   await expect(marks.getByRole('button').nth(1)).toHaveText(/^順調\s*2$/);
   const good = marks.getByRole('button', { name: '順調 2', exact: true });
@@ -89,13 +89,13 @@ test('案件一覧の印・日付・並べ替え・絞り込み・20件送りと
   await expect(table.locator('.db-detail tbody td').last()).toContainText('2 / 10人');
   await table.getByRole('button', { name: '架空の採用支援01の詳しい数字を開く' }).click();
   await expect(table.locator('.db-detail')).toHaveCount(0);
-  await table.getByRole('columnheader', { name: /応募（直近4週）/ }).getByRole('button').click();
-  await expect(table.getByRole('columnheader', { name: /応募（直近4週）/ })).toHaveAttribute('aria-sort', 'descending');
+  await table.getByRole('columnheader', { name: /応募（HubSpot・直近4週）/ }).getByRole('button').click();
+  await expect(table.getByRole('columnheader', { name: /応募（HubSpot・直近4週）/ })).toHaveAttribute('aria-sort', 'descending');
   await expect(table.locator('tbody > tr').first()).toContainText('架空の採用支援24');
-  await table.getByRole('columnheader', { name: /応募（直近4週）/ }).getByRole('button').click();
-  await expect(table.getByRole('columnheader', { name: /応募（直近4週）/ })).toHaveAttribute('aria-sort', 'ascending');
+  await table.getByRole('columnheader', { name: /応募（HubSpot・直近4週）/ }).getByRole('button').click();
+  await expect(table.getByRole('columnheader', { name: /応募（HubSpot・直近4週）/ })).toHaveAttribute('aria-sort', 'ascending');
   await expect(table.locator('tbody > tr').first()).toContainText('架空の採用支援01');
-  await table.getByRole('columnheader', { name: /応募（直近4週）/ }).getByRole('button').click();
+  await table.getByRole('columnheader', { name: /応募（HubSpot・直近4週）/ }).getByRole('button').click();
   await page.getByRole('button', { name: '次の20件' }).click();
   await expect(page.getByText('23件・2 / 2ページ')).toBeVisible();
   await expect(table.locator('tbody > tr:not(.db-detail)')).toHaveCount(3);
@@ -113,7 +113,9 @@ test('案件一覧の印・日付・並べ替え・絞り込み・20件送りと
   const overflow = await page.locator('.db-board').evaluate(el => el.scrollWidth > el.clientWidth);
   expect(overflow).toBe(false);
 
-  await page.getByRole('button', { name: '架空の採用支援01', exact: true }).click();
+  // 案件名は案件のページへのリンク、小窓は「詳細 ▸」で開く。
+  await expect(page.getByRole('link', { name: '架空の採用支援01', exact: true })).toHaveAttribute('href', /[?&]deal=100(?:&|$)/);
+  await page.getByRole('button', { name: '架空の採用支援01の詳細を開く', exact: true }).click();
   await expect(page).toHaveURL(/risk_deal=100/);
   const detail = page.getByRole('dialog');
   await expect(detail).toBeVisible();

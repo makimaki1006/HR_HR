@@ -40,18 +40,18 @@ function stub(goodIds: string[] | 'fail' = ['101', '103'], deals: DealRow[] = ro
 const open = async (query = '') => {
   window.history.replaceState(null, '', `/app/job-copy?view=deals&owner=11${query}`);
   render(<DealBoard />);
-  await screen.findByRole('button', { name: row(0).name ?? '' });
+  await screen.findByRole('link', { name: row(0).name ?? '' });
 };
-const names = () => within(screen.getByRole('table')).getAllByRole('row').slice(1).map(r => r.querySelector('th button')?.textContent);
+const names = () => within(screen.getByRole('table')).getAllByRole('row').slice(1).map(r => r.querySelector('th .jc-row-name')?.textContent);
 
 it('既定の列は8つで、採用・採用単価・金額・採用目標は行の「詳しい数字」を開くと見られる', async () => {
   stub(); await open();
   const headers = [...screen.getByRole('table').querySelectorAll('thead th')].map(th => th.textContent.replace(/ ⇅| ▼| ▲/gu, ''));
-  expect(headers).toEqual(['案件・顧客', 'タグ', '応募（直近4週）', '満了まで', '最後の接触', '最後のMTG', '満足度', '担当', '詳しい数字・詳細']);
+  expect(headers).toEqual(['案件・顧客', 'タグ', '応募（HubSpot・直近4週）', '満了まで', '最後の接触', '最後のMTG', '満足度', '担当', '詳しい数字・詳細']);
   expect(screen.queryByRole('button', { name: /^(採用|採用単価|金額|採用目標に対して) / })).toBeNull();
   fireEvent.click(screen.getByRole('button', { name: `${row(0).name ?? ''}の詳しい数字を開く` }));
   const detail = within(screen.getByRole('table', { name: `${row(0).name ?? ''}の詳しい数字` }));
-  expect(detail.getAllByRole('columnheader').map(th => th.textContent.replace(/ ⇅/u, ''))).toEqual(['顧客名', 'ステージ', '何ヶ月目', '定期の満足度', '案件に記録された応募', '面接', '採用', '採用単価', '金額', '採用目標に対して']);
+  expect(detail.getAllByRole('columnheader').map(th => th.textContent.replace(/ ⇅/u, ''))).toEqual(['顧客名', 'ステージ', '何ヶ月目', '定期の満足度', '案件に記録された応募（累計）', '面接', '採用', '採用単価', '金額', '採用目標に対して']);
   const cells = detail.getAllByRole('cell').map(td => td.textContent);
   expect(cells).toContain(yen(100_000));
   expect(cells).toContain(yen(50_000));
@@ -147,7 +147,7 @@ it('MTGが60日以上空いている（60日以上）と MTGが30〜59日空い�
   await waitFor(() => { expect(names()).toEqual([row(1).name]); });
   fireEvent.click(within(filters).getByRole('button', { name: 'MTGが30〜59日空いている 1' }));
   await waitFor(() => { expect(names()).toHaveLength(4); });
-  const cell = (r: DealRow) => screen.getByRole('button', { name: r.name ?? '' }).closest('tr')?.querySelectorAll('td')[3]?.textContent;
+  const cell = (r: DealRow) => screen.getByRole('link', { name: r.name ?? '' }).closest('tr')?.querySelectorAll('td')[3]?.textContent;
   expect(cell(row(0))).toBe('2026/10/12最後のメール 2026/10/14');
   expect(cell(row(2))).toBe('2026/10/12');
   expect(cell(row(23))).toBe('記録なし（対象外）');

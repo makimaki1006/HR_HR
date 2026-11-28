@@ -315,7 +315,7 @@ for (const width of [1280, 1440]) test(`数値のある1週の求人で印と応
   await expect(page.locator('.lf-marker')).toHaveCount(2);
   // 1週だけの求人は列が横幅いっぱいに広がるので、桁の多い数も縮めずに出す。
   for (const [label, displayed] of [
-    ['応募数（Indeedの集計）', '987,654,321'],
+    ['応募数（HRハッカー・Indeed の集計）', '987,654,321'],
     ['課金（週）', '¥987,654,321'],
   ]) {
     const cell = page.locator(`.lf-row[aria-label="${label}"] .lf-cell`);

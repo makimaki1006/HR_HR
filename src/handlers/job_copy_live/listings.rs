@@ -2077,7 +2077,7 @@ pub(super) async fn read_versions(
         StatusCode::SERVICE_UNAVAILABLE,
         "market_data_unavailable",
     ))?;
-    let row = listing(&record).ok_or(ReadError(
+    let mut row = listing(&record).ok_or(ReadError(
         StatusCode::UNPROCESSABLE_ENTITY,
         "listing_media_unknown",
     ))?;
@@ -2115,15 +2115,23 @@ pub(super) async fn read_versions(
     let can_write_drafts = state.audit.is_some() && super::drafts::Writes::from_env().allows(&id);
     // Use the same acquired counts as the list/deal table, across the entire index.
     // An absent index/record/count stays unknown; no additional HubSpot read is needed.
-    let application_count = service(&access)?
-        .listing_index
-        .state
-        .read()
-        .await
-        .snapshot
-        .as_ref()
-        .and_then(|index| index.records.iter().find(|item| item.id == id))
-        .and_then(|item| item.indexed_application_count);
+    // 結び付いた案件も同じ索引から写す（求人1件の読み取りには案件の関連が無く、求人の画面の「顧客・案件」に要る）。
+    let (application_count, indexed_deal_ids) = {
+        let index = service(&access)?.listing_index.state.read().await;
+        let item = index
+            .snapshot
+            .as_ref()
+            .and_then(|index| index.records.iter().find(|item| item.id == id));
+        (
+            item.and_then(|item| item.indexed_application_count),
+            item.map(|item| item.deal_ids.clone()),
+        )
+    };
+    if row.deal_ids.is_empty() {
+        if let Some(ids) = indexed_deal_ids {
+            row.deal_ids = ids;
+        }
+    }
 
     Ok((
         [(header::CACHE_CONTROL, "private, no-store")],

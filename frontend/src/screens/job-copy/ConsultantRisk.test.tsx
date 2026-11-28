@@ -61,17 +61,19 @@ it.each([true, false])('新旧のタグ・開始日・詳細・求人リンク�
   expect(within(mixed).getAllByRole('cell')[3]?.textContent).toBe('1日前');
   const ongoing = screen.getByRole('region', { name: '前回から続いている案件' });
   expect(within(ongoing).getByRole('heading', { level: 2 }).textContent).toBe('前回から続いている案件 1件');
-  expect(within(ongoing).getAllByRole('button').map(el => el.textContent)).toEqual(['架空の採用支援C', '詳細 ▸']);
+  expect(within(ongoing).getAllByRole('button').map(el => el.textContent)).toEqual(['詳細 ▸']);
+  expect(within(ongoing).getByRole('link', { name: '架空の採用支援C' }).getAttribute('href')).toContain('deal=');
   expect(ongoing.textContent).toContain('2026/10/16から');
-  expect(screen.getAllByRole('button', { name: riskRow.name })).toHaveLength(1);
-  fireEvent.click(within(fresh).getByRole('button', { name: riskRow.name }));
+  expect(screen.getAllByRole('link', { name: riskRow.name })).toHaveLength(1);
+  fireEvent.click(within(fresh).getByRole('button', { name: `${riskRow.name}の詳細を開く` }));
   const dialog = await screen.findByRole('dialog');
   expect(await within(dialog).findByText('採用状況を確認し、次の打ち合わせを決めた。')).toBeTruthy();
   expect(fact(dialog, '最後の接触')).toBe('1日前'); expect(fact(dialog, '最後のMTG')).toBe('2026/10/01');
   expect(detailFixture.events[0]).toMatchObject({ date: '2026-10-18', duration_sec: 120, contact: true });
   expect(within(dialog).getByRole('button', { name: 'この予定を済みにして、次の予定を入れる…' })).toBeTruthy();
-  const link = await within(dialog).findByRole('link', { name: '求人を見る' });
-  expect(link.getAttribute('href')).toContain('deal=101'); expect(link.getAttribute('href')?.includes('listing=501')).toBe(single);
+  // 求人が 1 件だけの案件にだけ、その求人の画面へ進むリンクを出す
+  if (single) { const link = await within(dialog).findByRole('link', { name: '求人の画面を開く' }); expect(link.getAttribute('href')).toContain('deal=101'); expect(link.getAttribute('href')).toContain('listing=501'); }
+  else { await waitFor(() => { expect(within(dialog).queryByText('求人を確認しています…')).toBeNull(); }); expect(within(dialog).queryByRole('link', { name: '求人の画面を開く' })).toBeNull(); }
   expect((await within(dialog).findByRole('link', { name: 'HubSpotで開く' })).getAttribute('href')).toBe('https://app.hubspot.com/contacts/123/record/0-3/101');
 });
 it('既定はタグ2本以上。1本だけの案件は件数を添えて外し、切り替えで出す', async () => {
@@ -80,11 +82,11 @@ it('既定はタグ2本以上。1本だけの案件は件数を添えて外し�
   const fresh = await screen.findByRole('region', { name: '新しくタグが付いた案件' });
   expect(within(fresh).getByRole('heading', { level: 2 }).textContent).toBe('新しくタグが付いた案件 1件');
   expect(screen.getByRole('region', { name: '前回から続いている案件' }).textContent).toContain('該当する案件はありません。');
-  expect(screen.queryByRole('button', { name: '架空の採用支援C' })).toBeNull();
-  expect(screen.getByRole('note').textContent).toContain('タグが2つ以上の案件 1件を出しています（コンサルKPIの「今日」と同じ基準）。タグが1つだけの案件 2件は出していません。');
+  expect(screen.queryByRole('link', { name: '架空の採用支援C' })).toBeNull();
+  expect(screen.getByRole('note').textContent).toContain('タグが2つ以上の案件 1件を出しています（コンサルKPIの画面にある「今日」と同じ基準）。タグが1つだけの案件 2件は出していません。');
   fireEvent.click(screen.getByRole('checkbox', { name: 'タグが1つだけの案件も出す' }));
   expect(new URLSearchParams(window.location.search).get('risk_all')).toBe('1');
-  expect((await screen.findByRole('button', { name: '架空の採用支援C' })).textContent).toBe('架空の採用支援C');
+  expect((await screen.findByRole('link', { name: '架空の採用支援C' })).textContent).toBe('架空の採用支援C');
   expect(screen.getByRole('note').textContent).toContain('タグが1つだけの案件 2件を含めて 3件を出しています。');
   fireEvent.click(screen.getByRole('checkbox', { name: 'タグが1つだけの案件も出す' }));
   expect(new URLSearchParams(window.location.search).has('risk_all')).toBe(false);

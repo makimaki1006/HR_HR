@@ -62,6 +62,8 @@ async function open(page: Page, capturedAt = defaultCapturedAt, options: { serie
   expect(calls.filter(search => search.includes('title='))).toHaveLength(0);
   // 職種の指定は「市場の今」の欄から行う（横画面が開いている間は操作できないので閉じる）
   await closeOtherAnalysis(page);
+  // 職種が未指定の「市場の今」は1行に畳まれているので、開いてから指定する。
+  await page.getByTestId('market-collapsed').locator('summary').click();
   await page.getByRole('button', { name: '職種を指定する', exact: true }).click();
   const drawer = page.getByRole('dialog', { name: '市場と比べる職種を指定する' });
   await drawer.getByLabel('配送ドライバー', { exact: true }).check();
@@ -178,6 +180,8 @@ test.describe('案件管理のタイムライン', () => {
     // 保存先は合成の応答なので、再読み込みで職種は未指定に戻る。指定し直すと市場が出る
     await expect(timeline).toContainText('市場と比べる職種が未指定です');
     await closeOtherAnalysis(page);
+    // 職種が未指定の「市場の今」は1行に畳まれているので、開いてから指定する。
+    await page.getByTestId('market-collapsed').locator('summary').click();
     await page.getByRole('button', { name: '職種を指定する', exact: true }).click();
     const drawer = page.getByRole('dialog', { name: '市場と比べる職種を指定する' });
     await drawer.getByLabel('配送ドライバー', { exact: true }).check();

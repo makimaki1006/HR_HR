@@ -178,8 +178,9 @@ export function manageEditScenarios(login?: (page: Page) => Promise<void>) {
       // 「文面を手直しする」の札を押すと、今の文面で手直しが始まる
       await openWork(page);
       const editor = page.getByRole('region', { name: '求人の手直し' });
-      await expect(editor.locator('.jc-manual-fields textarea')).toHaveCount(81);
-      await expect(editor.locator('.jc-manual-fields input')).toHaveCount(0);
+      // 編集できる81項目は、主な項目と値のある項目が上に、残りの空欄の項目は「ほかの項目」に畳んで出る。
+      await expect(editor.locator('.jc-manual-fields').locator('textarea, input')).toHaveCount(81);
+      await expect(editor.locator('.jc-manual-more')).not.toHaveAttribute('open');
       await expect(editor.locator('.jc-management-fields')).not.toHaveAttribute('open');
       await expect(editor).not.toContainText(/基本給与|求人id|店舗id|職種id|secret-/);
       await editor.getByLabel('給与の下限', { exact: true }).fill('270000');

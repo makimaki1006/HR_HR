@@ -14,8 +14,10 @@ export interface ListingNavigation {
 /**
  * 求人の内容の小窓。今の内容を見る専用（2026-11-16）。前の本文と比べたいときは、全文比較を開く。
  */
-export function ListingPopup({ job, version, onClose, returnFocus, navigation }: {
+export function ListingPopup({ job, version, onClose, returnFocus, navigation, onOpenPage }: {
   job: JobCopyRecord; version?: CopyVersion | undefined; onClose: () => void; returnFocus?: HTMLElement | null; navigation?: ListingNavigation | undefined;
+  /** 指定があれば、小窓の上に「求人の画面を開く」を出す（案件のページなど、求人の画面の外から開いたとき）。 */
+  onOpenPage?: ((job: JobCopyRecord) => void) | undefined;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const scroller = useRef<HTMLDivElement>(null);
@@ -82,7 +84,7 @@ export function ListingPopup({ job, version, onClose, returnFocus, navigation }:
       const bounds = event.currentTarget.getBoundingClientRect();
       if (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom) onClose();
     }}>
-    <header className="jc-listing-popup-heading"><div><span>求人の内容</span><h2 id={headingId}>{model.title}</h2>{index >= 0 && total > 1 && <nav aria-label="求人の切り替え">{index > 0 && <button className="jc-button" disabled={busy} onClick={() => { void navigate(-1); }}>‹ 前の求人</button>}<span>{`${String(index + 1)} / ${String(total)}件目`}</span>{index < total - 1 && <button className="jc-button" disabled={busy} onClick={() => { void navigate(1); }}>次の求人 ›</button>}</nav>}</div><button type="button" className="jc-button jc-listing-close" aria-label="求人の内容を閉じる" onClick={onClose}>閉じる</button></header>
+    <header className="jc-listing-popup-heading"><div><span>求人の内容</span><h2 id={headingId}>{model.title}</h2>{index >= 0 && total > 1 && <nav aria-label="求人の切り替え">{index > 0 && <button className="jc-button" disabled={busy} onClick={() => { void navigate(-1); }}>‹ 前の求人</button>}<span>{`${String(index + 1)} / ${String(total)}件目`}</span>{index < total - 1 && <button className="jc-button" disabled={busy} onClick={() => { void navigate(1); }}>次の求人 ›</button>}</nav>}</div><div className="jc-listing-popup-actions">{onOpenPage && <button type="button" className="jc-button" disabled={busy} onClick={() => { onOpenPage(displayed); }}>求人の画面を開く<span aria-hidden="true"> ›</span></button>}<button type="button" className="jc-button jc-listing-close" aria-label="求人の内容を閉じる" onClick={onClose}>閉じる</button></div></header>
     <div ref={scroller} className="jc-listing-popup-scroll" aria-busy={busy}>
       {busy && <p role="status">求人の内容を読み込んでいます…</p>}{error && <p role="alert">{error}</p>}
       <dl className="jc-listing-popup-summary">{[['求人名', model.title], ['媒体', displayed.media], ['公開状況', model.publication], ['勤務地', model.location], ['給与', model.salary], ['応募数', model.applications]].map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>
@@ -101,4 +103,26 @@ export function ListingPopup({ job, version, onClose, returnFocus, navigation }:
     </div>
     <FullTextCompareDialog record={displayed} open={compareOpen} onClose={() => { setCompareOpen(false); }} initialLeft={previous?.id} initialRight={selectedVersion?.id} />
   </dialog>;
+}
+
+/**
+ * 求人のページの上の方に出す、本文と主な条件の要点。毎回見る給与・勤務時間・休日と本文の出だしだけを出し、
+ * 全部は「求人の内容」の小窓で見る。値は小窓と同じ作り方（listingPopupModel）から取る。
+ */
+export function ListingGist({ job, version, onOpenListing }: { job: JobCopyRecord; version?: CopyVersion | undefined; onOpenListing: () => void }) {
+  const model = listingPopupModel(job, version);
+  if (!model.bodyAvailable) return null;
+  const entries = model.sections.flatMap(section => section.entries.map(entry => ({ ...entry, heading: section.heading })));
+  const value = (...keys: string[]) => entries.find(entry => keys.includes(entry.key) && !entry.unavailable)?.value.trim() ?? '';
+  const catchCopy = value('キャッチコピー');
+  const body = value('仕事内容');
+  // 本文から読めなかった項目は出さない（「取得できていません」を並べない）。
+  const items = ([['給与', model.salary], ['勤務時間', value('勤務時間')], ['休日・休暇', value('休日・休暇', '休日休暇')], ['勤務地', model.location]] as [string, string][])
+    .filter(([, text]) => text !== '取得できていません');
+  return <section className="lo-card jc-listing-gist" aria-label="求人の要点" data-testid="listing-gist">
+    <div className="lo-head"><h2>求人の要点</h2><button type="button" className="jc-open" onClick={onOpenListing}>求人の内容をすべて見る ▸</button></div>
+    {catchCopy && <p className="jc-listing-gist-catch">{catchCopy}</p>}
+    {items.length > 0 && <dl className="jc-listing-gist-items">{items.map(([label, text]) => <div key={label}><dt>{label}</dt><dd>{text || '記載なし'}</dd></div>)}</dl>}
+    {body && <p className="jc-listing-gist-body">{body}</p>}
+  </section>;
 }

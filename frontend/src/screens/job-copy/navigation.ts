@@ -37,3 +37,10 @@ export function reportUrl(target: { scope: 'deal' | 'listing'; id: string }): st
 export function closeReport() {
   updateJobCopyQuery({ report: null });
 }
+
+// 一覧で分かっている案件名を、案件のページを開いた直後の見出しに使う（読み込みが終わるまでの間）。
+const dealNames = new Map<string, string>();
+export function rememberDealName(id: string, name: string | null | undefined) {
+  if (name?.trim()) dealNames.set(id, name);
+}
+export const knownDealName = (id: string) => dealNames.get(id) ?? '';

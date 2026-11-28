@@ -43,7 +43,7 @@ test('掲載開始は課金の最初の週。応募は日別に出て、本文�
   await expect(events).toContainText('HubSpot に本文を記録しはじめた');
   await expect(page.getByText('応募を取得した日が分からない')).toHaveCount(0);
   await expect(events).not.toContainText('応募の件数が分かりません');
-  await expect(page.getByTestId('lifeline')).toContainText('応募数（Indeedの集計）');
+  await expect(page.getByTestId('lifeline')).toContainText('応募数（HRハッカー・Indeed の集計）');
   await expect(events).toContainText('掲載が復活');
   await events.getByRole('button', { name: /男性/ }).last().click();
   await expect(page.getByTestId('lifeline-selected')).toBeVisible();

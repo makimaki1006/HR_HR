@@ -95,8 +95,12 @@ async function loadMtgDates(id: string, signal: AbortSignal): Promise<string[] |
 }
 
 export type LoadResult = { ok: true; input: ReportInput } | { ok: false; message: string };
+/** 先に出した後で読み終えた分（案件の応募者）。読み終えた入力を渡す。 */
+type OnUpdate = (input: ReportInput) => void;
+/** 応募者を読んでいる間の値。応募者を使うのは最初は入れない補足のスライドだけなので、先に画面を出す。 */
+const APPLICANTS_LOADING: ReportApplicants = { rows: null, reasons: null, missingReason: '応募者を読み込んでいる途中のため（少し待つと入ります）' };
 
-async function loadDeal(id: string, signal: AbortSignal): Promise<LoadResult> {
+async function loadDeal(id: string, signal: AbortSignal, onUpdate: OnUpdate): Promise<LoadResult> {
   const [data, detail, mtgDates] = await Promise.all([
     loadDealData(id, '', signal),
     apiGet<WorkspaceResponse>(`/api/crm/workspace/deals/${encodeURIComponent(id)}?${new URLSearchParams({ deal_props: 'mensetu,syoudaku' }).toString()}`, { signal, timeoutMs: 35_000 }),
@@ -109,18 +113,23 @@ async function loadDeal(id: string, signal: AbortSignal): Promise<LoadResult> {
   const inputs: DealListingInput[] = data.rows.map(row => ({ id: row.id, title: row.title ?? '', media: row.media, ended: false, byDate: data.applications.get(row.id) ?? null, billing: [], fetchedDate: data.fetched.get(row.id) ?? null }));
   // 応募日別に1件も無いと分かっている求人は読まない（期間の応募者・理由は応募日で数えるので、入るものが無い）。
   const wanted = listings.filter(listing => listing.byDate === null || Object.values(listing.byDate).some(count => count > 0));
-  const loaded = wanted.length > APPLICANT_LISTING_LIMIT ? [] : await eachLimited(wanted, 3, listing => loadApplicationDates(listing.id, signal).catch(() => null));
-  if (signal.aborted) return { ok: false, message: '' };
   const values = detail.ok && !detail.data.partial.some(part => part.part === 'selected_properties') ? detail.data.selected.deal : null;
   const count = (value: string | null | undefined) => { const n = value == null || value === '' ? NaN : Number(value); return Number.isFinite(n) && n >= 0 ? Math.round(n) : null; };
-  return { ok: true, input: {
+  const input: ReportInput = {
     scope: 'deal', id, name: (detail.ok ? detail.data.deal.name : null) ?? null, company: data.company?.name ?? null,
     listings, overlap: data.overlap, asOf: dealCutoff(inputs) ?? todayJst(),
     outcomes: values ? { interviews: count(values.mensetu), hires: count(values.syoudaku), readOn: todayJst() } : null, outcomesFailed: !values,
-    applicants: combineApplicants(loaded, wanted.length > APPLICANT_LISTING_LIMIT ? wanted.length : 0, 'deal'),
+    applicants: APPLICANTS_LOADING,
     partial: data.capped ? ['求人が多いため、先頭の50件までしか読んでいません'] : [],
     mtgDates,
-  } };
+  };
+  // 求人ごとの応募者は時間がかかるので待たずに画面を出し、読み終えたら入れ替える。
+  if (wanted.length > APPLICANT_LISTING_LIMIT) return { ok: true, input: { ...input, applicants: combineApplicants([], wanted.length, 'deal') } };
+  if (!wanted.length) return { ok: true, input: { ...input, applicants: combineApplicants([], 0, 'deal') } };
+  void eachLimited(wanted, 3, listing => loadApplicationDates(listing.id, signal).catch(() => null)).then(loaded => {
+    if (!signal.aborted) onUpdate({ ...input, applicants: combineApplicants(loaded, 0, 'deal') });
+  });
+  return { ok: true, input };
 }
 
 async function loadListing(id: string, signal: AbortSignal): Promise<LoadResult> {
@@ -149,10 +158,16 @@ const loadedReports = new Map<string, ReportInput>();
 export function cachedReportInput(target: ReportTarget): ReportInput | undefined {
   return loadedReports.get(reportParam(target));
 }
-export function loadReportInput(target: ReportTarget, signal: AbortSignal, options: { fresh?: boolean } = {}): Promise<LoadResult> {
+/**
+ * onUpdate: 案件の応募者を読み終えたときに、入れ替えた入力を渡す。
+ * 途中の入力（応募者を読んでいる間）は残さず、読み終えたものだけをこのタブに残す。
+ */
+export function loadReportInput(target: ReportTarget, signal: AbortSignal, options: { fresh?: boolean; onUpdate?: OnUpdate } = {}): Promise<LoadResult> {
   const kept = options.fresh ? undefined : cachedReportInput(target);
   if (kept) return Promise.resolve({ ok: true, input: kept });
-  return (target.scope === 'deal' ? loadDeal(target.id, signal) : loadListing(target.id, signal))
-    .then(result => { if (result.ok) loadedReports.set(reportParam(target), result.input); return result; })
+  const keep = (input: ReportInput) => { if (input.applicants !== APPLICANTS_LOADING) loadedReports.set(reportParam(target), input); };
+  const onUpdate: OnUpdate = input => { keep(input); options.onUpdate?.(input); };
+  return (target.scope === 'deal' ? loadDeal(target.id, signal, onUpdate) : loadListing(target.id, signal))
+    .then(result => { if (result.ok) keep(result.input); return result; })
     .catch(() => ({ ok: false as const, message: signal.aborted ? '' : '読み込めませんでした。時間を置いてもう一度開いてください。' }));
 }

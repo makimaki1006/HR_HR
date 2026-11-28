@@ -110,13 +110,13 @@ export function OccupationBulk() {
       <p>求人ごとに、Indeed のどの職種と比べるかを指定します。自動では決めません。指定した求人から、市場の数字（競合の求人数・求人を見た人）がつながります。掲載中で、直近 4 週の応募が多い求人から並べています。</p>
       <details className="ob-save-note"><summary>指定の保存先と、指定しない求人</summary><p>指定は求人 1 件ずつです。HubSpot の求人の項目「比べる Indeed 職種」に入るので、HubSpot の画面からも直せます。指定していない求人は、市場との比較を出しません。</p></details>
       <div className="ob-progress">
-        <div><strong data-testid="ob-live-progress">{live ? `掲載中 ${String(liveTotal)}件のうち ${String(liveDone)}件を指定済み` : '掲載中の求人を数えています'}</strong></div>
+        <div><strong data-testid="ob-live-progress">{live ? `掲載中 ${liveTotal.toLocaleString('ja-JP')}件のうち ${liveDone.toLocaleString('ja-JP')}件を指定済み` : '掲載中の求人を数えています'}</strong></div>
         <div className="ob-bar" role="progressbar" aria-label="職種を指定済みの掲載中の求人" aria-valuemin={0} aria-valuemax={liveTotal} aria-valuenow={liveDone}><span style={{ width: `${String(percent(liveDone, liveTotal))}%` }} /></div>
       </div>
     </section>
     {deal && <div className="ob-deal" role="status"><span><strong>{dealName || '選んだ案件'}</strong> の求人だけを表示しています</span><button type="button" className="jc-button" onClick={() => { updateJobCopyQuery({ deal: null }); setOffset(0); }}>すべてに戻す</button></div>}
     <div className="ob-controls">
-      <div role="tablist" aria-label="状態">{tabs.map(([id, label, count]) => <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => { setTab(id); setOffset(0); }}>{label}（{count ?? '—'}）</button>)}</div>
+      <div role="tablist" aria-label="状態">{tabs.map(([id, label, count]) => <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => { setTab(id); setOffset(0); }}>{label}（{count?.toLocaleString('ja-JP') ?? '—'}）</button>)}</div>
       <span className="ob-tab-note">タブの件数は、掲載を終えた求人も含めて数えています</span>
       <label className="ob-search"><span className="jc-visually-hidden">求人名・顧客名で探す</span><input type="search" value={text} placeholder="求人名・顧客名で探す" onChange={event => { setText(event.target.value); }} /></label>
     </div>
@@ -134,11 +134,11 @@ export function OccupationBulk() {
       </table>
     </section>
     <div className="ob-paging">
-      <span aria-live="polite">{page?.status === 'ready' ? total ? `${String(offset + 1)}〜${String(offset + rows.length)} 件目 ／ ${String(total)} 件` : '0 件' : ''}</span>
+      <span aria-live="polite">{page?.status === 'ready' ? total ? `${(offset + 1).toLocaleString('ja-JP')}〜${(offset + rows.length).toLocaleString('ja-JP')} 件目 ／ ${total.toLocaleString('ja-JP')} 件` : '0 件' : ''}</span>
       <button type="button" className="jc-button" disabled={busy || offset === 0} onClick={() => { setOffset(Math.max(0, offset - PAGE)); }}>前の{PAGE}件</button>
       <button type="button" className="jc-button" disabled={busy || page?.status !== 'ready' || page.next_offset === null} onClick={() => { if (page?.status === 'ready' && page.next_offset !== null) setOffset(page.next_offset); }}>次の{PAGE}件</button>
     </div>
-    <p className="ob-note">直近 4 週の応募は、媒体（Indeed・AirWork）の週ごとの実績の、最新の続いた 4 週の合計です。4週分の実績がそろっていない求人は「—」です。</p>
+    <p className="ob-note">直近 4 週の応募は、媒体（HRハッカー（Indeed）・AirWork）の週ごとの実績の、最新の続いた 4 週の合計です。4週分の実績がそろっていない求人は「—」です。</p>
   </div>;
 }
 

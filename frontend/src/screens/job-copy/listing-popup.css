@@ -57,3 +57,17 @@
 .jc-listing-comparison:not(.jc-listing-two-columns) .jc-listing-popup-section > :not(h3) { grid-column: 2; max-width: 760px; }
 .jc-listing-comparison:not(.jc-listing-two-columns) .jc-listing-popup-section p { line-height: 1.8; }
 .jc-listing-comparison:not(.jc-listing-two-columns) .jc-listing-image-cell { border-bottom: 0; }
+/* 右上：求人の画面を開く・閉じる */
+.jc-listing-popup-heading > .jc-listing-popup-actions { display:flex; gap:8px; flex-shrink:0; align-items:center; }
+.jc-listing-popup-heading .jc-listing-popup-actions button { font-size:14px; line-height:1.4; }
+.jc-listing-popup-heading .jc-listing-popup-actions button span { font-size:inherit; color:inherit; }
+
+/* 2026-11-28 求人のページの上の方の要点（本文の出だしと主な条件）。 */
+.jc-listing-gist { margin-bottom: 16px; }
+.jc-listing-gist .lo-head { justify-content: space-between; }
+.jc-listing-gist-catch { margin: 8px 0 0; font-weight: 600; white-space: pre-wrap; overflow-wrap: anywhere; }
+.jc-listing-gist-items { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px 20px; margin: 12px 0 0; }
+.jc-listing-gist-items dt { font-size: 12px; color: #52697a; }
+.jc-listing-gist-items dd { margin: 3px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
+.jc-listing-gist-body { margin: 12px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.8; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; color: #25394c; }
+@media (max-width: 1100px) { .jc-listing-gist-items { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

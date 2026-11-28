@@ -29,8 +29,14 @@ function DataLine({ job, n }: { job: JobCopyRecord; n: ReturnType<typeof bandNum
       : <span data-testid="rail-last-application">最後の応募：{application}</span>}
     <span aria-hidden="true"> ／ </span><span data-testid="rail-last-billing">最後の課金：{n.lastBillingDate ? shortDay(n.lastBillingDate) : 'なし'}</span>
     {n.asOf && <><span aria-hidden="true"> ／ </span><span data-testid="rail-fetched">取り込み {shortDay(n.asOf)} 時点</span></>}
-    {n.asOf && <InfoTip className="jc-infotip-left" iconFirst label="4週の数え方"><p>直近4週は、応募を取得した{shortDay(n.asOf)}までの28日、前の4週はその前の28日です。</p></InfoTip>}
+    {n.asOf && <InfoTip className="jc-infotip-left" iconFirst label="4週の数え方"><p>直近4週は、応募を取得した{shortDay(n.asOf)}までの28日、前の4週はその前の28日です。上の応募・応募1件の費用・課金は、どれもこの同じ28日で数えます。</p><p>応募は HubSpot に記録された応募日で数えます。課金はこの28日に入る分を日割りで足します。</p><p>「今日」の画面や顧客の求人の表の分類は、媒体の週ごとの実績（応募・課金とも媒体の集計）の最新の週までの4週で数えるため、ここの数字と違うことがあります。</p></InfoTip>}
   </p>;
+}
+
+/** 課金のカードの小さな文字。直近4週の途中までしか課金の記録が無いときは、記録の最後の日を添える。 */
+function billingNote(n: ReturnType<typeof bandNumbers>): string {
+  if (n.billingRecentYen === null) return n.lastBillingDate && n.recentStart && n.lastBillingDate < n.recentStart ? '直近4週の課金の記録なし' : '課金データなし';
+  return n.lastBillingDate && n.asOf && n.lastBillingDate < n.asOf ? `課金の記録は${shortDay(n.lastBillingDate)}まで` : '';
 }
 
 /** 帯の求人名の下の行の区切り。「・」の前では改行しない。 */
@@ -81,9 +87,9 @@ export function DetailBand({ job, billing, onOpenFullCompare, latestEvent, onOpe
     </div>
     <div className="jc-band-stats">
     <dl className="jc-band-numbers">
-      <div><dt>応募（直近4週）</dt><dd data-testid="band-recent">{n.recent === null ? '—' : `${String(n.recent)}件`}<small>{n.previous === null ? '' : `前の4週は${String(n.previous)}件`}</small></dd></div>
-      <div><dt>応募1件の費用</dt><dd data-testid="band-per-application">{formatBandYen(n.perApplicationYen)}<small>{n.perApplicationYen === null ? n.billingPer4WeeksYen === null ? '課金データなし' : n.recent === 0 ? '応募なし' : '' : '直近4週の課金 ÷ 応募'}</small></dd></div>
-      <div><dt>{n.lastBillingDate ? `課金（${shortDay(n.lastBillingDate)} までの4週）` : '課金（4週あたり）'}</dt><dd data-testid="band-billing">{formatBandYen(n.billingPer4WeeksYen)}<small>{n.billingPer4WeeksYen === null ? '課金データなし' : ''}</small></dd></div>
+      <div><dt>応募（直近4週）</dt><dd data-testid="band-recent">{n.recent === null ? '—' : `${String(n.recent)}件`}<small>{n.recent === null ? '' : [n.recentStart && n.asOf ? `${shortDay(n.recentStart)}〜${shortDay(n.asOf)}` : '', n.previous === null ? '' : `前の4週は${String(n.previous)}件`].filter(Boolean).join('・')}</small></dd></div>
+      <div><dt>応募1件の費用</dt><dd data-testid="band-per-application">{formatBandYen(n.perApplicationYen)}<small>{n.perApplicationYen === null ? n.billingRecentYen === null ? '課金データなし' : n.recent === 0 ? '応募なし' : '' : '直近4週の課金 ÷ 応募'}</small></dd></div>
+      <div><dt>課金（直近4週）</dt><dd data-testid="band-billing">{formatBandYen(n.billingRecentYen)}<small>{billingNote(n)}</small></dd></div>
     </dl>
     {latestEvent && onOpenLatest && <button type="button" className="jc-band-latest jc-open" data-testid="band-latest-event" title={`最新の変更：${shortDay(latestEvent.date)} ${latestEvent.title}`} onClick={onOpenLatest}><span>最新の変更：{shortDay(latestEvent.date)} {latestEvent.title}</span><span aria-hidden="true" className="jc-band-latest-cue">見る ›</span></button>}
     <DataLine job={job} n={n} />
@@ -131,12 +137,17 @@ function useAutoMarket(job: JobCopyRecord, mode: 'api' | 'demo'): { key: string;
 export function MarketNowBar({ job, mode, onIndeedTitleChanged, onOpenMarket }: { job: JobCopyRecord; mode: 'api' | 'demo'; onIndeedTitleChanged: (change: IndeedTitleChange) => void; /** 「市場の推移を見る」で、出来事から開くのと同じ横の窓を開く。 */ onOpenMarket?: () => void }) {
   const titleState = indeedTitleState(job);
   const { now } = useAutoMarket(job, mode);
-  return <section className="lo-card lo-market" aria-label="市場の今">
-    <div className="lo-head"><h2>市場の今</h2><span>Indeed の競合の求人と比べます。</span></div>
+  // 職種が未指定・指定しないときは数字が出ないので、1行に畳む（開くと職種を指定できる）。
+  if (titleState !== 'set') return <details className="lo-card lo-market lo-collapsed" aria-label="市場の今" data-testid="market-collapsed">
+    <summary><strong>市場の今</strong><span>{titleState === 'none' ? '職種を「指定しない」にしています' : '職種が未指定です（指定すると競合の求人数と前月比が出ます）'}</span></summary>
     <MarketOccupationSlot record={job} prefecture={prefectureFromLocation(job.location)} onChanged={onIndeedTitleChanged} />
     {titleState === 'none' && <p className="jc-muted" data-testid="rail-market-note">職種を「指定しない」にしているため、市場の数字は出しません。</p>}
     {titleState === 'unset' && <p className="jc-muted" data-testid="rail-market-note">職種を指定すると、競合の求人数と前月比が出ます。</p>}
-    {titleState === 'set' && <div className="lo-market-now">
+  </details>;
+  return <section className="lo-card lo-market" aria-label="市場の今">
+    <div className="lo-head"><h2>市場の今</h2><span>Indeed の競合の求人と比べます。</span></div>
+    <MarketOccupationSlot record={job} prefecture={prefectureFromLocation(job.location)} onChanged={onIndeedTitleChanged} />
+    <div className="lo-market-now">
       {now.status === 'loading' && <p className="jc-muted" role="status">市場の数字を読み込み中です。</p>}
       {now.status === 'failed' && <p className="jc-muted" role="status">市場の数字を取得できませんでした。</p>}
       {now.status === 'no_data' && <p className="jc-muted" role="status">この職種・地域の市場の数字はまだありません。</p>}
@@ -145,6 +156,6 @@ export function MarketNowBar({ job, mode, onIndeedTitleChanged, onOpenMarket }: 
         <div><dt>前月比（{formatMonthJa(now.value.previousMonth)}と比べて）</dt><dd data-testid="rail-market-change">{now.value.changePct === null ? now.value.previousJobs === 0 ? '前月は0件のため割合は出せません' : '前月の数字がありません' : `${signedPct(now.value.changePct)}（${(now.value.previousJobs ?? 0).toLocaleString('ja-JP')}件 → ${now.value.jobs.toLocaleString('ja-JP')}件）`}</dd></div>
       </dl>}
       {onOpenMarket && <button type="button" className="jc-open" onClick={onOpenMarket}>市場の推移を見る ▸</button>}
-    </div>}
+    </div>
   </section>;
 }

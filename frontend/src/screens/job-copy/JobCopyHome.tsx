@@ -1,4 +1,3 @@
-import { ReportFreshness } from './ReportFreshness';
 import { RecentChangesList, recentChangesRule, useRecentChanges } from './RecentChangesCard';
 import { InfoTip } from './InfoTip';
 import type { ChangedDeal } from './RecentChangesCard';
@@ -31,7 +30,7 @@ function CardList({ card, onOpenListing, onClose }: { card: HomeCard; onOpenList
   return <section ref={reveal} className="jh-list" aria-label={`${card.title}の一覧`}>
     <div className="jh-list-head"><h3>{card.title}（{card.count}件）</h3><CloseListButton label={`${card.title}の一覧`} onClick={onClose} /></div>
     {card.count === 0 ? <p>該当する求人はありません。</p> : <div className="jh-scroll"><table><thead><tr><th scope="col">求人</th><th scope="col">顧客</th><th scope="col">媒体</th><th scope="col" className="num">応募（前 → 直近）</th><th scope="col" className="num">課金（直近 4 週）</th><th scope="col">実績の最新の週</th></tr></thead><tbody>
-      {card.listings.map(row => <tr key={row.id}><th scope="row"><button type="button" className="jc-go" onClick={() => { onOpenListing(row.id); }}>{row.title ?? '求人名なし'}</button></th><td>{row.company ?? '—'}</td><td>{mediaName(row.media)}</td><td className="num">{appsChange(row.prev_apps, row.recent_apps)}</td><td className="num">{yen(row.recent_cost)}</td><td>{formatDateJst(row.latest_week_end, '実績なし')}</td></tr>)}
+      {card.listings.map(row => <tr key={row.id}><th scope="row"><button type="button" className="jc-go" onClick={() => { onOpenListing(row.id); }}>{row.title ?? '求人名なし'}</button></th><td>{row.company ?? '—'}</td><td className="jh-nowrap">{mediaName(row.media)}</td><td className="num">{appsChange(row.prev_apps, row.recent_apps)}</td><td className="num">{yen(row.recent_cost)}</td><td>{formatDateJst(row.latest_week_end, '実績なし')}</td></tr>)}
     </tbody></table></div>}
     {card.count > card.listings.length && <p className="jh-note">先頭の{card.listings.length}件だけを表示しています。</p>}
   </section>;
@@ -89,19 +88,21 @@ export function JobCopyHome({ onOpenCompany, onOpenListing, onOpenDeal, cache }:
   const activeCount = data?.status === 'ready' ? data.home.customers.filter(customer => customer.active_deals > 0).length : 0;
   const ready = data?.status === 'ready' ? data : null;
   const work = ready?.work?.status === 'ready' ? ready.work : null;
+  // 「自分」で開いた応答は本人の担当分。本人の判定（selfOwner）が届く前から見出しを「あなたの担当分」にそろえる。
+  const knownSelf = self ?? (work && resolvedSelf && new URLSearchParams(resolvedSelf.to).get('owner') === work.owner ? work.owner : self);
   // 古いキャッシュや応答に残るカード、今の画面が知らないカードは表示しない。
   const cards = ready?.home.cards.filter(item => Object.hasOwn(cardTone, item.key)) ?? [];
   const card = cards.find(item => item.key === open);
   const mainCards = cards.filter(item => mainCardKeys.includes(item.key));
   const otherCards = cards.filter(item => !mainCardKeys.includes(item.key));
-  // 前の集計に件数があれば、作り直し中もその件数を出す。0 件のときだけ、作り直し中・失敗を 0 件と見せない。
+  // 前の集計が届いていれば、作り直し中・作り直しの失敗の間もその件数（0 件を含む）を出す。集計の時点は一覧を開くと出る。
   const recentCount = recent.data.status === 'ready'
-    ? recent.data.report.count > 0 ? recent.data.report.count : recent.data.refreshing ? '集計中' : recent.data.refresh_failed ? '取得できませんでした' : 0
+    ? recent.data.report.count
     : recent.data.status === 'preparing' ? '集計中' : '取得できませんでした';
   const reveal = useRevealOnMount();
   const tableShown = showAll || query.trim() !== '';
   return <main className="jc-detail jh-home" id="job-details" tabIndex={-1}>
-    <header className="jh-head"><h1>今日{work && <span className="jh-head-owner"> — {ownerScopeTitle(ownerScope(work, self))}</span>}</h1>
+    <header className="jh-head"><h1>今日{work && <span className="jh-head-owner"> — {ownerScopeTitle(ownerScope(work, knownSelf))}</span>}</h1>
       {/* この画面が取りに行った時刻を小さく出し、押すと読み直す（データ自体の時点は各段の説明に出す） */}
       <button type="button" className="jh-refresh" aria-label={loadedAt ? `${formatDateTimeJst(loadedAt).slice(-5)} に読み込み。読み込み直す` : '読み込み直す'} title="読み込み直す" onClick={() => { setReload(value => value + 1); }}>{loadedAt ? `${formatDateTimeJst(loadedAt).slice(-5)} に読み込み` : '読み込み直す'} <span aria-hidden="true">⟳</span></button></header>
     {work && <OwnerScopeBanner work={work} />}
@@ -114,14 +115,13 @@ export function JobCopyHome({ onOpenCompany, onOpenListing, onOpenDeal, cache }:
     {ready && <>
       {work && <><OwnerFilter work={work} /><div className="jh-panel jh-todo-panel"><OwnerTodo work={work} onOpenCompany={onOpenCompany} onOpenDeal={onOpenDeal} onShowList={() => { setReload(value => value + 1); }} /><UnlinkedMtgLine /></div></>}
       <section aria-labelledby="jh-look" className="jh-panel"><div className="jh-section-head"><h2 id="jh-look">気になる求人</h2><InfoTip className="jc-infotip-aside" iconFirst label="数え方を見る"><p>応募・課金のカードは掲載中の求人だけを数えています。応募・課金は媒体の週ごとの実績で、実績のない求人は増減に入りません。直近4週とその前の4週を比べ、{ready.rules.trend_min_diff}件以上、または{ready.rules.trend_min_percent}%以上の差を増減として数えます。応募がゼロのまま・ゼロになった求人は分けて表示します。</p><p>求人の一覧を読み込んだ時刻：{formatDateTimeJst(ready.index_built_at, '日時不明')}。媒体の実績はこの時刻ではなく、週ごとに届いた分までです。</p><ul>{cards.map(item => <li key={item.key}>{item.title}：{item.rule}</li>)}<li>直近7日に変更：{recentChangesRule}</li></ul><p>色の意味：橙は注意、灰は0件です。</p></InfoTip></div>
-        <p className="jh-note jh-media-note">掲載中の求人の応募・課金を、媒体（Indeed・AirWork）の週ごとの実績で数えています。<strong className="jh-media-weeks">媒体の実績：{ready.home.media_weeks?.length ? ready.home.media_weeks.map((week, index) => <span key={week.label} className="jh-media-week">{index > 0 && <span className="jh-media-sep"> ／ </span>}{mediaWeekText(week, day => formatDateJst(day).slice(5))}{index === (ready.home.media_weeks?.length ?? 0) - 1 && '。'}</span>) : '読めていません。'}</strong>増減は並べて見るためのもので、原因とは限りません。</p>
+        <p className="jh-note jh-media-note">掲載中の求人の応募・課金を、媒体（HRハッカー（Indeed）・AirWork）の週ごとの実績で数えています。<strong className="jh-media-weeks">媒体の実績：{ready.home.media_weeks?.length ? ready.home.media_weeks.map((week, index) => <span key={week.label} className="jh-media-week">{index > 0 && <span className="jh-media-sep"> ／ </span>}{mediaWeekText(week, day => formatDateJst(day).slice(5))}{index === (ready.home.media_weeks?.length ?? 0) - 1 && '。'}</span>) : '読めていません。'}</strong>増減は並べて見るためのもので、原因とは限りません。</p>
         <div className="jh-cards">{mainCards.map(item => <button type="button" key={item.key} className={`jh-card ${cardToneClass(item.count, cardTone[item.key])}`} aria-pressed={open === item.key} onClick={() => { setOpen(open === item.key ? null : item.key); }}>
           <strong className="jh-count">{item.count}<small>件</small></strong>
           <span className="jh-card-title">{item.title}</span>
           {item.count > 0 && <CardOpenCue open={open === item.key} />}
         </button>)}</div>
         <CountLine label="ほかの見るもの" items={[...otherCards.map(item => ({ key: item.key, label: item.title, count: item.count })), { key: 'recent_changes', label: '直近7日に変更', count: recentCount }]} openKey={open} onToggle={key => { setOpen(open === key ? null : key as CardKey | 'recent_changes'); }} />
-        {open !== 'recent_changes' && recent.data.status === 'ready' && <ReportFreshness builtAt={recent.data.built_at} stale={recent.data.stale} refreshing={recent.data.refreshing} />}
         {open === 'recent_changes' && <div key="recent_changes" ref={reveal} className="jh-reveal"><div className="jh-list-head jh-reveal-head"><CloseListButton label="直近7日に変更の一覧" onClick={() => { setOpen(null); }} /></div><RecentChangesList data={recent.data} error={recent.error} onOpenDeal={onOpenDeal} onOpenListing={onOpenListing} /></div>}
         {card && <CardList key={card.key} card={card} onOpenListing={onOpenListing} onClose={() => { setOpen(null); }} />}
       </section>

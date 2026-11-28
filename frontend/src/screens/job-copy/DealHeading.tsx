@@ -35,7 +35,8 @@ export function DealHeading({ deal, head }: { deal: DealSelection; head: DealHea
   const consultant = useOwnerName(values?.consultant ?? null);
   const expiration = dayOf(values?.contract_expiration_date);
   const expiry = expiration ? expiryText(daysUntil(expiration)) : null;
-  const name = deal.name.trim() || (head.detail?.deal.name ?? '案件名なし');
+  // 一覧から来ていない（名前が分からない）ときは、契約・成果の欄が読み終わるまで「読み込んでいます」と出す。
+  const name = deal.name.trim() || (head.detail ? head.detail.deal.name ?? '案件名なし' : '案件を読み込んでいます…');
   const stage = head.detail?.deal.stage_label;
   const parts = [head.company?.name, consultant ? `担当：${consultant}` : null, stage ? `ステージ：${stage}` : null].filter((part): part is string => Boolean(part));
   return <header className="jc-deal-head dh-head">

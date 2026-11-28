@@ -19,33 +19,36 @@ test('危ない案件・詳細・次の予定・担当切替・URLの往復', as
   // 既定はタグ2つ以上（1つだけの2件は件数だけ出して外す）
   await expect(page.getByRole('note')).toContainText('タグが2つ以上の案件 1件を出しています');
   await expect(page.getByRole('note')).toContainText('タグが1つだけの案件 2件は出していません');
-  await expect(page.getByRole('button', { name: riskRow.name, exact: true })).toHaveCount(1);
-  await expect(page.getByRole('button', { name: '架空の採用支援C' })).toHaveCount(0);
+  await expect(page.getByRole('link', { name: riskRow.name, exact: true })).toHaveCount(1);
+  await expect(page.getByRole('link', { name: '架空の採用支援C' })).toHaveCount(0);
   await page.getByRole('checkbox', { name: 'タグが1つだけの案件も出す' }).check();
   await expect(page).toHaveURL(/risk_all=1/);
   const fresh = page.getByRole('region', { name: '新しくタグが付いた案件' });
   const ongoing = page.getByRole('region', { name: '前回から続いている案件' });
   await expect(fresh.getByRole('heading', { level: 2 })).toHaveText('新しくタグが付いた案件 2件');
   await expect(ongoing.getByRole('heading', { level: 2 })).toHaveText('前回から続いている案件 1件');
-  const mixed = fresh.getByRole('row').filter({ has: page.getByRole('button', { name: riskRow.name, exact: true }) });
+  const mixed = fresh.getByRole('row').filter({ has: page.getByRole('link', { name: riskRow.name, exact: true }) });
   await expect(mixed.getByRole('listitem')).toHaveText(['満足度が4以下新', '満了まで60日以内']);
   await expect(mixed.getByRole('listitem').nth(0)).toHaveClass('cr-new');
   await expect(mixed.getByRole('listitem').nth(1)).not.toHaveClass('cr-new');
   await expect(mixed.getByRole('cell').nth(3)).toHaveText('1日前');
   await expect(mixed.getByText('2026/10/16から')).toHaveCount(1);
-  await expect(page.getByRole('button', { name: riskRow.name, exact: true })).toHaveCount(1);
-  await expect(ongoing.getByRole('button')).toHaveText(['架空の採用支援C', '詳細 ▸']);
+  await expect(page.getByRole('link', { name: riskRow.name, exact: true })).toHaveCount(1);
+  // 案件名は案件のページへのリンク、詳細は「詳細 ▸」で開く。
+  await expect(ongoing.getByRole('link')).toHaveText(['架空の採用支援C']);
+  await expect(ongoing.getByRole('button')).toHaveText(['詳細 ▸']);
   await expect(page.getByRole('combobox', { name: '担当者', exact: true })).toHaveCount(1);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   const dir = process.env.CONSULTANT_SCREENSHOT_DIR;
   if (dir) await page.screenshot({ path: `${dir}/risk-list.png`, fullPage: false });
-  await fresh.getByRole('button', { name: riskRow.name, exact: true }).click();
+  await expect(fresh.getByRole('link', { name: riskRow.name, exact: true })).toHaveAttribute('href', /deal=101/);
+  await fresh.getByRole('button', { name: `${riskRow.name}の詳細を開く`, exact: true }).click();
   const detail = page.getByRole('dialog');
   await expect(detail.getByText('採用状況を確認し、次の打ち合わせを決めた。')).toBeVisible();
   await expect(detail).toContainText('最後の接触1日前');
   await expect(detail).toContainText('最後のMTG2026/10/01');
   await expect(detail.getByRole('heading', { name: '2026/10/18 電話' })).toBeVisible();
-  await expect(detail.getByRole('link', { name: '求人を見る' })).toHaveAttribute('href', /deal=101&listing=501/);
+  await expect(detail.getByRole('link', { name: '求人の画面を開く' })).toHaveAttribute('href', /deal=101&listing=501/);
   await expect(detail.getByRole('link', { name: 'HubSpotで開く' })).toHaveAttribute('href', /record\/0-3\/101$/);
   expect(await detail.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
   if (dir) await page.screenshot({ path: `${dir}/risk-detail.png`, fullPage: false });
@@ -79,7 +82,7 @@ test('危ない案件から開いた案件のページから、危ない案件�
   const params = new URL(page.url()).searchParams;
   expect(params.has('deal')).toBe(false); expect(params.has('from')).toBe(false);
   expect(params.get('owner')).toBe('11');
-  await expect(page.getByRole('button', { name: riskRow.name, exact: true })).toBeVisible();
+  await expect(page.getByRole('link', { name: riskRow.name, exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: '危ない案件に戻る', exact: true })).toHaveCount(0);
 });
 

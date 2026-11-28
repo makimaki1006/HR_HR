@@ -43,9 +43,9 @@ export const REPORT_SENDER = '';
 export const HEARING_CATEGORY_SOURCE = 'ouboriyuukategori_hiaringu';
 
 export type ReportScope = 'deal' | 'listing';
-/** 決まった名前のスライド。求人ごとのスライドは `listing:<求人ID>`（現状と課題仮説）・`measure:<求人ID>`（次の施策）。 */
+/** 決まった名前のスライド。求人ごとのスライドは `listing:<求人ID>`（現状と課題仮説）・`measure:<求人ID>`（次の施策）。数字の表の続きは `numbers:<枚目>`。 */
 export type FixedSlideId = 'cover' | 'toc' | 'listings' | 'route' | 'goals' | 'numbers' | 'review' | 'trend' | 'changes' | 'applicants' | 'reasons' | 'around' | 'policy' | 'plan' | 'closing';
-export type SlideId = FixedSlideId | `listing:${string}` | `measure:${string}`;
+export type SlideId = FixedSlideId | `numbers:${string}` | `listing:${string}` | `measure:${string}`;
 export const SLIDE_NAMES: Record<FixedSlideId, string> = {
   cover: '表紙', toc: '目次', listings: '掲載求人', route: '採用の導線', goals: '採用手法別の進捗', numbers: '数字の表', review: '総評と前回との比較',
   trend: '応募の推移', changes: '変えたことと前後の応募', applicants: '応募者の傾向', reasons: '応募理由', around: '周りの求人の様子',
@@ -66,6 +66,15 @@ const MEDIA_LABELS = { hrh: 'HRハッカー', airwork: 'AirWork', reclogi: 'リ�
 /** 数字の表の行の数（AirWork 以外／AirWork）。残りは「ほか N件の求人」にまとめる。 */
 const MAX_TABLE_ROWS = 8;
 const MAX_AIRWORK_ROWS = 4;
+/**
+ * 数字の表の1枚に入る行の数（列の見出しを除く。媒体の見出し・合計も1行と数える）。超える分は次の1枚に送る。
+ * 印刷の大きさ（10in × 5.625in）で、列の見出しと10行がちょうど入る。1行の余裕を残して9行にする。
+ */
+const NUMBER_LINES_PER_SLIDE = 9;
+/** ご契約からの合計（面接・採用）の段が使う行の数。 */
+const TOTALS_LINES = 4;
+/** 求人名が折り返さずに入る文字数（表示回数などの列があるとき／応募数だけのとき）。 */
+const NUMBER_LABEL_CHARS = { perf: 35, plain: 55 } as const;
 /** 求人ごとのスライド（現状と課題仮説）を作る求人の数。 */
 export const MAX_DETAIL_LISTINGS = 6;
 /** 掲載求人のスライドに並べる求人名の数。 */
@@ -185,6 +194,7 @@ export interface NumberRow { label: string; impressions: number | null; clicks: 
 export interface NumberGroup { name: string | null; period: string | null; rows: NumberRow[]; total: NumberRow | null }
 export interface TextBox { title: string; lines: string[] }
 
+interface NumbersSlide { kind: 'numbers'; hasPerf: boolean; groups: NumberGroup[]; /** ご契約からの合計（面接・採用）。期間の数字とは別の段に出す。 */ totals: { heading: string; kpis: Kpi[] } | null }
 /** blank: 文章が未記入のスライド。画面には書く場所として出すが、PDF・目次には入れない。 */
 interface SlideBase { name: string; kicker: string; headline: string; note: string | null; blank?: boolean | undefined }
 export type Slide = SlideBase & (
@@ -193,7 +203,9 @@ export type Slide = SlideBase & (
   | { id: 'listings'; kind: 'listings'; names: string[]; total: number }
   | { id: 'route'; kind: 'route'; nodes: string[]; message: string }
   | { id: 'goals'; kind: 'goals'; goals: { name: string; goal: string }[]; media: TextBox[] }
-  | { id: 'numbers'; kind: 'numbers'; hasPerf: boolean; groups: NumberGroup[]; /** ご契約からの合計（面接・採用）。期間の数字とは別の段に出す。 */ totals: { heading: string; kpis: Kpi[] } | null }
+  | ({ id: 'numbers' } & NumbersSlide)
+  /** 数字の表の続き（行が多くて1枚に入らない分）。 */
+  | ({ id: `numbers:${string}` } & NumbersSlide)
   | { id: 'review'; kind: 'review'; points: string[]; columns: string[]; compare: { label: string; cells: string[] }[]; outlook: string[] }
   | { id: `listing:${string}`; kind: 'listing'; facts: Kpi[]; hypothesis: string[] }
   | { id: 'trend'; kind: 'trend'; unit: 'week' | 'month'; bars: TrendBar[] }
@@ -523,6 +535,34 @@ function numberGroup(name: string | null, list: readonly Counted[], limit: numbe
   const to = ranges.map(perf => perf.to).sort().at(-1);
   return { name, period: from && to ? rangeText(from, to) : null, rows, total: withTotal && list.length > 1 ? numberRow('合計', sumPerf(list, 'cur'), sumApps(list)) : null };
 }
+/** 数字の表を、1枚に入る行の数で分ける。媒体の途中で分けたときは、次の1枚の見出しに「（続き）」を付ける。長い求人名は折り返す分も数える。 */
+function paginateNumbers(groups: readonly NumberGroup[], hasPerf: boolean, withTotals: boolean): NumberGroup[][] {
+  const width = hasPerf ? NUMBER_LABEL_CHARS.perf : NUMBER_LABEL_CHARS.plain;
+  const cost = (row: NumberRow) => Math.max(1, Math.ceil(Array.from(row.label).length / width));
+  const pages: NumberGroup[][] = [[]];
+  let used = 0;
+  const newPage = () => { pages.push([]); used = 0; };
+  for (const group of groups) {
+    const items = [...group.rows.map(row => ({ row, total: false })), ...(group.total ? [{ row: group.total, total: true }] : [])];
+    const head = group.name ? 1 : 0;
+    let start = 0;
+    while (start < items.length) {
+      // 見出しと1行も入らないなら次の1枚へ（媒体の見出しだけが下に残らないように）。
+      const first = items[start];
+      if (used > 0 && first && used + head + cost(first.row) > NUMBER_LINES_PER_SLIDE) newPage();
+      let end = start;
+      let lines = used + head;
+      for (let item = items[end]; item && (end === start || lines + cost(item.row) <= NUMBER_LINES_PER_SLIDE); item = items[end]) { lines += cost(item.row); end += 1; }
+      const chunk = items.slice(start, end);
+      pages[pages.length - 1]?.push({ name: group.name && start > 0 ? `${group.name}（続き）` : group.name, period: group.period, rows: chunk.filter(item => !item.total).map(item => item.row), total: chunk.find(item => item.total)?.row ?? null });
+      used = lines;
+      start = end;
+      if (start < items.length) newPage();
+    }
+  }
+  if (withTotals && used > 0 && used + TOTALS_LINES > NUMBER_LINES_PER_SLIDE) newPage();
+  return pages;
+}
 const arrow = (before: string | null, after: string | null) => before === null && after === null ? '—' : `${before ?? '—'} → ${after ?? '—'}`;
 const countOrNull = (value: number | null | undefined, unit = '') => value == null ? null : `${count(value)}${unit}`;
 
@@ -626,9 +666,15 @@ export function buildReport(input: ReportInput, options: ReportOptions): ReportR
     }
     const totals = totalKpis.length && input.outcomes ? { heading: `ご契約からの合計（${shortDay(input.outcomes.readOn)} 時点）`, kpis: totalKpis } : null;
     const perfPeriods = groups.filter(group => group.period && group.period !== rangeText(from, to)).map(group => `${group.name ?? '表示回数・クリック数'}：${group.period ?? ''}`);
-    slides.push({
-      id: 'numbers', kind: 'numbers', name: SLIDE_NAMES.numbers, kicker: SECTIONS.results, headline: '期間中の数字',
-      note: `${[periodNote, ...perfPeriods].join('\u3000')}。応募数は当社で記録した応募日で数えています。`, hasPerf, groups, totals,
+    // 行が多いときは次の1枚に分ける（枠からはみ出して下の帯と重ならないように）。合計の段は最後の1枚に入れる。
+    const pages = paginateNumbers(groups, hasPerf, totals !== null);
+    pages.forEach((pageGroups, i) => {
+      const last = i === pages.length - 1;
+      const more = pages.length > 1 ? `（${String(i + 1)}/${String(pages.length)}）` : '';
+      slides.push({
+        id: i === 0 ? 'numbers' : `numbers:${String(i + 1)}`, kind: 'numbers', name: `${SLIDE_NAMES.numbers}${more}`, kicker: SECTIONS.results, headline: `期間中の数字${more}`,
+        note: `${[periodNote, ...perfPeriods].join('\u3000')}。応募数は当社で記録した応募日で数えています。`, hasPerf, groups: pageGroups, totals: last ? totals : null,
+      });
     });
 
     // 総評と前回との比較

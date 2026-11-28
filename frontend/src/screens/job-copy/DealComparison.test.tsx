@@ -120,23 +120,26 @@ it('renders real-shaped AirWork fields beside HRハッカー with bounded cells 
   expect(container.querySelector('.jc-comparison-full')).toBeNull();
 });
 it('reads only displayed rows for dates, preserves unknowns and drops a previous page response', async () => {
+  // 下の比べる表は、上のまとめが「顧客の全部の求人を出すか」を決めてから出す。決まるまで本文の日付の読み取りを止めない。
   let oldResolve: ((value: unknown) => void) | undefined;
   const first = { ...page, listings: [{ ...row, summary: { ...row.summary, body_changed_at: null } }] };
   const second = { ...page, listings: [{ ...row, id: '51', title: '次のページの求人', summary: { ...row.summary, body_changed_at: null } }] };
   api.mockImplementation((url: string) => {
-    if (url.includes('listing-body-dates?ids=1')) return new Promise(resolve => { oldResolve = resolve; });
-    if (url.includes('listing-body-dates?ids=51')) return Promise.resolve({ ok: true, data: { dates: { '51': '2026-10-09T00:00:00Z' } } });
+    if (url.includes('listing-body-dates?ids=1')) return Promise.resolve({ ok: true, data: { dates: { '1': null } } });
+    if (url.includes('listing-body-dates?ids=51')) return new Promise(resolve => { oldResolve = resolve; });
     return Promise.resolve({ ok: true, data: url.includes('offset=50') ? second : first });
   });
   render(<DealComparison deal={{ id: '901', name: '架空の契約', prefecture: '', title: '', media: '' }} onOpen={vi.fn()} />);
   const table = await screen.findByRole('table', { name: '案件の求人一覧表' });
-  await waitFor(() => { expect(oldResolve).toBeTruthy(); });
   expect(table.querySelector('[data-column="body_changed_at"]')?.textContent).toBe('本文の最終変更日');
   expect(table.querySelector('tbody [data-column="body_changed_at"]')?.textContent).toBe('不明');
   fireEvent.click(screen.getByRole('button', { name: '次の50件' }));
-  await waitFor(() => { expect(table.querySelector('tbody [data-column="body_changed_at"]')?.textContent).toContain('2026/10/09'); });
-  oldResolve?.({ ok: true, data: { dates: { '1': '2026-01-01T00:00:00Z' } } });
   await waitFor(() => { expect(table.textContent).toContain('次のページの求人'); });
+  await waitFor(() => { expect(oldResolve).toBeTruthy(); });
+  fireEvent.click(screen.getByRole('button', { name: '前の50件' }));
+  await waitFor(() => { expect(table.textContent).toContain('配送の仕事'); });
+  oldResolve?.({ ok: true, data: { dates: { '51': '2026-01-01T00:00:00Z' } } });
+  await waitFor(() => { expect(table.textContent).not.toContain('次のページの求人'); });
   expect(table.textContent).not.toContain('2026/01/01');
   expect(api.mock.calls.filter(call => String(call[0]).includes('listing-body-dates')).map(call => String(call[0]).split('ids=')[1])).toEqual(['1', '51']);
 });

@@ -21,6 +21,20 @@ const groups: [string, string[]][] = [
   ['休日・休暇', ['休日・休暇']], ['応募資格', ['応募資格']], ['福利厚生', ['福利厚生']],
   ...guides.map((keys, i): [string, string[]] => [`仕事の案内 ${String(i + 1)}`, keys]),
 ];
+/** 数字だけの値に付ける単位。期間（1日あたり・1か月あたり）は求人票の項目から分からないので付けない。 */
+const units: Record<string, string> = {
+  平均稼働時間: '時間', '試用・研修期の平均稼働時間': '時間', 想定残業時間: '時間', '試用・研修期の想定残業時間': '時間',
+  平均稼働日数: '日', '試用・研修期の平均稼働日数': '日', 採用予定人数: '人',
+};
+function withUnit(key: string, value: string): string {
+  const unit = units[key];
+  return unit && /^\d+(?:\.\d+)?$/.test(value.normalize('NFKC').trim()) ? `${value.trim()}${unit}` : value;
+}
+/** 補足（自由項目N）を「見出し→本文」の順に並べるための順番。ほかの項目は元の順（同じ値）のまま。 */
+function freeOrder(key: string): number {
+  const free = /^自由項目([1-4])の(タイトル|内容)$/.exec(key);
+  return free ? Number(free[1]) * 2 + (free[2] === '内容' ? 1 : 0) : 0;
+}
 /** The selected body is authoritative. Current independent conditions are only
  * appended to the latest published body, with an explicit current-value note. */
 export function listingPopupModel(job: JobCopyRecord, version?: CopyVersion) {
@@ -44,7 +58,7 @@ export function listingPopupModel(job: JobCopyRecord, version?: CopyVersion) {
   const structured = hrhBodyKnown || version?.draft !== undefined || columns.every(key => fields.has(key));
   const row = Object.fromEntries(fields);
   const get = (key: string) => fields.get(key) ?? '';
-  const entry = (key: string): ListingEntry => ({ key, label: comparisonLabel(key), value: comparisonValue(key, get(key), raw, row) });
+  const entry = (key: string): ListingEntry => ({ key, label: comparisonLabel(key), value: withUnit(key, comparisonValue(key, get(key), raw, row)) });
   const salaryFieldKeys = ['給与形態', '基本給与 最小', '基本給与 最大'];
   const salaryKnown = bodyAvailable && (structured || salaryFieldKeys.every(key => fields.has(key)));
   const hasSalary = salaryFieldKeys.some(key => get(key).trim());
@@ -68,7 +82,9 @@ export function listingPopupModel(job: JobCopyRecord, version?: CopyVersion) {
     }
     return { heading, entries };
   }).filter(section => section.entries.length);
-  const other = [...fields.keys()].filter(key => !consumed.has(key) && !isManagement(key) && get(key).trim()).map(entry);
+  // 補足（自由項目）は見出しと本文を続けて並べる（列の順のままだと見出しが先に3つ並び、本文と離れる）。
+  const otherKeys = [...fields.keys()].filter(key => !consumed.has(key) && !isManagement(key) && get(key).trim());
+  const other = otherKeys.sort((a, b) => freeOrder(a) - freeOrder(b)).map(entry);
   if (other.length && !airwork) sections.push({ heading: 'その他', entries: other });
   const fieldImages = imageKeys.flatMap((key, index) => {
     const url = get(key).trim();

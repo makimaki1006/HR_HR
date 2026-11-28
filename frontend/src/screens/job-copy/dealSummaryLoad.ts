@@ -119,10 +119,12 @@ export async function loadCompanyDatas(companyId: string, signal: AbortSignal, k
   if (signal.aborted) return { status: 'error', message: '' };
   const loaded = results.filter((item): item is DealData => !!item?.rows.length);
   // 読み込めなかった = 失敗、または全体の待ちを過ぎて読み始められなかった案件
-  const missing = results.filter(item => item === null || item === undefined).length;
+  const missingDeals = wanted.filter((_, index) => results[index] === null || results[index] === undefined);
+  const missing = missingDeals.length;
+  const missingNames = missingDeals.map(deal => deal.name?.trim()).filter((name): name is string => Boolean(name));
   const notes: string[] = [];
   if (deals.data.deals.length > wanted.length) notes.push(`案件が多いため、先頭の${String(wanted.length)}件までで集計しています。`);
-  if (missing > 0) notes.push(`読み込めなかった案件が ${String(missing)}件あります。その案件の求人は合計に含まれていません。`);
+  if (missing > 0) notes.push(`読み込めなかった案件が ${String(missing)}件あります${missingNames.length ? `（${missingNames.slice(0, 5).join('、')}${missingNames.length > 5 ? ' ほか' : ''}）` : ''}。その案件の求人は合計に含まれていません。`);
   if (loaded.length === 0 && missing > 0) return { status: 'error', message: 'この事業所の求人を読み込めませんでした。' };
   return { status: 'ready', datas: loaded, notes };
 }
