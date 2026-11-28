@@ -128,7 +128,7 @@ export function LifelineChart({ lifeline, job, selectedWeek, onSelect }: { lifel
     { key: 'impressions', label: '閲覧数（表示回数）', cell: week => num(week.impressions), short: week => fit(num(week.impressions), shortNumber(week.impressions)), empty: noPerf },
     { key: 'clicks', label: 'クリック数', cell: week => num(week.clicks), short: week => fit(num(week.clicks), shortNumber(week.clicks)), empty: noPerf },
     { key: 'hubspot', label: '応募数（HubSpot に記録された応募日）', cell: week => num(week.hubspotApplications), short: week => fit(num(week.hubspotApplications), shortNumber(week.hubspotApplications)), empty: job.applicationDates === 'loading' ? '' : '応募の日付を取得できていません' },
-    { key: 'media', label: `応募数（${media}の集計）`, cell: week => num(week.mediaApplications), short: week => fit(num(week.mediaApplications), shortNumber(week.mediaApplications)), empty: noPerf },
+    { key: 'media', label: `応募数（${media.replace('（Indeed）', '・Indeed ')}の集計）`, cell: week => num(week.mediaApplications), short: week => fit(num(week.mediaApplications), shortNumber(week.mediaApplications)), empty: noPerf },
   ];
   // 媒体の実績（課金・閲覧・クリック・媒体の集計の応募）が無い求人は、空の4行を1行にまとめる。
   const perfKeys = ['billing', 'impressions', 'clicks', 'media'];

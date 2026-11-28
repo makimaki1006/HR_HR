@@ -122,7 +122,7 @@ describe('画面', () => {
   it('5つの行名があり、HubSpot の応募と Indeed の集計は別の行', () => {
     view();
     const lifeline = screen.getByTestId('lifeline');
-    for (const label of ['課金（週）', '閲覧数（表示回数）', 'クリック数', '応募数（HubSpot に記録された応募日）', '応募数（HRハッカー（Indeed）の集計）']) expect(lifeline.textContent).toContain(label);
+    for (const label of ['課金（週）', '閲覧数（表示回数）', 'クリック数', '応募数（HubSpot に記録された応募日）', '応募数（HRハッカー・Indeed の集計）']) expect(lifeline.textContent).toContain(label);
     expect(screen.getByRole('row', { name: '課金（週）' }).textContent).toContain('¥0');
     expect(MIN_COLUMN_PX).toBe(96);
   });
