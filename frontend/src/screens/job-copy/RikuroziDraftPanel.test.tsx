@@ -165,7 +165,7 @@ describe('リクロジメディア向けの案', () => {
   it('リクロジの求人IDを入れて保存でき、重複は理由つきで保存されない', async () => {
     const { calls } = routed({ list: () => json({ listings: [{ listing_id: '900', name: '新しい案件名', reclogi_id: null }, { listing_id: '901', name: '設定済み', reclogi_id: '777' }] }), put: () => json({ code: 'reclogi_id_in_use' }, 409) });
     render(<RikuroziDraftPanel listingId="1" />);
-    expect((await screen.findByText('リクロジの求人ID：777')).textContent).toBeTruthy();
+    expect((await screen.findByText('リクロジに取り込み済み（リクロジの求人ID：777）')).textContent).toBeTruthy();
     const input = screen.getByLabelText(/リクロジの求人ID（リクロジに取り込んだあとで入力します）/);
     fireEvent.change(input, { target: { value: '424242' } });
     fireEvent.click(screen.getByRole('button', { name: 'IDを保存' }));
@@ -179,7 +179,7 @@ describe('リクロジメディア向けの案', () => {
     render(<RikuroziDraftPanel listingId="1" />);
     fireEvent.change(await screen.findByLabelText(/リクロジの求人ID/), { target: { value: '424242' } });
     fireEvent.click(screen.getByRole('button', { name: 'IDを保存' }));
-    expect((await screen.findByText('リクロジの求人ID：424242')).textContent).toBeTruthy();
+    expect((await screen.findByText('リクロジに取り込み済み（リクロジの求人ID：424242）')).textContent).toBeTruthy();
   });
   it('求人の一覧が想定外の形で返っても画面を壊さない', async () => {
     routed({ list: () => json({ status: 'ready', dates: {}, report: { count: 0, listings: [] }, jobs: [] }) });

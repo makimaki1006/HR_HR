@@ -104,3 +104,25 @@ export function ListingPopup({ job, version, onClose, returnFocus, navigation, o
     <FullTextCompareDialog record={displayed} open={compareOpen} onClose={() => { setCompareOpen(false); }} initialLeft={previous?.id} initialRight={selectedVersion?.id} />
   </dialog>;
 }
+
+/**
+ * 求人のページの上の方に出す、本文と主な条件の要点。毎回見る給与・勤務時間・休日と本文の出だしだけを出し、
+ * 全部は「求人の内容」の小窓で見る。値は小窓と同じ作り方（listingPopupModel）から取る。
+ */
+export function ListingGist({ job, version, onOpenListing }: { job: JobCopyRecord; version?: CopyVersion | undefined; onOpenListing: () => void }) {
+  const model = listingPopupModel(job, version);
+  if (!model.bodyAvailable) return null;
+  const entries = model.sections.flatMap(section => section.entries.map(entry => ({ ...entry, heading: section.heading })));
+  const value = (...keys: string[]) => entries.find(entry => keys.includes(entry.key) && !entry.unavailable)?.value.trim() ?? '';
+  const catchCopy = value('キャッチコピー');
+  const body = value('仕事内容');
+  // 本文から読めなかった項目は出さない（「取得できていません」を並べない）。
+  const items = ([['給与', model.salary], ['勤務時間', value('勤務時間')], ['休日・休暇', value('休日・休暇', '休日休暇')], ['勤務地', model.location]] as [string, string][])
+    .filter(([, text]) => text !== '取得できていません');
+  return <section className="lo-card jc-listing-gist" aria-label="求人の要点" data-testid="listing-gist">
+    <div className="lo-head"><h2>求人の要点</h2><button type="button" className="jc-open" onClick={onOpenListing}>求人の内容をすべて見る ▸</button></div>
+    {catchCopy && <p className="jc-listing-gist-catch">{catchCopy}</p>}
+    {items.length > 0 && <dl className="jc-listing-gist-items">{items.map(([label, text]) => <div key={label}><dt>{label}</dt><dd>{text || '記載なし'}</dd></div>)}</dl>}
+    {body && <p className="jc-listing-gist-body">{body}</p>}
+  </section>;
+}

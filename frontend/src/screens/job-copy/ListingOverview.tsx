@@ -223,8 +223,10 @@ export function ListingReasons({ job }: { job: JobCopyRecord }) {
   // 読み込み中は上の帯の 1 か所だけに出す。ここは何も出さない。
   const body = job.applicationDates === 'loading' ? null
     : job.applicationDates === 'failed' ? <p className="lo-note" role="alert">応募理由を読み込めませんでした。<RetryApplicants id={job.hubspotId} /></p>
-    : !collection?.available || (!collection.items.some(item => item.text.trim()) && !(collection.selections ?? []).length) ? <p className="lo-note" role="status">応募理由の記録はまだありません。</p>
+    : !collection?.available || (!collection.items.some(item => item.text.trim()) && !(collection.selections ?? []).length) ? null
     : <ReasonCategorySummary collection={collection} />;
+  // 記録が無いときは見出しと1行だけにする。
+  if (body === null && job.applicationDates !== 'loading') return <section className="lo-card lo-collapsed" aria-label="応募理由（ヒアリング内容）" data-testid="listing-reasons"><p className="lo-line"><strong>応募理由（ヒアリング内容）</strong><span role="status">応募理由の記録はまだありません。</span></p></section>;
   return <section className="lo-card" aria-labelledby="lo-reasons-title" data-testid="listing-reasons"><div className="lo-head"><h2 id="lo-reasons-title">応募理由（ヒアリング内容）</h2><span>応募の出来事を開くと、その人の応募理由を見られます。</span></div>{body}</section>;
 }
 

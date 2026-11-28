@@ -26,6 +26,10 @@ export function CompetitorMonthDetails({ entry }: { entry: CompetitorMonth }) {
 export function CompetitorHistory({ job }: { job: JobCopyRecord }) {
   const rows = competitorRows(job);
   const url = competitorEntryUrl(job);
+  // 記録が無いときは1行だけにする（調査の入口は残す）。
+  if (rows.length === 0) return <section className="lo-card lo-competitor lo-collapsed" aria-label="競合の推移" data-testid="competitor-history">
+    <p className="lo-line"><strong>競合の推移</strong><span role="status">まだ競合調査の記録はありません</span>{url && <span className="jc-no-print"><OutLink href={url} label="この求人で競合調査をする（新しいタブ）" /></span>}</p>
+  </section>;
   return <section className="lo-card lo-competitor" aria-label="競合の推移" data-testid="competitor-history">
     <div className="lo-head"><h2>競合の推移</h2><span>競合調査で記録した月ごとの数字です。</span>{url && <span className="jc-no-print"><OutLink href={url} label="この求人で競合調査をする（新しいタブ）" /></span>}</div>
     {rows.length === 0 ? <p className="lo-note" role="status">まだ競合調査の記録はありません</p> : <>

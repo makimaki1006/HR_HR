@@ -61,8 +61,7 @@ describe('the 応募理由 lane when every reason was left out', () => {
     const lane = screen.getByRole('group', { name: '応募理由' });
     expect(lane.textContent).toContain('この求人だけに関連する選択式の応募理由の記録はありません（ほかの求人にも関連する9件を除く）');
     expect(lane.querySelectorAll('button')).toHaveLength(0);
-    const tables = within(screen.getByRole('region', { name: '期間ごとの応募理由の数値' })).getAllByRole('table');
-    expect(tables[0]?.closest('section')?.textContent).toContain('応募動機を聞けた応募 0件／この求人の全応募 28件');
+    expect(screen.getByRole('region', { name: '期間ごとの応募理由の数値' }).querySelector('.ar-selection-denominator')?.textContent).toBe('応募動機を聞けた応募 0件／この求人の全応募 28件');
   });
 });
 

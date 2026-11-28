@@ -92,8 +92,8 @@ describe('listing detail with legacy reasons', () => {
 
 // origin/main の期間・操作・注記の検証を、選択式の値で継続する。
 const selectedDemo = () => withSelectedReasons(demo());
-const periodTables = () => within(screen.getByRole('region', { name: '期間ごとの応募理由の数値' })).getAllByRole('table');
-const motiveCounts = () => periodTables().filter((_, index) => index % 2 === 0).map(table => table.closest('section')?.querySelector('.ar-selection-denominator')?.textContent);
+// 聞けた応募が0件の期間は表を出さず1行にするため、表ではなく分母の行から読む。
+const motiveCounts = () => [...screen.getByRole('region', { name: '期間ごとの応募理由の数値' }).querySelectorAll('.ar-selection-denominator')].map(element => element.textContent).filter(text => text.startsWith('応募動機'));
 
 describe('応募理由 lane and the per-period table', () => {
   it('shows each item denominator and all selected values, and focuses its period when pressed', () => {

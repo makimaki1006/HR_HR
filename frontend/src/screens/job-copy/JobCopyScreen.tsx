@@ -13,7 +13,7 @@ import { detailQueryKeys, knownDealName, navigateJobCopy, rememberDealName, repo
 import type { ListingNavigation } from './ListingPopup';
 import { listingRecord, publicationLabel } from './hubspotListings';
 import type { HubSpotListing } from './hubspotListings';
-import { ListingPopup } from './ListingPopup';
+import { ListingGist, ListingPopup } from './ListingPopup';
 import { FullTextCompareDialog } from './FullTextCompareDialog';
 import { DealComparison } from './DealComparison';
 import type { DealSelection } from './hubspotListings';
@@ -272,6 +272,7 @@ function CopyDetail({ job, records, comparisonSource, popupNavigation, onAdd, on
     {!job.hubspotId && <div className="jc-record-meta"><InfoTip className="jc-infotip-left" label="HubSpotの求人と未連携"><p>この求人は、HubSpot の求人レコードとまだつながっていません。つながると、応募の件数と HubSpot へのリンクが表示されます。</p></InfoTip></div>}
     {draft && <p className="jc-notice lo-draft-notice" role="status">確認待ちの案があります。<button type="button" className="jc-button" onClick={() => { openFeatureFromContent('diff'); }}>案の確認・比較を開く</button></p>}
     {message && <p className="jc-message" role="status">{message}</p>}
+    <ListingGist job={job} version={version} onOpenListing={() => { setListingPopupOpen(true); }} />
     <ListingOverview job={job} events={listingEvents} billing={realBillingEntries} market={listingMarket} selectedId={selectedEventId} onSelect={setSelectedEventId}
       onCompare={(left, right) => { setEventCompare({ left, right }); }}
       onOpenDrawer={(kind, event) => { setWhoSelection(event?.previousVersionId && event.versionId ? [event.previousVersionId, event.versionId] : undefined); setDrawer({ kind, event }); }}

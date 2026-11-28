@@ -46,7 +46,9 @@ it('excludes shared dated and undated applications consistently across version r
   const compared = required(screen.getByRole('heading', { name: '後の本文: 新しい本文' }).parentElement);
   expect(within(compared).getByText('応募 0件')).toBeTruthy();
   expect(within(compared).getByText('応募動機を聞けた応募 0件／この求人の全応募 3件')).toBeTruthy();
-  expect(within(within(compared).getByRole('table', { name: '応募動機の選択件数' })).getAllByRole('cell').map(cell => cell.textContent)).toEqual(Array<string>(13).fill('0件'));
+  // 聞けた応募が0件なら、0件だけの表は出さず1行で伝える。
+  expect(within(compared).queryByRole('table', { name: '応募動機の選択件数' })).toBeNull();
+  expect(within(compared).getAllByTestId('selected-reasons-empty')[0]?.textContent).toBe('応募動機：記録はありません（応募動機を聞けた応募 0件／この求人の全応募 3件）');
   expect(screen.getByText('ほかの求人にも関連する応募 2件は、本文ごとの応募数・理由から除いています。')).toBeTruthy();
   unmount();
   render(<JobTimeline job={job} marketMode="demo" showDummyBilling={false} />);

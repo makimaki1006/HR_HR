@@ -48,9 +48,9 @@ function ReclogiIdField({ listingId, reload }: { listingId: string; reload: numb
   return <section aria-label="リクロジ向けに作った求人">
     <h4>リクロジ向けに作った求人</h4>
     {rows.map(row => <div key={row.listing_id}>
-      <p>{row.name ?? '求人名なし'}</p>
+      <p>{row.name ?? '求人名なし'}{/^\d+$/.test(row.listing_id) && <> <a href={`/app/job-copy?listing=${encodeURIComponent(row.listing_id)}`} target="_blank" rel="noreferrer">この求人を開く（新しいタブ）</a></>}</p>
       {row.reclogi_id
-        ? <p>リクロジの求人ID：{row.reclogi_id}</p>
+        ? <p>リクロジに取り込み済み（リクロジの求人ID：{row.reclogi_id}）</p>
         : <form onSubmit={event => { event.preventDefault(); void save(row); }}>
           <label>リクロジの求人ID（リクロジに取り込んだあとで入力します）
             <input inputMode="numeric" value={values[row.listing_id] ?? ''} onChange={event => { setValues(current => ({ ...current, [row.listing_id]: event.target.value })); }} />

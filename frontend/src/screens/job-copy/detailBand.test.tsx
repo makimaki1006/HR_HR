@@ -22,17 +22,17 @@ const bill = (start: string, end: string, amountYen: number | null): BillingEntr
 describe('案件の上の帯の数字', () => {
   it('直近4週20件・前の4週13件・課金3万円なら応募1件あたり1,500円', () => {
     const n = bandNumbers(job, [bill('2026-09-08', '2026-10-05', 30000)]);
-    expect(n).toMatchObject({ recent: 20, previous: 13, billingPer4WeeksYen: 30000, perApplicationYen: 1500, lastApplicationDate: '2026-10-05', lastBillingDate: '2026-10-05' });
+    expect(n).toMatchObject({ recent: 20, previous: 13, billingRecentYen: 30000, perApplicationYen: 1500, lastApplicationDate: '2026-10-05', lastBillingDate: '2026-10-05' });
   });
-  it('14日の課金は4週あたりに直す', () => {
-    expect(bandNumbers(job, [bill('2026-09-22', '2026-10-05', 15000)]).billingPer4WeeksYen).toBe(30000);
+  it('14日の課金は4週あたりに直さず、直近4週に入る分だけ足す', () => {
+    expect(bandNumbers(job, [bill('2026-09-22', '2026-10-05', 15000)]).billingRecentYen).toBe(15000);
   });
   it('課金が無い・金額が空なら応募1件あたりも課金も不明', () => {
-    expect(bandNumbers(job, undefined)).toMatchObject({ perApplicationYen: null, billingPer4WeeksYen: null, lastBillingDate: null });
-    expect(bandNumbers(job, [bill('2026-09-08', '2026-10-05', null)])).toMatchObject({ perApplicationYen: null, billingPer4WeeksYen: null, lastBillingDate: '2026-10-05' });
+    expect(bandNumbers(job, undefined)).toMatchObject({ perApplicationYen: null, billingRecentYen: null, lastBillingDate: null });
+    expect(bandNumbers(job, [bill('2026-09-08', '2026-10-05', null)])).toMatchObject({ perApplicationYen: null, billingRecentYen: null, lastBillingDate: '2026-10-05' });
   });
   it('同じ最終日で金額が違う課金は決めない', () => {
-    expect(bandNumbers(job, [bill('2026-09-08', '2026-10-05', 30000), bill('2026-09-08', '2026-10-05', 20000)]).billingPer4WeeksYen).toBeNull();
+    expect(bandNumbers(job, [bill('2026-09-08', '2026-10-05', 30000), bill('2026-09-08', '2026-10-05', 20000)]).billingRecentYen).toBeNull();
   });
   it('応募の日別データが無ければ応募は不明', () => {
     const rest: JobCopyRecord = { ...job };
@@ -74,12 +74,12 @@ describe('求人のページの上の帯の表示', () => {
   it('数字を単位付きで表示し、全文を比べるボタンで呼び出しが走る', () => {
     const open = vi.fn();
     const { container } = render(<DetailBand job={job} billing={[bill('2026-09-08', '2026-10-05', 30000)]} onOpenFullCompare={open} />);
-    expect(screen.getByTestId('band-recent').textContent).toBe('20件前の4週は13件');
+    expect(screen.getByTestId('band-recent').textContent).toBe('20件9/8〜10/5・前の4週は13件');
     expect(screen.getByText('応募（直近4週）')).toBeTruthy();
     expect(screen.getByText('応募1件の費用')).toBeTruthy();
     expect(screen.getByTestId('band-per-application').textContent).toBe('¥1,500直近4週の課金 ÷ 応募');
-    // 課金は、最後の課金の週までの4週であることを日付で示す。
-    expect(screen.getByText('課金（10/5 までの4週）')).toBeTruthy();
+    // 課金は応募と同じ直近4週の28日。
+    expect(screen.getByText('課金（直近4週）')).toBeTruthy();
     expect(screen.getByTestId('band-billing').textContent).toBe('¥30,000');
     // データの最後の日は帯の中の1行。右の「数字の前提」欄はない。
     expect(screen.getByTestId('rail-last-application').textContent).toMatch(/^最後の応募：(2026\/)?10\/5$/);
@@ -109,7 +109,7 @@ describe('求人のページの上の帯の表示', () => {
   it('課金が不明なら「—」を出す', () => {
     render(<DetailBand job={job} billing={undefined} onOpenFullCompare={() => undefined} />);
     expect(screen.getByTestId('band-per-application').textContent).toBe('—課金データなし');
-    expect(screen.getByText('課金（4週あたり）')).toBeTruthy();
+    expect(screen.getByText('課金（直近4週）')).toBeTruthy();
     expect(screen.getByTestId('band-billing').textContent).toBe('—課金データなし');
     expect(screen.getByTestId('rail-last-billing').textContent).toBe('最後の課金：なし');
   });
