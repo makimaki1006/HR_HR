@@ -14,8 +14,10 @@ export interface ListingNavigation {
 /**
  * 求人の内容の小窓。今の内容を見る専用（2026-11-16）。前の本文と比べたいときは、全文比較を開く。
  */
-export function ListingPopup({ job, version, onClose, returnFocus, navigation }: {
+export function ListingPopup({ job, version, onClose, returnFocus, navigation, onOpenPage }: {
   job: JobCopyRecord; version?: CopyVersion | undefined; onClose: () => void; returnFocus?: HTMLElement | null; navigation?: ListingNavigation | undefined;
+  /** 指定があれば、小窓の上に「求人の画面を開く」を出す（案件のページなど、求人の画面の外から開いたとき）。 */
+  onOpenPage?: ((job: JobCopyRecord) => void) | undefined;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const scroller = useRef<HTMLDivElement>(null);
@@ -82,7 +84,7 @@ export function ListingPopup({ job, version, onClose, returnFocus, navigation }:
       const bounds = event.currentTarget.getBoundingClientRect();
       if (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom) onClose();
     }}>
-    <header className="jc-listing-popup-heading"><div><span>求人の内容</span><h2 id={headingId}>{model.title}</h2>{index >= 0 && total > 1 && <nav aria-label="求人の切り替え">{index > 0 && <button className="jc-button" disabled={busy} onClick={() => { void navigate(-1); }}>‹ 前の求人</button>}<span>{`${String(index + 1)} / ${String(total)}件目`}</span>{index < total - 1 && <button className="jc-button" disabled={busy} onClick={() => { void navigate(1); }}>次の求人 ›</button>}</nav>}</div><button type="button" className="jc-button jc-listing-close" aria-label="求人の内容を閉じる" onClick={onClose}>閉じる</button></header>
+    <header className="jc-listing-popup-heading"><div><span>求人の内容</span><h2 id={headingId}>{model.title}</h2>{index >= 0 && total > 1 && <nav aria-label="求人の切り替え">{index > 0 && <button className="jc-button" disabled={busy} onClick={() => { void navigate(-1); }}>‹ 前の求人</button>}<span>{`${String(index + 1)} / ${String(total)}件目`}</span>{index < total - 1 && <button className="jc-button" disabled={busy} onClick={() => { void navigate(1); }}>次の求人 ›</button>}</nav>}</div><div className="jc-listing-popup-actions">{onOpenPage && <button type="button" className="jc-button" disabled={busy} onClick={() => { onOpenPage(displayed); }}>求人の画面を開く<span aria-hidden="true"> ›</span></button>}<button type="button" className="jc-button jc-listing-close" aria-label="求人の内容を閉じる" onClick={onClose}>閉じる</button></div></header>
     <div ref={scroller} className="jc-listing-popup-scroll" aria-busy={busy}>
       {busy && <p role="status">求人の内容を読み込んでいます…</p>}{error && <p role="alert">{error}</p>}
       <dl className="jc-listing-popup-summary">{[['求人名', model.title], ['媒体', displayed.media], ['公開状況', model.publication], ['勤務地', model.location], ['給与', model.salary], ['応募数', model.applications]].map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>

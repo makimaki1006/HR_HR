@@ -78,7 +78,8 @@ export function DealComparison({ deal, onOpen, billingByJob, onOpenCompany, onCo
   const [media, setMedia] = useState(deal.media);
   const [status] = useStatusFilter();
   const publication = STATUS_PUBLICATION[status];
-  const [wide, setWide] = useState(false);
+  // 顧客の全部の求人を出すか（null は決まる前）。決まる前は下の比べる表を出さない（あとで表が消えないように）。
+  const [wide, setWide] = useState<boolean | null>(null);
   const [sort, setSort] = useState('title');
   const [descending, setDescending] = useState(false);
   const [offset, setOffset] = useState(0);
@@ -137,9 +138,9 @@ export function DealComparison({ deal, onOpen, billingByJob, onOpenCompany, onCo
       if (!result.ok) throw result.error;
       if (!signal.aborted) prefetchNeighbors((page?.listings ?? []).map(item => item.id), row.id);
       return listingRecord(result.data, row);
-    } }} job={popup.job} version={popup.job.versions.filter(item => item.kind === 'published').at(-1)} returnFocus={popup.opener} onClose={() => { setPopup(null); }} />;
+    } }} job={popup.job} version={popup.job.versions.filter(item => item.kind === 'published').at(-1)} returnFocus={popup.opener} onClose={() => { setPopup(null); }} onOpenPage={onOpen} />;
   if (company) return <main className="jc-detail jc-deal-comparison" id="job-details" tabIndex={-1}><p className="jc-deal-back"><BackLink onClick={() => { setCompany(null); }}>案件に戻る</BackLink></p><header><div><h1>この事業所の求人</h1><p>{company.name}</p></div></header><CompanySummary company={company} billingByJob={billingByJob ?? {}} onOpenListing={openListing} />{error && <p role="alert">{error}</p>}{busy && <p role="status">選んだ求人を読み込みしています…</p>}{popupView}</main>;
-  return <main className="jc-detail jc-deal-comparison" id="job-details" tabIndex={-1}><DealHeading deal={deal} head={head} /><DealSummary onContractSaved={onContractSaved} onDetail={detail => { setHead(value => ({ ...value, detail })); if (detail.deal.name) onNameKnown?.(detail.deal.name); }} onCompanyKnown={known => { setHead(value => ({ ...value, company: known })); onCompanyKnown?.(known); }} deal={deal} billingByJob={billingByJob ?? {}} onOpenListing={openListing} onOpenCompany={onOpenCompany ?? setCompany} onWide={setWide} />{!wide && <section className="ds-card dcm-compare" aria-label="求人を選んで比べる"><h2>求人を選んで比べる</h2><p className="ds-note">案件に関連する求人を50件ずつ表示します。都道府県・職種・案の状態は左の絞り込み条件を引き継ぎます。掲載状況は、上の求人の表の切り替えに従います。</p>
+  return <main className="jc-detail jc-deal-comparison" id="job-details" tabIndex={-1}><DealHeading deal={deal} head={head} /><DealSummary onContractSaved={onContractSaved} onDetail={detail => { setHead(value => ({ ...value, detail })); if (detail.deal.name) onNameKnown?.(detail.deal.name); }} onCompanyKnown={known => { setHead(value => ({ ...value, company: known })); onCompanyKnown?.(known); }} deal={deal} billingByJob={billingByJob ?? {}} onOpenListing={openListing} onOpenCompany={onOpenCompany ?? setCompany} onWide={setWide} />{wide === false && <section className="ds-card dcm-compare" aria-label="求人を選んで比べる"><h2>求人を選んで比べる</h2><p className="ds-note">案件に関連する求人を50件ずつ表示します。都道府県・職種・案の状態は左の絞り込み条件を引き継ぎます。掲載状況は、上の求人の表の切り替えに従います。</p>
     <div className="jc-deal-controls"><label>表の媒体<select value={media} onChange={event => { setMedia(event.target.value); setOffset(0); }}><option value="">すべて</option><option value="hrh">HRハッカー</option><option value="airwork">AirWork</option></select></label><button className="jc-button" onClick={() => { setReload(value => value + 1); }}>表を再読み込み</button></div>
     <details className="jc-deal-column-options"><summary>表示する列を選ぶ</summary><div>{optionalColumns.map(([key, label]) => <label key={key}><input type="checkbox" checked={extraColumns.includes(key)} onChange={event => { setExtraColumns(keys => event.target.checked ? [...keys, key] : keys.filter(item => item !== key)); }} />{label}</label>)}</div></details>
     {error && <p role="alert">{error}</p>}{!page && <p role="status">この案件の求人を読み込みしています…</p>}{busy && <p role="status">選んだ求人を読み込みしています…</p>}
@@ -155,7 +156,7 @@ export function DealComparison({ deal, onOpen, billingByJob, onOpenCompany, onCo
       if (!result.ok) throw result.error;
       if (!signal.aborted) prefetchNeighbors((page?.listings ?? []).map(item => item.id), row.id);
       return listingRecord(result.data, row);
-    } }} job={popup.job} version={popup.job.versions.filter(item => item.kind === 'published').at(-1)} returnFocus={popup.opener} onClose={() => { setPopup(null); }} />}
+    } }} job={popup.job} version={popup.job.versions.filter(item => item.kind === 'published').at(-1)} returnFocus={popup.opener} onClose={() => { setPopup(null); }} onOpenPage={onOpen} />}
     {comparison && <ParallelJobs jobs={comparison} />}
   </main>;
 }

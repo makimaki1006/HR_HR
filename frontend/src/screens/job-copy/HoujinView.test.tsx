@@ -207,8 +207,8 @@ it("応募が1件も無い案件だけを、求人票の数とHubSpotへのリ�
     (await screen.findByRole("heading", { name: /応募が1件も無い案件/ }))
       .textContent,
   ).toBe("応募が1件も無い案件 1件");
-  expect(screen.getByRole("button", { name: "架空の採用支援01" })).toBeTruthy();
-  expect(screen.queryByRole("button", { name: "架空の採用支援02" })).toBeNull();
+  expect(screen.getByRole("link", { name: "架空の採用支援01" })).toBeTruthy();
+  expect(screen.queryByRole("link", { name: "架空の採用支援02" })).toBeNull();
   expect(screen.getByText("3件")).toBeTruthy();
   expect(
     screen.getByRole("link", { name: "HubSpotで開く" }).getAttribute("href"),
@@ -218,7 +218,7 @@ it("案件一覧の新しい列を両方向に並べ替える", async () => {
   window.history.replaceState(null, "", "/app/job-copy?view=deals&owner=11");
   mock();
   render(<DealBoard />);
-  await screen.findByRole("button", { name: "架空の採用支援01" });
+  await screen.findByRole("link", { name: "架空の採用支援01" });
   // 既定の列は 満足度 と応募。採用・採用単価・金額・採用目標は「詳しい数字」を開くと並べ替えられる。
   fireEvent.click(await screen.findByRole("button", { name: "架空の採用支援01の詳しい数字を開く" }));
   for (const label of ["採用", "採用単価", "金額", "採用目標に対して"]) {

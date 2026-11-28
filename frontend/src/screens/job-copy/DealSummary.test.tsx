@@ -64,8 +64,8 @@ it('表の上に職種の指定状況・地域・一括指定へのリンク、�
   expect(unset).toHaveLength(1);
   expect(unset[0]?.closest('tr')?.textContent).toContain('求人B');
   // 求人B の本文の変更 2 回（最後の 1 回だけでなく全部）
-  const latest = screen.getByRole('button', { name: '2. 求人B：本文を変えました（この求人の画面を開く）' });
-  expect(screen.getByRole('button', { name: '1. 求人B：本文を変えました（この求人の画面を開く）' })).toBeTruthy();
+  const latest = screen.getByRole('button', { name: '2. 求人B：本文を変えました（この求人の内容を開く）' });
+  expect(screen.getByRole('button', { name: '1. 求人B：本文を変えました（この求人の内容を開く）' })).toBeTruthy();
   latest.click();
   expect(open).toHaveBeenCalledTimes(1);
   expect((open.mock.calls[0]?.[0] as HubSpotListing).id).toBe('12');

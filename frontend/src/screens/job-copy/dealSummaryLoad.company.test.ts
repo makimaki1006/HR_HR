@@ -39,7 +39,7 @@ it('1 つの案件が読めなくても、ほかの案件の数字は出して�
   expect(result.status).toBe('ready');
   if (result.status !== 'ready') return;
   expect(result.datas.map(data => data.id)).toEqual(['1', '3']);
-  expect(result.notes).toEqual(['読み込めなかった案件が 1件あります。その案件の求人は合計に含まれていません。']);
+  expect(result.notes).toEqual(['読み込めなかった案件が 1件あります（案件2）。その案件の求人は合計に含まれていません。']);
 });
 
 it('全部の案件が読めないときは、読み込み中のまま止めず error を返す', async () => {

@@ -57,3 +57,7 @@
 .jc-listing-comparison:not(.jc-listing-two-columns) .jc-listing-popup-section > :not(h3) { grid-column: 2; max-width: 760px; }
 .jc-listing-comparison:not(.jc-listing-two-columns) .jc-listing-popup-section p { line-height: 1.8; }
 .jc-listing-comparison:not(.jc-listing-two-columns) .jc-listing-image-cell { border-bottom: 0; }
+/* 右上：求人の画面を開く・閉じる */
+.jc-listing-popup-heading > .jc-listing-popup-actions { display:flex; gap:8px; flex-shrink:0; align-items:center; }
+.jc-listing-popup-heading .jc-listing-popup-actions button { font-size:14px; line-height:1.4; }
+.jc-listing-popup-heading .jc-listing-popup-actions button span { font-size:inherit; color:inherit; }

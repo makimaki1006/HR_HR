@@ -40,9 +40,9 @@ function stub(goodIds: string[] | 'fail' = ['101', '103'], deals: DealRow[] = ro
 const open = async (query = '') => {
   window.history.replaceState(null, '', `/app/job-copy?view=deals&owner=11${query}`);
   render(<DealBoard />);
-  await screen.findByRole('button', { name: row(0).name ?? '' });
+  await screen.findByRole('link', { name: row(0).name ?? '' });
 };
-const names = () => within(screen.getByRole('table')).getAllByRole('row').slice(1).map(r => r.querySelector('th button')?.textContent);
+const names = () => within(screen.getByRole('table')).getAllByRole('row').slice(1).map(r => r.querySelector('th .jc-row-name')?.textContent);
 
 it('既定の列は8つで、採用・採用単価・金額・採用目標は行の「詳しい数字」を開くと見られる', async () => {
   stub(); await open();
@@ -147,7 +147,7 @@ it('MTGが60日以上空いている（60日以上）と MTGが30〜59日空い�
   await waitFor(() => { expect(names()).toEqual([row(1).name]); });
   fireEvent.click(within(filters).getByRole('button', { name: 'MTGが30〜59日空いている 1' }));
   await waitFor(() => { expect(names()).toHaveLength(4); });
-  const cell = (r: DealRow) => screen.getByRole('button', { name: r.name ?? '' }).closest('tr')?.querySelectorAll('td')[3]?.textContent;
+  const cell = (r: DealRow) => screen.getByRole('link', { name: r.name ?? '' }).closest('tr')?.querySelectorAll('td')[3]?.textContent;
   expect(cell(row(0))).toBe('2026/10/12最後のメール 2026/10/14');
   expect(cell(row(2))).toBe('2026/10/12');
   expect(cell(row(23))).toBe('記録なし（対象外）');

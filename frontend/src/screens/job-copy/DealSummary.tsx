@@ -21,7 +21,7 @@ import { formatDay, formatYen, jstDate, todayJst } from './timelineModel';
 import type { BillingEntry } from './timelineModel';
 import './deal-summary.css';
 
-export type SummarySource = { status: 'loading' } | { status: 'error'; message: string } | { status: 'ready'; datas: DealData[]; notes?: string[] };
+export type SummarySource = { status: 'loading'; /** 読み込み中に出す文（無ければ「○○のまとめを読み込んでいます…」） */ message?: string } | { status: 'error'; message: string } | { status: 'ready'; datas: DealData[]; notes?: string[] };
 type Source = SummarySource;
 export type Billing = Readonly<Record<string, readonly BillingEntry[]>>;
 
@@ -53,20 +53,24 @@ export function DealSummary({ deal, billingByJob, onOpenListing, onOpenCompany, 
       if (controller.signal.aborted) return;
       setWide(false);
       setInfo(null);
-      setSource(data ? { status: 'ready', datas: [data] } : { status: 'error', message: 'この案件の求人を読み込めませんでした。時間を置いて再取得してください。' });
+      // 表を途中で別の表に入れ替えないよう、顧客の全求人を出すかどうかが決まってから表を出す。
+      const dealOnly = () => { setSource(data ? { status: 'ready', datas: [data] } : { status: 'error', message: 'この案件の求人を読み込めませんでした。時間を置いて再取得してください。' }); onWideRef.current?.(false); };
       // 顧客の「今の案件」なら、その顧客の全求人（過去の案件に結び付いたものを含む）を 1 か所に出す。
       const company = data?.company;
-      if (!company) return;
+      if (!company) { dealOnly(); return; }
       onCompanyRef.current?.(company);
       const deals = await loadCompanyDeals(company.id);
       const mine = deals.ok ? deals.data.deals.find(item => item.id === deal.id) : undefined;
       // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- aborted can change while awaiting
-      if (controller.signal.aborted || !mine) return;
+      if (controller.signal.aborted) return;
+      if (!mine) { dealOnly(); return; }
       setInfo(mine);
-      if (!mine.current) return;
+      if (!mine.current) { dealOnly(); return; }
+      setSource({ status: 'loading', message: 'この顧客の全部の求人を読み込んでいます…' });
       const all = await loadCompanyDatas(company.id, controller.signal);
       // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- aborted can change while awaiting
-      if (controller.signal.aborted || all.status !== 'ready') return;
+      if (controller.signal.aborted) return;
+      if (all.status !== 'ready') { dealOnly(); return; }
       setSource(all);
       setWide(true);
       onWideRef.current?.(true);
@@ -112,7 +116,7 @@ export function SummaryView({ scope, dealId, wide = false, dealInfo = null, sour
     };
   }, [source, billingByJob]);
 
-  if (source.status === 'loading') return <section className="ds-root" aria-label={aria}><p role="status">{noun}のまとめを読み込んでいます…</p></section>;
+  if (source.status === 'loading') return <section className="ds-root" aria-label={aria}><p role="status">{source.message ?? `${noun}のまとめを読み込んでいます…`}</p></section>;
   if (source.status === 'error') return <section className="ds-root" aria-label={aria}><div role="alert" className="jc-load-band"><span>{source.message}</span>{onRetry && <button type="button" className="jc-button" onClick={onRetry}>もう一度読み込む</button>}</div></section>;
   if (!model?.inputs.length) return <section className="ds-root" aria-label={aria}><p>この{noun}の求人はありません。</p></section>;
 
@@ -234,13 +238,13 @@ export function SummaryView({ scope, dealId, wide = false, dealInfo = null, sour
         <section className="ds-card" aria-label={`この${noun}の出来事`}>
           <h2>この{noun}の出来事</h2>
           {events.length ? <ol className="ds-events">{events.slice(0, showAllEvents ? events.length : EVENT_LIMIT).map((event, index) => <li key={`${event.date}-${event.kind}-${event.listingId}-${String(index)}`}>
-            <time>{formatDay(event.date)}</time><span>{(() => { const row = rowById.get(event.listingId); const mark = <b className="ds-event-n" style={{ background: eventColor(event.listingId) }} aria-hidden="true">{String(event.n)}</b>; return row ? <button type="button" className="ds-event-open" aria-label={`${String(event.n)}. ${event.text}（この求人の画面を開く）`} onClick={click => { onOpenListing(row, click.currentTarget); }}>{mark}{event.text}</button> : <>{mark}{event.text}</>; })()}</span>
+            <time>{formatDay(event.date)}</time><span>{(() => { const row = rowById.get(event.listingId); const mark = <b className="ds-event-n" style={{ background: eventColor(event.listingId) }} aria-hidden="true">{String(event.n)}</b>; return row ? <button type="button" className="ds-event-open" aria-label={`${String(event.n)}. ${event.text}（この求人の内容を開く）`} onClick={click => { onOpenListing(row, click.currentTarget); }}>{mark}{event.text}</button> : <>{mark}{event.text}</>; })()}</span>
             <small>{noun}の応募：前の4週 {event.beforeIncomplete ? '（前の期間がそろっていません）' : count(event.before)} → 後の4週 {event.after === null ? '（まだ4週たっていません）' : count(event.after)}</small>
           </li>)}</ol> : <p className="ds-note">記録できる出来事はまだありません。</p>}
           {events.length > EVENT_LIMIT && <button type="button" className="jc-button" onClick={() => { setShowAllEvents(value => !value); }}>{showAllEvents ? '新しい10件だけにする' : `すべて表示（${String(events.length)}件）`}</button>}
           {model.eventsCapped && <p className="ds-note">出来事は先頭{String(EVENT_LISTING_LIMIT)}件の求人の分です。</p>}
           {events.length > 0 && <InfoTip className="jc-infotip-left" iconFirst label="番号と色の見方"><p>番号は古い順で、上の週ごとの応募のグラフの点線の数字と同じです。グラフには一覧に出ていない古い出来事の番号も出ます。「すべて表示」で古い出来事も見られます。同じ週に4件以上あるときは「3ほか2」のように縮めています。</p>
-          <p>番号の色は求人の色です（グラフの色分けと同じ）。{colorsRepeat ? '9件以上は色が重なります。' : ''}掲載を終えた求人は灰色です。グラフで同じ週に複数の求人の出来事があるときは、番号を黒で出します。押すとその求人の画面を開きます。</p>
+          <p>番号の色は求人の色です（グラフの色分けと同じ）。{colorsRepeat ? '9件以上は色が重なります。' : ''}掲載を終えた求人は灰色です。グラフで同じ週に複数の求人の出来事があるときは、番号を黒で出します。押すとその求人の内容を開きます。内容の右上の「求人の画面を開く」で、求人の画面へ進めます。</p>
           <p>本文と画像の変更は、HubSpot に残っている求人ごとの新しい20回分までです。空白だけの違いは変更に数えません。給与だけを変えたときも「本文を変えました」と出します（求人の画面では「給与を変更」と分けています）。掲載の開始・終了は HubSpot に履歴が残っている分だけです。</p></InfoTip>}
         </section>
     </div>

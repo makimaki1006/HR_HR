@@ -173,6 +173,8 @@ button.jc-open:hover, .jh-card:hover .jc-open { background: #eef5fb; }
 /* 行全体で小窓が開く表の名前。下線は付けず、行の右端の「詳細 ▸」を手がかりにする。 */
 .jc-row-name { display: inline; padding: 0; border: 0; background: none; font: inherit; font-weight: 700; color: inherit; text-align: left; cursor: pointer; }
 .jc-row-name:hover { text-decoration: underline; }
+/* 案件名を押すと案件のページを開く（リンクの色にする） */
+a.jc-row-name, .jc-app a.jc-row-name { color: #0a5fb4; text-decoration: none; }
 /* 満了まで 30 日以内・過ぎて 30 日以内は赤い太字（急ぐ）、過ぎて 31 日以上は灰（案件のページの見出しと同じ判定）。 */
 .jc-expiry-urgent { color: #b42318; font-weight: 700; }
 .jc-expiry-ended { color: #8a99a6; }
@@ -223,3 +225,7 @@ button.jc-open:hover, .jh-card:hover .jc-open { background: #eef5fb; }
 .jc-app .jh-home .jh-customers-head label { display: flex; flex-direction: row; align-items: center; gap: 8px; margin: 0 0 0 auto; white-space: nowrap; }
 .jc-app .jh-home .jh-customers-head label input { width: 300px; max-width: 100%; }
 .jh-home .jh-customers-head > .jc-open { margin: 0; }
+
+/* 求人の画面の上の「顧客：○○ ・ 案件：○○」 */
+.jc-listing-parents { margin: 2px 0 10px; font-size: 13px; color: #52697a; }
+.jc-listing-parents .jc-go { font-size: 13px; }
