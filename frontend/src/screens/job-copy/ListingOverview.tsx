@@ -133,7 +133,7 @@ export function LifelineChart({ lifeline, job, selectedWeek, onSelect }: { lifel
   // 媒体の実績（課金・閲覧・クリック・媒体の集計の応募）が無い求人は、空の4行を1行にまとめる。
   const perfKeys = ['billing', 'impressions', 'clicks', 'media'];
   const rows = noPerf && allRows.filter(row => perfKeys.includes(row.key)).every(row => lifeline.weeks.every(week => row.cell(week) === '—'))
-    ? [{ key: 'performance', label: `課金・閲覧・クリック・応募数（${media}の集計）`, cell: () => '—', short: () => '—', empty: noPerf }, ...allRows.filter(row => !perfKeys.includes(row.key))]
+    ? [{ key: 'performance', label: `課金・閲覧・クリック・応募数（${media.replace('（Indeed）', '・Indeed ')}の集計）`, cell: () => '—', short: () => '—', empty: noPerf }, ...allRows.filter(row => !perfKeys.includes(row.key))]
     : allRows;
   // 同じ週に印が重なる（掲載を始めた週がまだ今週など）ときは、名前を縦にずらして重ねない
   const placed: number[] = [];

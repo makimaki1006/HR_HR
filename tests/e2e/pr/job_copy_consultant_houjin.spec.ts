@@ -146,7 +146,7 @@ test("顧客の値と図・採用単価の並び・4メニューの担当引き�
   expect(await charts.count()).toBe(1);
   await expect(page.getByRole("table", { name: "事業所の比較" })).toHaveCount(0);
   await expect(
-    page.getByRole("link", { name: "他の顧客と比べる（コンサルKPI）" }),
+    page.getByRole("link", { name: "コンサルKPIの画面で他の顧客と比べる" }),
   ).toHaveAttribute("href", "/consulting#research/customer?houjin=sample-a");
   await page.getByText(/^分析の図と事業所の比較（図13点）/).click();
   await expect.poll(() => charts.count()).toBe(14);
@@ -220,12 +220,12 @@ test("顧客の値と図・採用単価の並び・4メニューの担当引き�
   ).toBeVisible();
   await page.getByRole("button", { name: "閉じる", exact: true }).click();
   await page.getByRole("navigation", { name: "案件管理のメニュー" }).getByRole("button", { name: "案件", exact: true }).click();
-  // 既定の列は 8 つ（採用単価は「詳しい数字」の中）。並べ替えは応募（直近4週）で確かめる。
-  const applicationsSort = page.getByRole("button", { name: "応募（直近4週）", exact: true });
+  // 既定の列は 8 つ（採用単価は「詳しい数字」の中）。並べ替えは応募（HubSpot・直近4週）で確かめる。
+  const applicationsSort = page.getByRole("button", { name: "応募（HubSpot・直近4週）", exact: true });
   await applicationsSort.click();
-  await expect(page.getByRole("columnheader", { name: "応募（直近4週）" })).toHaveAttribute("aria-sort", "descending");
+  await expect(page.getByRole("columnheader", { name: "応募（HubSpot・直近4週）" })).toHaveAttribute("aria-sort", "descending");
   await applicationsSort.click();
-  await expect(page.getByRole("columnheader", { name: "応募（直近4週）" })).toHaveAttribute("aria-sort", "ascending");
+  await expect(page.getByRole("columnheader", { name: "応募（HubSpot・直近4週）" })).toHaveAttribute("aria-sort", "ascending");
   const table = page.locator(".db-board-scroll>.db-table");
   await expect(table.locator("tbody>tr").first()).toContainText(
     "架空の採用支援01",
@@ -243,8 +243,9 @@ test("顧客の値と図・採用単価の並び・4メニューの担当引き�
   await expect(frame).not.toHaveClass(/db-more-right/);
   await scroll.evaluate(el => { el.scrollLeft = 0; });
   await expect(frame).toHaveClass(/db-more-right/);
+  // 案件名は案件のページへのリンク、小窓は「詳細 ▸」で開く。
   await table
-    .getByRole("button", { name: "架空の採用支援01", exact: true })
+    .getByRole("button", { name: "架空の採用支援01の詳細を開く", exact: true })
     .click();
   await expect(page.getByRole("dialog")).toBeVisible();
   await page.getByRole("button", { name: "閉じる", exact: true }).click();

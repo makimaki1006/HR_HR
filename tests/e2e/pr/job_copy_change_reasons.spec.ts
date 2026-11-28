@@ -44,6 +44,15 @@ function versions(id: string) {
 async function expectSelectionTables(window: Locator, total: number, denominators: number[], counts: number[][]) {
   const motivation = window.getByRole('table', { name: '応募動機の選択件数', exact: true });
   const priority = window.getByRole('table', { name: '勤務条件の優先順位の選択件数', exact: true });
+  if (denominators.every(count => count === 0)) {
+    // 聞けた応募が0件の期間は、0件だけの表を出さず1行で母数を伝える。
+    await expect(motivation).toHaveCount(0);
+    await expect(priority).toHaveCount(0);
+    await expect(window.getByTestId('selected-reasons-empty')).toHaveCount(2);
+    await expect(window.getByText(`応募動機を聞けた応募 0件／この求人の全応募 ${String(total)}件`, { exact: true })).toBeVisible();
+    await expect(window.getByText(`①を聞けた応募 0件・②0件・③0件／この求人の全応募 ${String(total)}件`, { exact: true })).toBeVisible();
+    return;
+  }
   await expect(motivation.getByRole('columnheader')).toHaveText(['選択肢', '件数']);
   await expect(priority.getByRole('columnheader')).toHaveText(['選択肢', '①', '②', '③']);
   await expect(window.getByText(`応募動機を聞けた応募 ${String(denominators[0])}件／この求人の全応募 ${String(total)}件`, { exact: true })).toBeVisible();

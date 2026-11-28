@@ -306,7 +306,8 @@ test('保存した前の集計と日時をすぐ表示し、新しい集計の�
   await page.goto('/app/job-copy');
   const card = page.locator('.jh-more').getByRole('button', { name: /直近7日に変更/ });
   await expect(card).toHaveText('直近7日に変更 1件');
-  await expect(page.getByText('2026/10/16 00:10 時点の集計です。新しい集計を作っています。')).toBeVisible();
+  // 集計の時点は一覧を開くと出る（カードの下には出さない）。
+  await expect(page.getByText(/時点の集計です。新しい集計を作っています/)).toHaveCount(0);
   await card.click();
   const list = page.getByRole('region', { name: '直近7日に変更の一覧' });
   await expect(list.getByRole('button', { name: '合成の前回求人' })).toBeVisible();
